@@ -1,0 +1,40 @@
+{
+  "dataNature": "SIMULATED",
+  "assetId": "CAR-D",
+  "records": [
+    {
+      "evidenceId": "CAR-D-FACTORY",
+      "assetId": "CAR-D",
+      "sourceType": "FACTORY",
+      "sourceRef": "simulated:CAR-D/FACTORY",
+      "recordedAt": "2025-01-01T00:00:00Z",
+      "effectiveAt": "2025-01-01T00:00:00Z",
+      "observedAt": null,
+      "validTo": null,
+      "authority": 10,
+      "payload": {
+        "subject": "CTRL-01",
+        "predicate": "moduleVersion",
+        "value": "D-120A"
+      },
+      "integrityStatus": "VERIFIED"
+    },
+    {
+      "evidenceId": "CAR-D-REPLACE",
+      "assetId": "CAR-D",
+      "sourceType": "REPLACEMENT",
+      "sourceRef": "simulated:CAR-D/REPLACE",
+      "recordedAt": "2026-06-01T00:00:00Z",
+      "effectiveAt": "2026-06-01T00:00:00Z",
+      "observedAt": null,
+      "validTo": null,
+      "authority": 10,
+      "payload": {
+        "subject": "CTRL-01",
+        "predicate": "moduleVersion",
+        "value": "D-120B"
+      },
+      "integrityStatus": "VERIFIED"
+    }
+  ]
+}

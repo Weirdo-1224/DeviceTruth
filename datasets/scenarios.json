@@ -1,0 +1,26 @@
+{
+  "A": {
+    "assetId": "CAR-A",
+    "domain": "automotive-demo",
+    "symptomCode": "COMM_TIMEOUT",
+    "asOf": "2026-11-03T04:00:00Z"
+  },
+  "B": {
+    "assetId": "CAR-B",
+    "domain": "automotive-demo",
+    "symptomCode": "COMM_TIMEOUT",
+    "asOf": "2026-11-03T04:00:00Z"
+  },
+  "C": {
+    "assetId": "CAR-C",
+    "domain": "automotive-demo",
+    "symptomCode": "COMM_TIMEOUT",
+    "asOf": "2026-11-03T04:00:00Z"
+  },
+  "D": {
+    "assetId": "CAR-D",
+    "domain": "automotive-demo",
+    "symptomCode": "COMM_TIMEOUT",
+    "asOf": "2026-11-03T04:00:00Z"
+  }
+}

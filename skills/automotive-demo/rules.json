@@ -1,0 +1,56 @@
+{
+  "dataNature": "SIMULATED",
+  "version": "0.1.0",
+  "rules": [
+    {
+      "ruleId": "DEMO-D-120A",
+      "domain": "automotive-demo",
+      "symptomCode": "COMM_TIMEOUT",
+      "conditions": [
+        {
+          "subject": "CTRL-01",
+          "predicate": "moduleVersion",
+          "operator": "EQ",
+          "values": [
+            "D-120A"
+          ]
+        }
+      ],
+      "requiredEvidence": [
+        {
+          "subject": "CTRL-01",
+          "predicate": "moduleVersion",
+          "sourceType": "FIELD_CONFIRMATION"
+        }
+      ],
+      "allowedAdviceLevel": "SIMULATION_ONLY",
+      "simulatedAdvice": "SIMULATED: record a training diagnosis for D-120A; no physical maintenance action is authorized.",
+      "requiresHuman": false
+    },
+    {
+      "ruleId": "DEMO-D-120B",
+      "domain": "automotive-demo",
+      "symptomCode": "COMM_TIMEOUT",
+      "conditions": [
+        {
+          "subject": "CTRL-01",
+          "predicate": "moduleVersion",
+          "operator": "EQ",
+          "values": [
+            "D-120B"
+          ]
+        }
+      ],
+      "requiredEvidence": [
+        {
+          "subject": "CTRL-01",
+          "predicate": "moduleVersion",
+          "sourceType": "FIELD_CONFIRMATION"
+        }
+      ],
+      "allowedAdviceLevel": "SIMULATION_ONLY",
+      "simulatedAdvice": "SIMULATED: record a training diagnosis for D-120B; no physical maintenance action is authorized.",
+      "requiresHuman": false
+    }
+  ]
+}

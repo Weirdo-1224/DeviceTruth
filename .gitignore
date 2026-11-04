@@ -1,0 +1,8 @@
+target/
+outputs/runs/
+.tools/
+.m2/
+.env
+*.log
+.idea/
+*.iml

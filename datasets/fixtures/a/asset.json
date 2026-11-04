@@ -1,0 +1,40 @@
+{
+  "dataNature": "SIMULATED",
+  "assetId": "CAR-A",
+  "records": [
+    {
+      "evidenceId": "CAR-A-FACTORY",
+      "assetId": "CAR-A",
+      "sourceType": "FACTORY",
+      "sourceRef": "simulated:CAR-A/FACTORY",
+      "recordedAt": "2025-01-01T00:00:00Z",
+      "effectiveAt": "2025-01-01T00:00:00Z",
+      "observedAt": null,
+      "validTo": null,
+      "authority": 10,
+      "payload": {
+        "subject": "CTRL-01",
+        "predicate": "moduleVersion",
+        "value": "D-120A"
+      },
+      "integrityStatus": "VERIFIED"
+    },
+    {
+      "evidenceId": "CAR-A-FIELD-1",
+      "assetId": "CAR-A",
+      "sourceType": "FIELD_CONFIRMATION",
+      "sourceRef": "simulated:CAR-A/FIELD-1",
+      "recordedAt": "2026-11-03T03:00:00Z",
+      "effectiveAt": "2026-11-03T03:00:00Z",
+      "observedAt": "2026-11-03T03:00:00Z",
+      "validTo": "2026-11-04T00:00:00Z",
+      "authority": 10,
+      "payload": {
+        "subject": "CTRL-01",
+        "predicate": "moduleVersion",
+        "value": "D-120A"
+      },
+      "integrityStatus": "VERIFIED"
+    }
+  ]
+}
