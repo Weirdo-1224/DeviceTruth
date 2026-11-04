@@ -17,6 +17,7 @@ import io.devicetruth.core.reasoning.Reasoner;
 import io.devicetruth.core.reasoning.ScriptedReasoner;
 import java.nio.file.Path;
 
+/** DeviceTruth Core CLI 入口：解析参数后执行一次（全模拟数据的）诊断运行，并把报告写入 outputs/runs。 */
 @SpringBootApplication
 public class DeviceTruthApplication {
     private static final Logger LOG = LoggerFactory.getLogger(DeviceTruthApplication.class);
@@ -26,15 +27,18 @@ public class DeviceTruthApplication {
         if(exit!=0) System.exit(exit);
     }
 
+    /** 返回进程退出码：0 成功；2 参数错误、运行失败或技术性失败。供 shell 脚本与 CLI 验证程序断言。 */
     public static int execute(String[] args) {
         CliOptions options;
         try { options=CliOptions.parse(args); }
         catch(IllegalArgumentException e) { LOG.error("{}; {}",e.getMessage(),help()); return 2; }
         if(options.help()) { LOG.info("{}",help()); return 0; }
+        // 以非 Web 模式启动 Spring，仅借用其装配能力；关闭 banner 与调试日志保持 CLI 输出干净
         SpringApplication app = new SpringApplication(DeviceTruthApplication.class);
         app.setWebApplicationType(WebApplicationType.NONE);
         app.setBannerMode(Banner.Mode.OFF);
         try (ConfigurableApplicationContext context = app.run("--debug=false", "--trace=false", "--logging.level.org.springframework=INFO")) {
+            // 1) 读取场景定义与打包数据；2) 装配能力网关与推理器；3) 运行；4) 报告落盘
             var scenarios=JsonRepositories.readResource("datasets/scenarios.json",com.fasterxml.jackson.databind.JsonNode.class);
             DiagnosisRequest request=Json.MAPPER.treeToValue(scenarios.get(options.scenario()),DiagnosisRequest.class);
             var repository=JsonRepositories.fromClasspath();

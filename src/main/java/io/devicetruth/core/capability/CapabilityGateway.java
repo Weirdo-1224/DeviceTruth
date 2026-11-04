@@ -11,16 +11,21 @@ import java.util.Set;
 import java.util.UUID;
 import static io.devicetruth.core.contract.Checks.*;
 
+/** 能力网关：所有数据读取的唯一入口。只做注册、鉴权与参数校验，本身不接触数据。 */
 public final class CapabilityGateway {
     private record Registration(Descriptor descriptor, ReadOnlyHandler handler) {}
     private final Map<String,Registration> registrations=new LinkedHashMap<>();
 
+    /** 注册一个只读能力；ID 重复即拒绝。 */
     public void register(Descriptor descriptor,ReadOnlyHandler handler) {
         id(descriptor.id(),"capabilityId"); required(handler,"handler");
         if(registrations.putIfAbsent(descriptor.id(),new Registration(descriptor,handler))!=null)
             throw new IllegalArgumentException("Capability already registered");
     }
+    /** 能力目录：推理器通过它了解可调用的能力及其参数模式。 */
     public List<Descriptor> catalog() { return registrations.values().stream().map(Registration::descriptor).toList(); }
+    /** 执行一次能力调用。依次校验：已注册、只读、任务域内、参数合法、无越权（跨资产/域/症状），
+     *  最后检查工具返回的记录未超出任务资产范围。任何失败都包装为 ToolError 而非抛异常。 */
     public CapabilityResult execute(DiagnosisRequest scope,CallCapability call) {
         String requestId=UUID.randomUUID().toString();
         try {
@@ -50,6 +55,7 @@ public final class CapabilityGateway {
             return new CapabilityResult(false,requestId,call.capabilityId(),"gateway",null,new ToolError("TOOL_FAILURE","Read-only adapter failed",true));
         }
     }
+    /** 按 JSON Schema 风格生成能力的输入参数描述（供协议提示词与校验共用）。 */
     public static Descriptor descriptor(String id,String description,Set<String> required,Set<String> optional,boolean readOnly) {
         Map<String,Object> properties=new LinkedHashMap<>();
         java.util.stream.Stream.concat(required.stream(),optional.stream()).sorted()
@@ -58,8 +64,10 @@ public final class CapabilityGateway {
                 Map.of("type","object","properties",Map.copyOf(properties),"required",required.stream().sorted().toList(),"additionalProperties",false),
                 "Observation{records:EvidenceRecord[],discovered:EvidenceMetadata[],rules:Rule[],attributes:Map<String,String>}");
     }
+    /** 标准能力集：5 个只读能力，覆盖查规则、读档案、查历史、搜证据、取单条证据。 */
     public static CapabilityGateway standard(AssetRepository assets,EvidenceRepository evidence,RuleRepository rules) {
         var gateway=new CapabilityGateway();
+        // 出厂原始记录（FACTORY 来源）
         gateway.register(descriptor("asset.profile.get","Read original factory records",Set.of("assetId"),Set.of(),true),
                 a->Observation.records(assets.profile(a.get("assetId"))));
         gateway.register(descriptor("asset.history.query","Read replacement events",Set.of("assetId"),Set.of("componentId"),true),

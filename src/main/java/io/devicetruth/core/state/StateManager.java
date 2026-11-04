@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/** 状态管理器：以乐观并发控制（版本号）维护唯一可变的运行状态与证据集合。 */
 public final class StateManager {
     private DiagnosisState state;
     private Map<String,EvidenceRecord> evidence=Map.of();
@@ -16,6 +17,8 @@ public final class StateManager {
     public synchronized DiagnosisState snapshot() { return state; }
     public synchronized Map<String,EvidenceRecord> evidence() { return evidence; }
 
+    /** 提交一个新版本：要求调用方持有最新版本号（expectedVersion），防止过期状态覆盖。
+     *  证据只能新增不能删除或改写；规则与已发现证据清单从观察结果中增量合并。 */
     public synchronized DiagnosisState commit(long expectedVersion,ActionProposal proposal,CapabilityResult observation,
                                                List<Fact> facts,List<Hypothesis> hypotheses,List<EvidenceNeed> needs,
                                                String ruleId,List<String> ruleFactIds,RunStatus status,String detail,
