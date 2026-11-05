@@ -6,7 +6,7 @@ import io.devicetruth.core.capability.CapabilityTypes.Descriptor;
 import java.util.List;
 
 /** 推理器接口：每轮迭代基于当前状态快照提出恰好一个动作。
- *  实现方（scripted / qwen）只"提议"，能否执行由编排器与守卫决定。 */
+ *  实现方（scripted / qwen / openai）只"提议"，能否执行由编排器与守卫决定。 */
 public interface Reasoner {
     ActionProposal propose(Context context);
     String name();

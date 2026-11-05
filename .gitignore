@@ -3,6 +3,7 @@ outputs/runs/
 .tools/
 .m2/
 .env
+/devicetruth.local.properties
 *.log
 .idea/
 *.iml

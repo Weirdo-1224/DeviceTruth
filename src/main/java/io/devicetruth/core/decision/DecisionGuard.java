@@ -53,7 +53,7 @@ public final class DecisionGuard {
                     .anyMatch(e->valid(e,state)&&e.sourceType().equals(requirement.sourceType()));
             if(!satisfied) missing.add(need(rule,"Required "+requirement.sourceType()+" for "+requirement.subject()+"."+requirement.predicate(),investigationComplete(state,evidence)?NeedStatus.BLOCKED:NeedStatus.OPEN));
         }
-        if(!investigationComplete(state,evidence)) missing.add(need(rule,"Read asset history, discover all evidence and fetch pending records before deciding",NeedStatus.OPEN));
+        missing.addAll(investigationNeeds(state,evidence).stream().filter(n->n.status()!=NeedStatus.SATISFIED).toList());
         if(!missing.isEmpty()) return new Verdict(false,investigationComplete(state,evidence)?Outcome.NEED_EVIDENCE:null,"MISSING_REQUIRED_EVIDENCE",rule,missing,List.of());
         if(rule.requiresHuman()) return new Verdict(false,Outcome.ESCALATE,"RULE_REQUIRES_HUMAN_REVIEW",rule,List.of(),List.of());
         return new Verdict(true,Outcome.RESOLVED,"RULE_AND_EVIDENCE_VERIFIED",rule,List.of(),proposal.claimedEvidenceIds().stream().distinct().sorted().toList());
@@ -78,7 +78,19 @@ public final class DecisionGuard {
                     satisfied?NeedStatus.SATISFIED:investigationComplete(state,evidence)?NeedStatus.BLOCKED:NeedStatus.OPEN));
         }
         if(!contested.isEmpty()) needs.add(new EvidenceNeed("NEED-CONFLICT","Adjudicate overlapping equal-authority current evidence",NeedSource.RULE,NeedStatus.BLOCKED,null));
+        // 与 evaluate 共用稳定的调查需求，避免一次工具刷新丢掉仍未完成的门禁前提。
+        needs.addAll(investigationNeeds(state,evidence));
         return new Review(needs,!contested.isEmpty(),contested.stream().flatMap(f->f.evidenceIds().stream()).distinct().sorted().toList());
+    }
+    private List<EvidenceNeed> investigationNeeds(DiagnosisState state,Map<String,EvidenceRecord> evidence) {
+        var pending=state.discoveredEvidence().stream().filter(e->!evidence.containsKey(e.evidenceId())).map(EvidenceMetadata::evidenceId).toList();
+        return List.of(
+                new EvidenceNeed("NEED-FULL-HISTORY","Call asset.history.query with assetId only; omit componentId to complete asset-wide history",NeedSource.RULE,
+                        completed(state,"asset.history.query",false)?NeedStatus.SATISFIED:NeedStatus.OPEN,null),
+                new EvidenceNeed("NEED-FULL-DISCOVERY","Call evidence.search with assetId only; omit componentId and sourceType to discover all evidence",NeedSource.RULE,
+                        completed(state,"evidence.search",true)?NeedStatus.SATISFIED:NeedStatus.OPEN,null),
+                new EvidenceNeed("NEED-DISCOVERED-RECORDS","Fetch every discovered record with evidence.get; pending evidence IDs: "+pending,NeedSource.RULE,
+                        pending.isEmpty()?NeedStatus.SATISFIED:NeedStatus.OPEN,null));
     }
     /** 调查是否完成 = 已查更换历史 + 已做不限定条件的证据搜索 + 所有已发现证据均已取回。 */
     public boolean investigationComplete(DiagnosisState state,Map<String,EvidenceRecord> evidence) {

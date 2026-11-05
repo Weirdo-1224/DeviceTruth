@@ -1,5 +1,16 @@
 # AgentScope 2.0.4 单步调用调研（spike）
 
+## 2026-11-05：OpenAI 兼容入口补充
+
+按用户要求增加同版本 `agentscope-extensions-model-openai` 并保留 DashScope。从 [Maven Central 发布源码](https://repo.maven.apache.org/maven2/io/agentscope/agentscope-extensions-model-openai/2.0.4/agentscope-extensions-model-openai-2.0.4-sources.jar) 读取 `OpenAIChatModel`、`OpenAIClient` 和 formatter；源码归档放在忽略的 `target/`，不加入交付文件。
+
+- 使用 `OpenAIChatModel.builder().apiKey(...).baseUrl(...).endpointPath("/chat/completions").modelName(...).stream(false).build()`，已编译并通过本机 HTTP 契约测试。
+- `OpenAIClient` 将 endpointPath 拼接到 baseUrl 的路径。显式设置 `/chat/completions`，由用户在 baseUrl 提供所需 `/v1` 或代理前缀，避免默认端点对自定义地址产生意外前缀。
+- 沿用 `AgentScopeStep.complete()` 的空工具列表、JSON object 响应、45 秒超时和 maxAttempts=1；共用协议/解析/重试迁至 `StructuredReasoner`，`QwenReasoner` 保留旧公开构造器。
+- `OpenAiReasonerTest` 以本机 HttpServer 验证 SDK 请求、HTTP 错误脱敏和 B 的 Core 链路，属于离线测试，不能视为外部 DeepSeek/OpenAI 模型验收。
+
+## 原千问接入调研
+
 已从 Maven Central 下载并查阅了已发布的 `agentscope-core` 与 `agentscope-extensions-model-dashscope` 2.0.4 源码包。本目录下抽取的源文件为参考材料，保留其原始 Apache-2.0 声明，位于构建源码树之外。
 
 - 官方发布页：https://github.com/agentscope-ai/agentscope-java/releases/tag/v2.0.4

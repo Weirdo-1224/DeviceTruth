@@ -8,6 +8,8 @@ import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.ExecutionConfig;
 import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
+import io.agentscope.extensions.model.openai.OpenAIChatModel;
+import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 
@@ -29,6 +31,20 @@ public final class AgentScopeStep {
         }
         return new AgentScopeStep(DashScopeChatModel.builder().apiKey(apiKey)
                 .modelName("qwen-plus").stream(false).enableThinking(false).build(), Duration.ofSeconds(45));
+    }
+
+    /** baseUrl 包含服务所需的路径前缀，仅追加 /chat/completions，不自动添加 /v1。 */
+    public static AgentScopeStep openai(String apiKey,String baseUrl,String modelName) {
+        if(apiKey==null||apiKey.isBlank()||modelName==null||modelName.isBlank()||baseUrl==null||baseUrl.isBlank())
+            throw new IllegalArgumentException("OPENAI_API_KEY, OPENAI_BASE_URL and OPENAI_MODEL are required");
+        URI uri;
+        try { uri=URI.create(baseUrl); }
+        catch(IllegalArgumentException e) { throw new IllegalArgumentException("Invalid OPENAI_BASE_URL"); }
+        if(!("http".equals(uri.getScheme())||"https".equals(uri.getScheme()))||uri.getHost()==null||uri.getUserInfo()!=null
+                ||uri.getRawQuery()!=null||uri.getRawFragment()!=null||uri.getPath().replaceAll("/+$","").endsWith("/chat/completions"))
+            throw new IllegalArgumentException("OPENAI_BASE_URL must be an HTTP(S) base URL without credentials, query, fragment or completion endpoint");
+        return new AgentScopeStep(OpenAIChatModel.builder().apiKey(apiKey).baseUrl(baseUrl)
+                .endpointPath("/chat/completions").modelName(modelName).stream(false).build(),Duration.ofSeconds(45));
     }
 
     /** 单次补全：system 放协议、user 放状态快照。温度 0（确定性）、JSON 输出模式、

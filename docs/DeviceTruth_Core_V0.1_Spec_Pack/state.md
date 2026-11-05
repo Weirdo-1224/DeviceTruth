@@ -1,7 +1,7 @@
 # DeviceTruth Agent Core V0.1 — 进度状态与跨会话交接（state.md）
 
 > **这是 Codex 必须持续维护的唯一进度快照。**  
-> 初始化日期：2026-11-03 | 当前总状态：`BLOCKED_BY_ENV`（仅真实模型验收缺 Key；离线核心已实现并通过）  
+> 初始化日期：2026-11-03 | 当前总状态：`BLOCKED_BY_ENV`（仅千问独立在线验收缺 Key；离线与兼容接口真实 B 均已通过）
 > 三份最新工作文档统一位于 `docs/DeviceTruth_Core_V0.1_Spec_Pack/`；根目录副本已移除，仅维护当前这一套。
 
 ## A. 当前真实状态（每次完成任务后更新）
@@ -13,17 +13,17 @@
 | 文档目录 | `docs/DeviceTruth_Core_V0.1_Spec_Pack/`，唯一的 spec/task/state 工作版本 |
 | 规格基线 | `spec.md v0.1.0` |
 | 当前阶段 | S4 — 集成与交付 |
-| 当前任务 | **T07：配置真实环境后完成 Qwen 单步及 B 端到端验收**（BLOCKED_BY_ENV） |
-| 最近完成任务 | T00–T06、T08–T11；T07 实现/离线协议测试完成，仅最后在线项未勾 |
-| 当前代码状态 | 20 个主源码文件、10 个测试文件；受控 Core、Qwen 适配、CLI 与报告已实现；无 Git 仓库，未初始化 Git |
-| `mvn test` | `PASS`：32 项，0 失败、0 错误；最终 `mvn -o -q test` 退出 0 |
+| 当前任务 | **T07：千问独立在线验收**（BLOCKED_BY_ENV）；T12 兼容接口真实 B 已 PASS |
+| 最近完成任务 | T00–T06、T08–T14；T12 真实 B 和 T14 调查缺口修复已验证；仅 T07 真实在线项未勾 |
+| 当前代码状态 | 23 个主源码文件、12 个测试类；scripted/qwen/openai、私有配置、CLI 与报告已实现；已有 Git 仓库，用户新增 AGENTS.md 未跟踪，保留不动 |
+| `mvn test` | `PASS`：42 项，0 失败、0 错误、0 跳过；最新 mvn -o -q package 执行全部测试并退出 0 |
 | `mvn package` | `PASS`：最终 `mvn -o -q package` 退出 0，可运行 target/devicetruth-core-0.1.0.jar |
-| 离线 A/B/C/D | `PASS`：真实 JAR 和报告核验；A/B RESOLVED，C CONFLICT，D NEED_EVIDENCE |
-| 在线模型 smoke | `BLOCKED_BY_ENV`（未配置 DASHSCOPE_API_KEY） |
+| 离线 A/B/C/D | `PASS`：真实 JAR 和报告核验；A/B RESOLVED，C CONFLICT，D NEED_EVIDENCE；另通过无环境变量时读取私有文件的本机 HTTP CLI 核验 |
+| 在线模型 smoke | `openai PASS`（两次真实 B，均 RESOLVED / DEMO-D-120B / 6 步）：684b5a60-b3d3-4a7e-ae28-87af7b248d6b（2026-11-05 首次）、fd06ae85-61a5-4814-a00b-2f80a7b9195d（2026-11-05 13:41 复跑）；`qwen BLOCKED_BY_ENV`：未填写 DASHSCOPE_API_KEY |
 | 数据扰动与跨领域测试 | `PASS`：三种 JSON 文件扰动、资产/证据 ID 改名、PLC 不同字段/IN 规则；Core 不变 |
-| 风险 / 阻塞 | 在线缺 Key；默认 Java 17，运行前需按 README 在当前进程设置 JAVA_HOME/PATH；PowerShell 禁止执行 .ps1，使用内联命令 |
-| 下一步 | 检查 DASHSCOPE_API_KEY 是否存在（不输出值）；使用 JDK 21 执行 python scripts/verify_online.py。仅真实 B 成功并核验轨迹后勾 T07、spec §10 剩余项，方可整体 DONE |
-| 最后更新者 / 时间 | Codex / 2026-11-03（按用户要求归位最新文档） |
+| 风险 / 阻塞 | 仅千问独立在线验收缺 Key；默认 Java 17，使用仓库 JDK 21 的 java.exe 或按 README 设置进程 JAVA_HOME/PATH；在线模型工具选择可能波动 |
+| 下一步 | 已可用私有配置运行 --reasoner=openai；如需完成全部原规格任务，在私有文件填千问 Key 后用 JDK 21 执行 python scripts/verify_online.py --reasoner=qwen，单独核验并更新 T07 |
+| 最后更新者 / 时间 | Codex / 2026-11-05 13:41（真实兼容接口 B 复跑通过，仅补日志、未改代码） |
 
 进度标记只能使用：`NOT_STARTED`、`IN_PROGRESS`、`BLOCKED_BY_ENV`、`BLOCKED_BY_DECISION`、`DONE`。测试标记只能使用：`NOT_RUN`、`PASS`、`FAIL`、`BLOCKED_BY_ENV`。不要把无法验证写成通过。
 
@@ -41,6 +41,9 @@
 10. **单步 SDK 边界**：使用 Model.stream、空工具列表和 JSON 响应；不使用 ReActAgent.call 内层循环。SDK 每次尝试 maxAttempts=1、45 秒超时；非法协议只额外重试一次。依据见 docs/research/agentscope-spike.md，在线尚未验证。
 11. **防止过早裁决**：Guard 要求完整历史、无过滤 evidence.search 及获取全部已发现记录，再核验规则/引用；同级当前冲突不能被第一条确认或较晚 recordedAt 覆盖。
 12. **协议细化**：决策显式含 claimedHypothesisIds/adviceLevel；仅允许 SIMULATION_ONLY；未知字段、类型转换、重复 JSON 键、数字枚举均拒绝。预算参数、evidence.json 和上述细化已同步 spec/task/README，未削减 MUST。
+13. **兼容服务入口（2026-11-05）**：原实现只支持 DashScope，用户要求增加 OpenAI 协议并保留千问；采用同版本 AgentScope OpenAI 扩展，复用 Model API 和共享 StructuredReasoner，避免另写 HTTP/重试实现。新增环境变量及 CLI，不改变证据/状态/Guard 契约。baseUrl 显式包含服务要求的前缀，仅追加 /chat/completions；本机 HTTP 测试与真实在线验收分开。
+14. **私有配置（2026-11-05 用户最新要求）**：替代仅环境变量限制，允许根目录被忽略的 devicetruth.local.properties；UTF-8 properties，非空文件值优先，环境变量补缺。两种模型共用 ModelConfiguration，只在首次在线推理加载；忽略文件不打包，失败不记录文件内容。在线脚本让 JAR 统一解析配置；离线 CLI 缺配置测试使用独立工作目录，避免读取开发者真实 Key。
+15. **调查缺口反馈（真实运行验证后修复）**：过滤组件历史不满足全资产完整性检查，此门禁保留；evaluate/review 共用稳定的历史、搜索、获取记录需求 ID 和 OPEN/SATISFIED 状态，避免工具刷新丢掉待办。提示词说明程序重建的 Fact 时间区间为准，不因原始出厂记录未改写而捏造当前冲突。未硬编码案例动作或放宽决策条件。
 
 以上决定如需调整，必须写明“现有方案问题 → 备选方案 → 更改理由 → 对测试/接口的影响”，再同步修改 `spec.md` 和 `task.md`，绝不可无记录改变。
 
@@ -49,7 +52,7 @@
 - 工作文档：docs/DeviceTruth_Core_V0.1_Spec_Pack 三份文件已由最新开发版本替换，并移除根目录副本；后续只维护本目录这套文件。
 - 现有源码/资料：pom.xml、src、skills/automotive-demo/rules.json、datasets/fixtures/a–d、README、scripts/verify_cli.py、scripts/verify_online.py、官方 API 研究资料。
 - 可运行资产：target/devicetruth-core-0.1.0.jar；outputs/runs 各次报告；target/surefire-reports；target/cli-verification.json。均为可重建/运行产物。
-- 工具环境：.tools/jdk-21.0.13.0.2+1；Maven 3.9.9；依赖缓存仅项目 .m2；默认全局 Java 仍为 17，未改全局设置。无 Git 仓库；DASHSCOPE_API_KEY 未配置。
+- 工具环境：.tools/jdk-21.0.13.0.2+1；Maven 3.9.9；依赖缓存仅项目 .m2；默认全局 Java 仍为 17，未改全局设置。已有 Git 仓库；私有配置文件已忽略，example 模板可交付；不输出私有文件内容。
 
 ## D. 开发日志（Codex 每次任务完成/阻塞时追加，不删除旧记录）
 
@@ -221,3 +224,50 @@ H. 阅读 spec §10 Definition of Done，所有 MUST 项完成后才可宣告整
 - Actual validation: Copy-Item/Get-FileHash/Remove-Item command exit 0; Python document/link/progress/DoD/artifact checks exit 0. Only docs/DeviceTruth_Core_V0.1_Spec_Pack contains the working spec/task/state. Packaged JAR hash is unchanged.
 - No Java tests rerun for this documentation-only relocation. Previous 32-test PASS remains the last code verification; T07 online remains BLOCKED_BY_ENV, and no completion checkboxes changed.
 - Next: read spec/task/state from this directory, execute build/runtime commands from project root, and complete real Qwen acceptance when DASHSCOPE_API_KEY is configured.
+
+### 2026-11-05 Asia/Shanghai — T12 implementation/offline PASS / live acceptance BLOCKED_BY_ENV
+
+- 用户要求：增加 OpenAI 协议入口，保留千问。新增 AgentScope OpenAI 扩展 2.0.4、OpenAiReasoner 和共享 StructuredReasoner；AgentScopeStep 增加 openai 工厂；CLI 支持 scripted/qwen/openai。Qwen 默认模型、密钥变量及公开补全构造器保留。
+- 配置：OPENAI_API_KEY、OPENAI_BASE_URL、OPENAI_MODEL 均必填；只追加 /chat/completions，服务要求的 /v1 或代理前缀由 baseUrl 提供；缺配置/非法配置使用稳定 FAILED 错误码。空工具列表、JSON object、45 秒超时、单次 SDK 尝试和最多一次协议纠正沿用；不记录配置值及上游错误正文。
+- 新增 OpenAiReasonerTest 五项本机 HTTP 契约/集成测试：实际 SDK 请求路径/认证/JSON，非法/缺配置，非法动作最多重试一次，HTTP 401 不重试且报告脱敏，B 通过 SDK→Gateway→证据重建→Guard 得出 DEMO-D-120B。ApplicationTest 增加模式选择与默认值回归；这些均不是外部真实模型验收。
+- 首轮 mvn -q test：退出 1，38 项中 1 项失败；无 scheme 的地址在 List.of.contains(null) 触发空指针，被误分类为传输错误。改用空值安全的 scheme 比较后，mvn -o -q test → PASS 退出 0，38 项、0 失败、0 错误、0 跳过。随后 mvn -o -q package → PASS 退出 0，全部测试再次通过。使用进程级 Microsoft JDK 21.0.13.0.2，未改全局环境。
+- python scripts/verify_cli.py → PASS 退出 0：实际新 JAR help、A/B/C/D、非法 CLI 选项、qwen/openai 缺 Key FAILED 报告及不回退脚本模式。汇总 target/cli-verification.json。A 745cc91f-4b28-4d08-8b74-33e5d3523c46 → RESOLVED / DEMO-D-120A / 7 步；B 2655ab34-6052-4b0a-a3a8-c0d9485ecafd → RESOLVED / DEMO-D-120B / 7；C a1fc2e8e-ef74-448a-914a-3c190f74a858 → CONFLICT / 7；D 21e1e3dc-3f18-4fde-90ea-4ae293a214c7 → NEED_EVIDENCE / 6。
+- python scripts/verify_online.py（默认和显式 --reasoner=qwen）及 --reasoner=openai → 均退出 2、BLOCKED_BY_ENV，必需环境变量缺失，未发外部模型请求。T07 与 T12 在线项保持未勾。
+- README、spec、task、state 和 API spike 已同步；在线脚本新增 --reasoner，默认 qwen 不变。git diff --check → PASS。更正旧快照“无 Git 仓库”的陈旧信息；保留用户未跟踪 AGENTS.md。源码调研归档与下载依赖留在忽略的 target/.m2，不提交报告、缓存或凭据。
+- 构建产物 target/devicetruth-core-0.1.0.jar SHA256：1A3A45604CFDCA1BE7D8845199D3B41C3F2017CDF2662B883FFCA8824EFB8CD0。
+- 文档补丁曾在部分文件写入后报告上下文不匹配；重新读取实际内容，仅补缺失部分，未覆盖已有成果。首次移动共享代码的补丁因同一文件多操作被拒绝，拆成顺序补丁后完成；未影响最终测试结果。
+- 下一步：配置所选服务环境后执行真实 B 验收，检查 MODEL_ATTEMPT、CAPABILITY_RESULT、STATE_COMMITTED、GUARD_RESULT；按真实结果分别更新 T07/T12，失败时按错误诊断，不降低门禁标准。
+
+### 2026-11-05 Asia/Shanghai — T13 DONE / 私有模型配置
+
+- 用户要求不设置密钥环境变量，改为填被忽略的文件；最新指令替代原仅环境变量约束。新增精确忽略规则 /devicetruth.local.properties，在不存在时从无凭据 example 模板创建私有文件；预填 DeepSeek 地址与模型，两个 Key 创建时留空，未覆盖已有文件。
+- 新增 ModelConfiguration：首次在线推理使用 UTF-8 Properties 读取工作目录文件；非空文件值优先、环境变量补缺；文件可选，不可读/解析失败返回 MODEL_CONFIGURATION_UNREADABLE，不附带原始异常或文件内容。两种在线模式共用读取逻辑，scripted 不读取配置。
+- verify_online.py 让 JAR 统一解析配置，根据 FAILED 报告区分配置阻塞与模型失败。verify_cli.py 的缺配置及本机 HTTP 检查使用临时工作目录、移除模型环境变量，避免开发者填写真实 Key 后离线脚本发外部请求。
+- mvn -o -q test → PASS 退出 0；mvn -o -q package → PASS 退出 0；41 项、0 失败、0 错误、0 跳过，23 个主源码文件、12 个测试类。新增缺文件回退、文件覆盖环境、空字段回退、读取/解析失败脱敏测试；本机 HTTP 的 B 链路使用真实临时配置文件。
+- python scripts/verify_cli.py → PASS 退出 0：help、A/B/C/D、非法参数、两种模式缺 Key，以及无环境变量时实际 JAR 从私有文件连接本机模拟接口并正常 ESCALATE；验证认证、地址、模型及报告/控制台不含测试密钥。A ba9f03ff-7f28-46ea-a60e-5001d84f80de → RESOLVED / DEMO-D-120A；B 22a0b490-c5d1-4b1b-aebc-d5181a8b36d3 → RESOLVED / DEMO-D-120B；C 381fd04b-21d1-4481-8614-93c116f7ff9f → CONFLICT；D 7d1ecc6a-8f91-4f1a-a13a-bd7fee5f2bbb → NEED_EVIDENCE。汇总 target/cli-verification.json。
+- 在线脚本配置阻塞回归：以 runpy 和 subprocess 包装隔离实际 JAR 的工作目录、移除模型环境变量，qwen/openai 均退出 2 并正确输出 BLOCKED_BY_ENV；没有模型请求。未执行外部真实模型验收。
+- git check-ignore -v devicetruth.local.properties → 命中 .gitignore 第 6 行；检查 JAR 不含私有文件及 example → PASS；git diff --check、Python 语法、文档链接及 UTF-8 检查 → PASS。README、spec、task 和当前快照已同步；凭据/报告/缓存不提交。
+- 日志首次经 PowerShell 管道写入时中文被系统编码替换，发现后移除本次损坏条目，并通过 UTF-8 补丁重写；旧日志保留。文档补丁的上下文/顺序错误已更正后应用，未修改私有文件内容。
+- T13 完成，T07/T12 在线项保留未勾。填写 Key 后从项目根目录用 JDK 21 运行 --reasoner=openai 或 --reasoner=qwen，无需重新打包；实际线上表现仍待验证。
+
+### 2026-11-05 Asia/Shanghai — T12/T14 DONE / 真实兼容服务 B PASS
+
+- 用户填写 API 后请求确认运行。只检查配置存在性，不输出值；OPENAI_API_KEY、OPENAI_BASE_URL、OPENAI_MODEL 已填写，千问 Key 未填写，未改动私有文件。
+- 首次执行 python scripts/verify_online.py --reasoner=openai：实际外部模型连接成功，12 次合法动作提议；CLI COMPLETED / ESCALATE，验收脚本断言失败（退出 1），报告 outputs/runs/da0160f2-1711-4f87-a939-14d5c0ad03f4。保留失败报告，不冒称 B 通过。
+- 根因：模型使用带 componentId 的历史查询，不满足原有全资产调查门禁；evaluate 给出的通用调查缺口又被下一次工具后的 review 覆盖，模型缺少具体可执行反馈，最终误把出厂/更换的原始记录当当前冲突。修复反馈持久性和提示词，不改完整性/冲突/引用门禁条件。
+- 先写轨迹回放回归 scopedHistoryLeavesAnActionableNeedAfterOtherEvidenceIsFetched；mvn -o -q '-Dtest=AcceptanceTest#scopedHistoryLeavesAnActionableNeedAfterOtherEvidenceIsFetched' test → 退出 1，缺口列表大小预期 1 实际 0，确定性复现。DecisionGuard evaluate/review 改用三个稳定调查需求，提示词说明无过滤查询及 Fact 时间语义后，mvn -o -q package → PASS 退出 0，42 项、0 失败/错误/跳过，回放补齐后 8 步 RESOLVED。
+- 再执行 python scripts/verify_online.py --reasoner=openai → PASS 退出 0；真实报告 outputs/runs/684b5a60-b3d3-4a7e-ae28-87af7b248d6b，COMPLETED / RESOLVED / DEMO-D-120B，supportingEvidenceIds=[CAR-B-FIELD-1]，6 步、状态版本 6，stopReason=RULE_AND_EVIDENCE_VERIFIED。应用日志从启动到结果约 25 秒，非时延保证。
+- 轨迹核验 PASS：6 次 MODEL_ATTEMPT 均 VALID_PROPOSAL、5 次 CAPABILITY_RESULT、6 次 STATE_COMMITTED、1 次 GUARD_RESULT 且 allowed=true、31 个事件；实际工具由模型自主选择：全资产历史、全量搜索、两次 evidence.get、规则查询，最后提出决策。没有 scripted 替身或自动降级。检查本次四份报告均不含实际私有 Key，未打印凭据。
+- python scripts/verify_cli.py → PASS 退出 0：实际新 JAR A 5e4d1584-98c3-4502-9784-7fcc89e20c05 → RESOLVED / A 规则；B 70b020ef-2373-4182-9d78-62ab36207f61 → RESOLVED / B 规则；C f7504f7e-aacb-4ada-a064-40ad108d2a8e → CONFLICT；D cb5be558-4b40-4012-8875-ad437e264285 → NEED_EVIDENCE；两种模式缺 Key、本机私有配置读取及脱敏回归均通过。
+- README、spec、task、state 已同步，勾选 T12、T14 和 spec 至少一条真实模型路径；T07 千问单独保留 BLOCKED_BY_ENV，未勾所有 MUST 完成项。本次未修改用户 Key，未提交报告或缓存，未添加调试日志。下一步可直接运行兼容接口；千问在线验收需其自身凭据。
+
+### 2026-11-05 13:41 Asia/Shanghai — 真实兼容接口 B 复跑（仅补证据，未改代码）
+
+- 用户要求用已填写的私有配置真实跑一次 B，确认在线链路仍可用。执行前只核对配置字段是否非空（OPENAI_API_KEY/BASE_URL/MODEL 已填、DASHSCOPE_API_KEY 空），未读取或输出任何配置值。
+- 同一会话先跑离线对照：`java -jar target/devicetruth-core-0.1.0.jar --scenario=B --reasoner=scripted` → PASS 退出 0，RESOLVED / DEMO-D-120B / 7 步，报告 outputs/runs/336e3171-f195-4551-9137-35127452cea2；离线链路与 scripted 剧本未变（规则→出厂档案→假设→历史→搜索→取回→决策）。
+- 真实模型：`java -jar target/devicetruth-core-0.1.0.jar --scenario=B --reasoner=openai` → PASS 退出 0，进程约 13 秒（启动 1.7 秒，其余为 6 次模型往返）；报告 outputs/runs/fd06ae85-61a5-4814-a00b-2f80a7b9195d，COMPLETED / RESOLVED / DEMO-D-120B / supportingEvidenceIds=[CAR-B-FIELD-1] / 6 步 / 状态版本 6 / stopReason=RULE_AND_EVIDENCE_VERIFIED。
+- 轨迹核验：6 次 MODEL_ATTEMPT 全部 VALID_PROPOSAL 且无重试；5 次 CAPABILITY_RESULT；6 次 STATE_COMMITTED；1 次 GUARD_RESULT allowed=true。模型自主顺序为 asset.history.query → evidence.search → evidence.get(CAR-B-FACTORY) → evidence.get(CAR-B-FIELD-1) → diagnosis.rules.query → PROPOSE_DECISION，与 684b5a60 那次完全一致。CAR-B-REPLACE 已由 history 查询取回，故 NEED-DISCOVERED-RECORDS 只需再打开两条，说明门禁按"内容是否到手"而非"打开次数"判定。
+- 观察（未处理，供后续讨论）：该轮 hypotheses 全程为空，ProposeHypothesis 与 claimedHypothesisIds 链路在真实模型下仍未被执行；events.jsonl 66 KB，体积主要来自每轮 REASON_INPUT 的全量上下文快照；TaskOrchestrator 对 targetEvidenceNeedIds 只做"ID 存在"校验，模型传空数组即可通过。
+- 脱敏检查：result.json / final_state.json / evidence.json / events.jsonl 四个文件逐文件与私有 Key 字符串比对，均不含；未打印、未修改私有配置。outputs/ 已被 .gitignore 忽略，本次运行未新增跟踪文件。
+- 未执行：未重跑 mvn test / mvn package（本次未改任何代码，最近一次 42 项 PASS 仍对应当前源码）；未跑 python scripts/verify_cli.py；未做千问验收。
+- 下一任务：T07 仍为 BLOCKED_BY_ENV；填 DASHSCOPE_API_KEY 后以 JDK 21 执行 `python scripts/verify_online.py --reasoner=qwen`，核验 MODEL_ATTEMPT/CAPABILITY_RESULT/STATE_COMMITTED/GUARD_RESULT 后再更新 T07 与 DoD。

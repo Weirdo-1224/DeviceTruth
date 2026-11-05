@@ -1,0 +1,9 @@
+# Copy to devicetruth.local.properties in the project root, then fill in the key.
+# Nonblank file values override environment variables. Never commit the private file.
+# OpenAI-compatible service (DeepSeek defaults):
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_MODEL=deepseek-flash
+
+# Optional: Qwen via DashScope, selected with --reasoner=qwen
+DASHSCOPE_API_KEY=

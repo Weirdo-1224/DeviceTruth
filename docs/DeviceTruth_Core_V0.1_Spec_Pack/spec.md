@@ -1,6 +1,6 @@
 # DeviceTruth Agent Core V0.1 — 产品与工程规格（spec.md）
 
-> 版本：0.1.0 | 日期：2026-11-03 | 状态：**离线已实现；真实模型验收 BLOCKED_BY_ENV**  
+> 版本：0.1.0 | 日期：2026-11-03 | 状态：**离线及兼容接口真实 B 已通过；千问独立在线验收 BLOCKED_BY_ENV**
 > 工作目录：用户**已经创建**的 `DeviceTruth/`；三份工作文档统一保存在 `docs/DeviceTruth_Core_V0.1_Spec_Pack/`，只维护这一套，构建与运行命令仍在项目根目录执行。  
 > 角色：本文件是**唯一功能与验收基线**；`task.md` 为执行顺序，`state.md` 为跨会话事实记录。发生冲突时，先遵循本文件；不能静默修改核心契约。
 
@@ -195,16 +195,21 @@ Guard 最低校验：
 5. 建议级别不超出规则允许的安全范围；
 6. 未满足时拒绝 `RESOLVED` 并给出明确阻塞原因；禁止模型通过重复调用绕过校验。
 
+调查完整性反馈：`evaluate()` 和工具返回后的 `review()` 共用三个稳定需求 ID，分别说明 asset.history.query 仅带 assetId、evidence.search 仅带 assetId，以及获取全部已发现证据的完成状态。过滤查询仍不满足完整性门禁；后续工具刷新不得丢失未完成需求。模型提示词明确以程序重建的 Fact 状态/时间区间为准，不把不可改写的出厂原始记录与后来更换误当成当前冲突。
+
 ## 7. 默认技术与依赖策略
 
 - **JDK 21**；**Maven 3.9+**；**Spring Boot 3.5.x**（优先稳定补丁）；**AgentScope Java 2.0.x**，优先已发布稳定版本（截至编写参考 2.0.3，编码前再核对仓库与 Maven Central）。
 - `agentscope-core` + `agentscope-extensions-model-dashscope` 足以进行受控模型调用；优先避免 `agentscope-harness` 的不必要工作区和持久会话能力。模型默认 `dashscope:qwen-plus`，通过 `DASHSCOPE_API_KEY` 配置。
 - 运行 `--reasoner=scripted` 时不调用任何外部 LLM；`--reasoner=qwen` 缺 Key 须给可理解的启动/运行错误，不得自动切回 scripted 并宣称模型通过。
+- 2026-11-05 按用户要求新增 `--reasoner=openai`，保留千问。新增同版本 `agentscope-extensions-model-openai`，使用 `OpenAIChatModel`；必填 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`。基础地址包含服务要求的路径前缀，仅追加 `/chat/completions`，不自动添加 `/v1`；支持 DeepSeek 等兼容服务，不限定供应商模型名。地址需为不含凭据、查询参数、片段或完整 completion 端点的 HTTP(S) 基础地址。接口使用 Bearer、非流式和 JSON object 响应，服务需支持这些字段。
+- 千问和 OpenAI 兼容模式共用 `StructuredReasoner` 的五类动作协议、严格解析和有限重试，不改变 Core。OpenAI 缺配置使用 `OPENAI_API_KEY_MISSING` / `OPENAI_BASE_URL_MISSING` / `OPENAI_MODEL_MISSING`，非法地址为 `OPENAI_CONFIGURATION_INVALID`；均为技术性 `FAILED`，不降级 scripted。配置值与服务端错误正文不落报告。
+- 本地私有文件用 UTF-8 Java properties，字段与环境变量同名；非空文件值优先，环境变量补缺，文件不存在仍可用环境变量。预填 DeepSeek 基础地址与模型，用户只需填 Key；保留千问 Key 字段。`ModelConfiguration` 在首次在线推理时按工作目录加载文件，不可读/解析失败返回 `MODEL_CONFIGURATION_UNREADABLE`，不输出原始异常。修改配置后重启运行，无需重新打包；在线验收脚本复用 JAR 配置解析，不自行重复解析私有文件。
 - 精确 AgentScope Java API **以选定版本的官方源码和可编译示例为准**；若无法获得可靠的单步结构化推理 API，先做隔离 PoC，在 `state.md` 记录决定，再实现适配器。不要编造接口/类名。
 - T00/T02 已核实并锁定 Spring Boot **3.5.16**、AgentScope Java **2.0.4**。采用 `Model.stream(...)`、空工具列表和 JSON 对象响应，再由本地严格协议解析；明确关闭 SDK 自动重试（每次模型尝试最多一次请求，45 秒超时）。源码与编译验证见 `docs/research/agentscope-spike.md`；真实模型调用仍需独立验收。
 - Spring AI Alibaba **不进入 V0.1 执行链**；不禁止以后引入，但当前避免双编排引擎。
 - JSON 用 Jackson；校验用 Jakarta Validation / 手工 guard；测试 JUnit 5 + AssertJ（按版本可用性选择）。
-- 密钥只读环境变量；`.env` 等私密文件不得提交、不得写入报告；Mock 数据统一标注 `SIMULATED`。
+- 密钥可来自项目根目录被忽略的 `devicetruth.local.properties` 或环境变量；私密文件不得提交、打包或写入报告；Mock 数据统一标注 `SIMULATED`。2026-11-05 用户明确要求文件配置，替代此前“仅环境变量”的限制。
 
 官方技术资料：
 
@@ -246,7 +251,8 @@ DeviceTruth/
 - `mvn -q test`：无需 API Key，所有离线测试通过。
 - `mvn -q package`：构建可运行 JAR。
 - `java -jar target/<实际jar名>.jar --scenario=B --reasoner=scripted`：离线演示，打印结果路径，输出 JSON + JSONL。
-- `java -jar target/<实际jar名>.jar --scenario=B --reasoner=qwen`：真实模型演示（需要环境变量 Key）。
+- `java -jar target/<实际jar名>.jar --scenario=B --reasoner=qwen`：真实模型演示（需要私有文件或环境变量中的 Key）。
+- `java -jar target/<实际jar名>.jar --scenario=B --reasoner=openai`：OpenAI Chat Completions 兼容服务演示（需要私有文件或环境变量中的上述三个配置字段）；`python scripts/verify_online.py --reasoner=openai` 独立核验真实 B 与轨迹。脚本默认仍验收 qwen，可显式 `--reasoner=qwen`。本机 HTTP 替身只作离线协议与集成测试，不等于外部模型通过。
 - `README.md` 必须给 Windows PowerShell 和 bash 两种运行示例，`--help` 显示有效参数；CLI 命令选项若与 Spring Boot 约定冲突可以调整，但需同步更新规格与 README 并记录缘由。
 - 每次运行生成 `outputs/runs/<runId>/result.json`、`events.jsonl`、`final_state.json`。报告中注明 reasoner 类型与 `SIMULATED` 数据性质。
 - CLI 还支持 `--max-steps=12`、`--max-repeated-actions=2`；前者范围 1–200，后者至少 1 且不大于前者。未知/重复参数返回退出码 2。原始证据另存 `evidence.json`，与状态分离。正常诊断结果返回 0；内部技术 `FAILED` 返回 2、`outcome=null`，不伪装为正常诊断结论。
@@ -256,7 +262,7 @@ DeviceTruth/
 以下全部完成才可将 Core V0.1 标记 `DONE`：
 
 - [x] 无外部服务和 API Key，`mvn -q test` 全绿；JAR 可启动；离线 A/B/C/D 全部符合预期。
-- [ ] 真实 LLM 路径不是假适配器：配置 Key 后能完成至少一条真实模型的端到端调用，并保存工具选择/结果轨迹；如果缺 Key，必须标记 `BLOCKED`，不得宣称线上通过。
+- [x] 真实 LLM 路径不是假适配器：配置 Key 后能完成至少一条真实模型的端到端调用，并保存工具选择/结果轨迹；如果缺 Key，必须标记 `BLOCKED`，不得宣称线上通过。
 - [x] 新事实能够引起正确的状态版本递增、事实替代/冲突标记及有关假设失效；提供专门测试。
 - [x] 未经过规则与证据门禁不得得到 `RESOLVED`；越权、无效证据和非法 Tool 参数有负例测试。
 - [x] Core 不含 `CAR-A/B/C` 业务结果分支；模拟规则和数据在独立目录/适配器内。
@@ -265,6 +271,10 @@ DeviceTruth/
 - [ ] `task.md` 所有 MUST 任务完成，`state.md` 最终状态、命令结果、阻塞项真实准确。
 
 2026-11-03 审核：以上未勾的真实 LLM 验收及所有 MUST 完成项，均受 T07 在线验收缺少 `DASHSCOPE_API_KEY` 阻塞；不得标记整体 DONE。复现命令与实际报告路径见本目录 `state.md`，不能将脚本/替身测试当成在线结果。
+
+2026-11-05 扩展审核：新增 OpenAI 兼容入口及离线 HTTP 契约测试已通过；T07 千问和 T12 兼容服务的真实在线结果分别记录，当前均因缺配置保持 `BLOCKED_BY_ENV`。新增本机替身结果不代替任一路径的外部模型验收，整体仍不标记 DONE。
+
+2026-11-05 最新在线审核：使用用户填写的私有配置，OpenAI 兼容接口真实 B 验收 PASS，6 步、DEMO-D-120B，报告 `684b5a60-b3d3-4a7e-ae28-87af7b248d6b`；已满足至少一条真实模型端到端路径。此前同日“均缺配置”为历史状态。T07 千问仍未配置 Key，未勾选所有 MUST 完成项，未将兼容接口结果冒充千问通过。
 
 ## 11. 明确不允许的交付行为
 

@@ -43,13 +43,17 @@ public class DeviceTruthApplication {
             DiagnosisRequest request=Json.MAPPER.treeToValue(scenarios.get(options.scenario()),DiagnosisRequest.class);
             var repository=JsonRepositories.fromClasspath();
             var gateway=CapabilityGateway.standard(repository,repository,repository);
-            Reasoner reasoner=options.reasoner().equals("qwen")?new QwenReasoner():new ScriptedReasoner();
+            Reasoner reasoner=switch(options.reasoner()) {
+                case "qwen" -> new QwenReasoner();
+                case "openai" -> new OpenAiReasoner();
+                default -> new ScriptedReasoner();
+            };
             var report=new TaskOrchestrator(gateway,new EvidenceManager(),new DecisionGuard()).run(request,options.budget(),reasoner);
             Path output=new RunReportWriter().write(Path.of("outputs/runs"),report);
             LOG.info("reasoner={} data=SIMULATED runStatus={} outcome={} steps={} report={}",reasoner.name(),
                     report.result().runStatus(),report.result().outcome(),report.result().stepsUsed(),output.toAbsolutePath());
             if(report.result().runStatus()==RunStatus.FAILED) {
-                LOG.error("Technical failure: {}. qwen requires DASHSCOPE_API_KEY; scripted is available offline.",report.result().stopReason());
+                LOG.error("Technical failure: {}. Check devicetruth.local.properties or environment variables in README.",report.result().stopReason());
                 return 2;
             }
             return 0;
@@ -60,6 +64,6 @@ public class DeviceTruthApplication {
     }
 
     public static String help() {
-        return "DeviceTruth Core 0.1 (SIMULATED) --help --scenario=A|B|C|D --reasoner=scripted|qwen --max-steps=12 --max-repeated-actions=2; reports: outputs/runs/<runId>/";
+        return "DeviceTruth Core 0.1 (SIMULATED) --help --scenario=A|B|C|D --reasoner=scripted|qwen|openai --max-steps=12 --max-repeated-actions=2; reports: outputs/runs/<runId>/";
     }
 }

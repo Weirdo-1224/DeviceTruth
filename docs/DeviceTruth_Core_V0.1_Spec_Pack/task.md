@@ -1,6 +1,6 @@
 # DeviceTruth Agent Core V0.1 — 开发任务清单（task.md）
 
-> 基线：`spec.md v0.1.0`；离线核心已实现并验证，T07 在线验收为 **BLOCKED_BY_ENV**，最新事实以本目录 `state.md` 为准。三份工作文档唯一位置为 `docs/DeviceTruth_Core_V0.1_Spec_Pack/`。  
+> 基线：`spec.md v0.1.0`；离线核心与 T12 兼容接口真实 B 已通过，T07 千问在线验收仍为 **BLOCKED_BY_ENV**，最新事实以本目录 `state.md` 为准。三份工作文档唯一位置为 `docs/DeviceTruth_Core_V0.1_Spec_Pack/`。
 > 使用方法：Codex 只在现有 `DeviceTruth/` 工作目录执行；按依赖顺序推进。每项严格实行 **实现 → 测试 → 证据记录 → 更新 state.md → 勾选**。  
 > `[ ]` 未完成、`[x]` 已经真实验证完成、`[-]` 明确取消（需理由）。任务完成状态不能仅凭“代码已写”认定。
 
@@ -140,6 +140,31 @@
 - [x] 记录遗留问题、未来替换 JSON/Mock Skill 的接口位置，以及 V0.2 可选方向；不在 V0.1 偷做。
 
 **验收**：新 Codex 会话仅阅读这三个 Markdown 和代码，就能独立复现构建、离线测试与演示。
+
+### T12. 新增 OpenAI Chat Completions 兼容入口（2026-11-05 用户要求）
+
+保留 T07 千问入口，新增 `--reasoner=openai`。本地实现/契约测试与外部在线验收分开记录，原 T07 在线项不代勾。
+
+- [x] 核实 AgentScope 2.0.4 OpenAI 扩展源码，复用 Model API 的单步调用。
+- [x] 配置 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`；支持基础地址路径前缀并拦截非法配置。
+- [x] 共用动作协议、有限重试、技术失败和事件记录；保留 qwen/scripted 及原有 Qwen 补全测试接口。
+- [x] 本机 HTTP 契约测试覆盖认证、请求字段、路径、缺配置/非法配置、重试、错误脱敏和场景 B 的完整 Core 链路。
+- [x] 打包后重跑离线 CLI、两种模式缺 Key 失败，更新 README/spec/state 与实际验证证据。
+- [x] 配置真实兼容服务后执行 `python scripts/verify_online.py --reasoner=openai`，核验 B 的规则及真实模型/工具/Guard 轨迹；实际外部请求 PASS，6 步 RESOLVED / DEMO-D-120B，报告 684b5a60-b3d3-4a7e-ae28-87af7b248d6b。
+
+### T13. 被 Git 忽略的本地模型配置（2026-11-05 用户要求）
+
+- [x] 创建私有 `devicetruth.local.properties`，预填 DeepSeek 地址/模型、留空 Key，并加入根目录精确忽略规则；保留不含凭据的 example 模板。
+- [x] 两种在线模式首次推理读取文件；非空文件值优先、环境变量补缺；失败使用不含文件内容的错误码。
+- [x] 测试缺文件、覆盖优先级、空字段回退、不可读/非法文件；本地 HTTP 场景 B 改用文件配置。
+- [x] 打包核验无需环境变量的文件配置、密钥不进报告/JAR、CLI 缺配置隔离、在线脚本及文档同步。
+
+### T14. 真实运行发现的调查缺口反馈修复
+
+- [x] 记录首次真实运行：接口连通、12 次合法提议，但过滤历史查询未满足完整性门禁，最终 ESCALATE，B 验收未通过。
+- [x] 新增确定性轨迹回放测试，先复现后修复：工具刷新必须保留明确的全资产历史需求，补齐后才能 RESOLVED。
+- [x] evaluate/review 共用稳定调查需求，保留原门禁条件；模型提示词说明无过滤查询与事实时间解释。42 项测试及打包通过。
+- [x] 重跑真实 B、离线打包 CLI 和轨迹审计；真实兼容接口 B PASS，离线 A/B/C/D、缺 Key 和私有配置回归 PASS，42 项测试通过。
 
 ## 执行纪律（必须遵守）
 

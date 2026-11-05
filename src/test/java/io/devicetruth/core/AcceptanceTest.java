@@ -71,6 +71,35 @@ class AcceptanceTest {
         assertThat(result.events().stream().filter(e->e.type().equals("MODEL_ATTEMPT"))).hasSize(2);
         assertThat(result.events()).noneMatch(e->e.type().equals("CAPABILITY_RESULT"));
     }
+    @Test void scopedHistoryLeavesAnActionableNeedAfterOtherEvidenceIsFetched() throws Exception {
+        var step=new java.util.concurrent.atomic.AtomicInteger();
+        Reasoner replay=new Reasoner() {
+            public String name() { return "offline-trace-replay"; }
+            public ActionProposal propose(Context context) {
+                int index=step.getAndIncrement();
+                if(index==0) return new CallCapability("diagnosis.rules.query",Map.of("domain","automotive-demo","symptomCode","COMM_TIMEOUT"),"rules",List.of());
+                if(index==1) return new CallCapability("asset.history.query",Map.of("assetId","CAR-B","componentId","CTRL-01"),"scoped history",List.of());
+                if(index==2) return new CallCapability("evidence.search",Map.of("assetId","CAR-B"),"discover all",List.of());
+                if(index==3) return new CallCapability("evidence.get",Map.of("assetId","CAR-B","evidenceId","CAR-B-FIELD-1"),"confirmation",List.of());
+                if(index==5) return new CallCapability("evidence.get",Map.of("assetId","CAR-B","evidenceId","CAR-B-FACTORY"),"remaining record",List.of());
+                if(index==6) {
+                    var pending=context.state().evidenceNeeds().stream().filter(n->n.status()==NeedStatus.OPEN
+                            &&n.description().contains("asset.history.query")).toList();
+                    assertThat(pending).as("unfiltered history must remain actionable after an unrelated tool refresh").hasSize(1);
+                    assertThat(pending.getFirst().description()).contains("assetId","componentId");
+                    return new CallCapability("asset.history.query",Map.of("assetId","CAR-B"),"complete history",List.of(pending.getFirst().needId()));
+                }
+                var fact=context.state().facts().stream().filter(f->f.status()==FactStatus.SUPPORTED).findFirst().orElseThrow();
+                return new ProposeDecision("DEMO-D-120B",List.of(fact.factId()),fact.evidenceIds(),List.of(),"SIMULATION_ONLY","current supported confirmation");
+            }
+        };
+        var report=run("B",replay);
+        assertThat(report.result().outcome()).isEqualTo(Outcome.RESOLVED);
+        assertThat(report.result().appliedRuleIds()).containsExactly("DEMO-D-120B");
+        assertThat(report.result().stepsUsed()).isEqualTo(8);
+        assertThat(report.state().actionHistory()).noneMatch(h->h.result().contains("unknown targetEvidenceNeedIds"));
+    }
+
     @Test void provisionalRuleAndBaselineHypothesisAreInvalidatedWhenHistoryArrives() throws Exception {
         var scripted=new ScriptedReasoner();
         Reasoner early=new Reasoner() {

@@ -2,9 +2,9 @@
 
 DeviceTruth 是可运行的 Java 单 Agent Core。每步读取独立的结构化状态，由 Reasoner 提出一个动作；Gateway 执行至多一个只读能力；Evidence Manager 重建事实并使旧依赖失效；State Manager 提交新版本；Decision Guard 决定是否允许结论。模型不能修改事实、写证据或自行执行工具。
 
-**资料与规则均为 `SIMULATED`，仅用于工程验收，不能指导实际车辆或工业设备维护。** 离线验收通过；真实 Qwen 代码已接入，在线验收因缺少 `DASHSCOPE_API_KEY` 为 `BLOCKED_BY_ENV`，整体不能标为 DONE。最新命令、报告路径与进度见 [state.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/state.md)。
+**资料与规则均为 `SIMULATED`，仅用于工程验收，不能指导实际车辆或工业设备维护。** 离线验收及 OpenAI 兼容接口的真实场景 B 已通过（6 步、DEMO-D-120B）；千问独立在线验收仍缺 Key，整体不能标为 DONE。最新命令、报告路径与进度见 [state.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/state.md)。
 
-技术版本锁定为 Java 21、Maven 3.9+、Spring Boot 3.5.16、AgentScope Java 2.0.4。AgentScope 使用 `agentscope-core` 与 DashScope 模型扩展，不引入 harness 或另一个编排框架。版本依据 Maven Central 元数据与官方源码验证，见 [API Spike](docs/research/agentscope-spike.md)。
+技术版本锁定为 Java 21、Maven 3.9+、Spring Boot 3.5.16、AgentScope Java 2.0.4。AgentScope 使用 `agentscope-core`、DashScope 和 OpenAI 模型扩展，不引入 harness 或另一个编排框架。版本依据 Maven Central 元数据与官方源码验证，见 [API Spike](docs/research/agentscope-spike.md)。新增扩展首次构建需要下载依赖。
 
 ## 启动与构建
 
@@ -49,7 +49,7 @@ python3 scripts/verify_cli.py
 ```text
 --help / -h
 --scenario=A|B|C|D             默认 A
---reasoner=scripted|qwen       默认 scripted
+--reasoner=scripted|qwen|openai 默认 scripted
 --max-steps=12                 范围 1..200，包含假设和决策等全部动作
 --max-repeated-actions=2       至少 1，不得大于 max-steps
 ```
@@ -92,14 +92,37 @@ python3 scripts/verify_cli.py
 
 这是节选；实际结果还有任务 ID、asOf、缺口、警告和停止原因。C 不选择任一版本规则，D 不把维修记录当成当前现场确认。`selectedRuleId` 可以表示待门禁通过的候选；只有 `result.appliedRuleIds` 表示已经核验采用的规则。
 
+## 本地私有模型配置（推荐）
+
+项目根目录的 `devicetruth.local.properties` 已加入 Git 忽略规则，不打进 JAR。当前工作区已生成该文件；新克隆项目可从 [配置模板](devicetruth.local.properties.example) 复制一份。用 UTF-8 保存，在等号后直接填写值，不加引号：
+
+```properties
+OPENAI_API_KEY=在这里填 DeepSeek API Key
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_MODEL=deepseek-flash
+
+# 使用千问时填写这一项
+DASHSCOPE_API_KEY=
+```
+
+DeepSeek 地址和模型名已预填，只需补 `OPENAI_API_KEY`；其他兼容服务按其要求修改地址与模型。然后从项目根目录运行，无需设置密钥环境变量：
+
+```powershell
+java -jar target/devicetruth-core-0.1.0.jar --scenario=B --reasoner=openai
+python scripts/verify_online.py --reasoner=openai
+```
+
+千问填写 `DASHSCOPE_API_KEY` 后，使用 `--reasoner=qwen`。配置读取优先级为：**私有文件中的非空值 → 环境变量**；文件不存在或字段留空时保留环境变量用法。文件按进程的当前工作目录查找，修改后重启运行即可，无需重新打包。配置加载只发生在在线模式首次推理时，离线 scripted 不读取此文件；无法读取或解析时输出 `MODEL_CONFIGURATION_UNREADABLE`，不输出文件内容。
+
+2026-11-05 已使用实际填写的私有配置执行 `python scripts/verify_online.py --reasoner=openai`，B 以 `RESOLVED` 采用 `DEMO-D-120B`，6 次模型提议、5 次受控能力查询、6 次状态提交和 1 次 Guard 放行；报告位于 `outputs/runs/684b5a60-b3d3-4a7e-ae28-87af7b248d6b/`。这是外部真实模型调用，独立于本机 HTTP 替身测试。调查缺口在工具刷新后持续保留；过滤查询不会被当成全资产调查完成，历史原始记录按程序重建的事实时间区间解释。
+
 ## 真实 Qwen 模式
 
-通过自己的凭据管理方式在当前进程配置 `DASHSCOPE_API_KEY`。程序只读环境变量，不写入源码、配置或报告；默认模型为 DashScope `qwen-plus`。
+在上述私有文件中填写 `DASHSCOPE_API_KEY`，也可通过自己的凭据管理方式在当前进程配置同名环境变量。密钥不写入源码、日志或报告；默认模型为 DashScope `qwen-plus`。
 
 PowerShell：
 
 ```powershell
-if (-not $env:DASHSCOPE_API_KEY) { throw '请先在当前进程配置 DASHSCOPE_API_KEY' }
 java -jar target/devicetruth-core-0.1.0.jar --scenario=B --reasoner=qwen
 python scripts/verify_online.py
 ```
@@ -107,7 +130,6 @@ python scripts/verify_online.py
 bash：
 
 ```bash
-: "${DASHSCOPE_API_KEY:?请先配置 DASHSCOPE_API_KEY}"
 java -jar target/devicetruth-core-0.1.0.jar --scenario=B --reasoner=qwen
 python3 scripts/verify_online.py
 ```
@@ -115,6 +137,42 @@ python3 scripts/verify_online.py
 `verify_online.py` 会真实调用模型并核验 B 的规则与轨迹，需要 Key、网络和模型额度。它不属于 `mvn test`，不能用离线替身测试替代。无 Key 时脚本明确报告 `BLOCKED_BY_ENV`，不尝试模型调用。直接以 qwen 启动时，缺 Key 会写 `FAILED` 报告，`outcome=null`、`stopReason=DASHSCOPE_API_KEY_MISSING`，不会切换为 scripted。
 
 一个提议采用一次 `Model.stream(messages, emptyTools, options)` 订阅。SDK 自动重试被明确限制为 1 次尝试，调用超时 45 秒；非法 JSON/协议最多额外重试 1 次，仍非法则 `FAILED`。工具只在外层执行。`ReActAgent.call()` 是内部完整循环，不能视作这里的一步；源码依据见 API Spike。
+
+## OpenAI 兼容协议模式（可接 DeepSeek）
+
+使用 `--reasoner=openai`，通过私有文件或环境变量配置以下三个同名字段，均为必填：
+
+| 配置字段 / 环境变量 | 用途 | DeepSeek 示例 |
+|---|---|---|
+| `OPENAI_API_KEY` | 该服务的 API Key | 使用 DeepSeek Key |
+| `OPENAI_BASE_URL` | API 基础地址，包含服务要求的路径前缀 | `https://api.deepseek.com` |
+| `OPENAI_MODEL` | 服务支持的模型 ID | `deepseek-flash`，以服务当前提供的模型为准 |
+
+接口为 `POST <OPENAI_BASE_URL>/chat/completions`，会处理基础地址末尾的斜杠。填写基础地址，不要填写完整的 `/chat/completions` 地址；若服务要求 `/v1`，将 `/v1` 写入基础地址，例如 `https://api.openai.com/v1`。使用 Bearer 认证、非流式请求和 `response_format={"type":"json_object"}`；所选服务与模型需支持这些 Chat Completions 字段。这里不使用 Responses API 或模型自动执行工具。
+
+填写私有文件后直接运行即可。以下环境变量方式仍可使用；如果已经配置 `DEEPSEEK_API_KEY`，可按以下方式映射（私有文件的非空值优先）。PowerShell（先按上文设置 JDK 21）：
+
+```powershell
+$env:OPENAI_API_KEY = $env:DEEPSEEK_API_KEY
+$env:OPENAI_BASE_URL = 'https://api.deepseek.com'
+$env:OPENAI_MODEL = 'deepseek-flash'
+java -jar target/devicetruth-core-0.1.0.jar --scenario=B --reasoner=openai
+python scripts/verify_online.py --reasoner=openai
+```
+
+bash：
+
+```bash
+export OPENAI_API_KEY="${DEEPSEEK_API_KEY:?请先配置 DeepSeek Key，或直接配置 OPENAI_API_KEY}"
+export OPENAI_BASE_URL=https://api.deepseek.com
+export OPENAI_MODEL=deepseek-flash
+java -jar target/devicetruth-core-0.1.0.jar --scenario=B --reasoner=openai
+python3 scripts/verify_online.py --reasoner=openai
+```
+
+千问仍使用 `--reasoner=qwen`、`DASHSCOPE_API_KEY` 和 `qwen-plus`，与这三个变量互不替代。`verify_online.py` 不带参数时继续验收千问，也支持显式 `--reasoner=qwen`。两种模式分别记录 `reasoner=qwen/openai`，均沿用 45 秒超时、每次请求一次尝试、非法动作最多纠正一次和程序端证据门禁。
+
+缺少配置时，直接运行 JAR 会生成 `FAILED` 报告、`outcome=null`，错误码分别为 `OPENAI_API_KEY_MISSING`、`OPENAI_BASE_URL_MISSING`、`OPENAI_MODEL_MISSING`；非法地址为 `OPENAI_CONFIGURATION_INVALID`。地址只允许 HTTP(S)，不接受 URL 内凭据、查询参数或片段；配置值和服务端错误正文不写入报告。在线脚本由 JAR 统一读取私有文件及环境变量，配置缺失/不可读/非法时根据失败报告返回 `BLOCKED_BY_ENV`，不发模型请求。协议依据见 [DeepSeek 接入文档](https://api-docs.deepseek.com/) 和 [JSON 输出要求](https://api-docs.deepseek.com/guides/json_mode/)。
 
 ## 结构、证据和替换接口
 
@@ -129,7 +187,9 @@ python3 scripts/verify_online.py
 | `core/decision/` | 有限条件与证据门禁，输出程序核验过的规则建议 |
 | `core/capability/` | 注册/发现、schema/强类型校验、只读执行、结构化错误及三个 Repository 接口 |
 | `adapter/JsonRepositories.java` | JSON 适配，可替换成数据库/API 实现 |
-| `adapter/AgentScopeStep.java`、`QwenReasoner.java` | 真正 AgentScope 模型调用、解析及有界错误处理 |
+| `adapter/AgentScopeStep.java` | AgentScope DashScope / OpenAI Chat Completions 单步模型调用 |
+| `adapter/StructuredReasoner.java`、`QwenReasoner.java`、`OpenAiReasoner.java` | 共用动作协议、严格解析及有限重试，分别装配模型配置 |
+| `adapter/ModelConfiguration.java` | 首次模型调用时读取工作目录中的私有配置，环境变量补缺；加载失败只返回稳定错误码 |
 
 `skills/automotive-demo/rules.json` 是轻量业务规则包，不是 AgentScope 标准 SKILL.md 加载器。`datasets/fixtures/` 存 A–D 虚构资料，不含预填诊断答案。
 
@@ -141,7 +201,7 @@ python3 scripts/verify_online.py
 
 ## 验证、排错与交接
 
-`mvn -q test` (32 tests) 覆盖五类动作、JSON/ID/时间校验、Gateway、单步提交、预算、证据修订、Guard、A/B/C/D/E、模型协议替身、数据扰动和工业契约。扰动测试真实写出和读取临时 JSON，改变 B 的确认值/移除确认/注入冲突，Core 不变。`scripts/verify_cli.py` 另行启动打包 JAR，检查输出文件和事件序号，汇总到 `target/cli-verification.json`。
+`mvn -q test` (42 tests) 覆盖五类动作、JSON/ID/时间校验、Gateway、单步提交、预算、证据修订、Guard、A/B/C/D/E、模型协议替身、数据扰动和工业契约。新增本机 HTTP 替身测试检查 OpenAI 兼容请求的路径/认证/JSON、配置错误、有限重试、HTTP 失败脱敏，以及 B 经真实 SDK 和 Core 的完整链路；这些不是外部真实模型验收。扰动测试真实写出和读取临时 JSON，改变 B 的确认值/移除确认/注入冲突，Core 不变。`scripts/verify_cli.py` 另行启动打包 JAR，检查输出文件、事件序号、两种在线模式的缺 Key 失败，以及无环境变量时从私有文件连接本机模拟接口（不访问外部服务），汇总到 `target/cli-verification.json`。
 
 - `release version 21 not supported`：检查 `mvn -version` 的 Java 路径，确保当前终端 JAVA_HOME 和 PATH 均指向 21。
 - Maven 首次下载失败：确认可访问 Maven Central；不要把依赖下载失败写成测试通过。已缓存后可执行 `mvn -o -q test`。
@@ -150,6 +210,6 @@ python3 scripts/verify_online.py
 - `NEED_EVIDENCE`：查缺口和 stopReason；预算/重复动作耗尽会保留原因。工具持续失败且无进展时可 `ESCALATE`。
 - `CONFLICT`：需补充能够裁决的证据，版本专属规则不能绕过同级冲突。
 
-下一会话先完整读 [spec.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/spec.md)、[task.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/task.md)、[state.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/state.md)。三份文件统一保存在 `docs/DeviceTruth_Core_V0.1_Spec_Pack/`，仅维护这一套；构建与运行仍在项目根目录执行。待办是在线真实模型验收：配置 Key 后运行 `verify_online.py`，查轨迹，再更新 T07、DoD 和 state；没有该证据不能宣告整体 DONE。
+下一会话先完整读 [spec.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/spec.md)、[task.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/task.md)、[state.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/state.md)。三份文件统一保存在 `docs/DeviceTruth_Core_V0.1_Spec_Pack/`，仅维护这一套；构建与运行仍在项目根目录执行。待办是在线真实模型验收：配置所选服务环境后运行 `verify_online.py --reasoner=qwen` 或 `--reasoner=openai`，核验轨迹并分别记录 T07/T12、DoD 和 state；没有该证据不能宣告整体 DONE。
 
 后续可选方向为数据库/API Repository、更多领域适配和任务恢复；V0.1 没有实现 UI、多 Agent、知识库、MCP 平台或设备控制。
