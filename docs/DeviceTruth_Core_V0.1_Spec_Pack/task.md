@@ -1,6 +1,6 @@
 # DeviceTruth Agent Core V0.1 — 开发任务清单（task.md）
 
-> 基线：`spec.md v0.1.0`；离线核心与 T12 兼容接口真实 B 已通过，T07 千问在线验收仍为 **BLOCKED_BY_ENV**，最新事实以本目录 `state.md` 为准。三份工作文档唯一位置为 `docs/DeviceTruth_Core_V0.1_Spec_Pack/`。
+> 基线：`spec.md v0.1.0`；离线核心与真实模型端到端路径（OpenAI 兼容 / DeepSeek，2 次）均已通过，全部 MUST 任务完成，整体 **DONE**。千问 DashScope 适配路径未经真实执行，按 D16 记为已知残留风险而非阻塞项，详见 `state.md` 与 `spec.md` 最新审核记录。三份工作文档唯一位置为 `docs/DeviceTruth_Core_V0.1_Spec_Pack/`。
 > 使用方法：Codex 只在现有 `DeviceTruth/` 工作目录执行；按依赖顺序推进。每项严格实行 **实现 → 测试 → 证据记录 → 更新 state.md → 勾选**。  
 > `[ ]` 未完成、`[x]` 已经真实验证完成、`[-]` 明确取消（需理由）。任务完成状态不能仅凭“代码已写”认定。
 
@@ -87,13 +87,13 @@
 
 ### T07. AgentScope / Qwen Reasoner Adapter
 
-当前：实现与离线协议测试通过；在线单步/完整 B 验收因缺少 `DASHSCOPE_API_KEY` 为 `BLOCKED_BY_ENV`。配置后运行 `python scripts/verify_online.py`，确认真实报告与轨迹后才能勾最后一项。不得用替身补勾。
+当前：实现与离线协议测试通过。最后一项在线验收按 D16（2026-11-05）改为“任一真实模型端到端路径”，已由 OpenAI 兼容接口（DeepSeek）的真实 B 满足，报告见 `state.md`。DashScope 专属适配（`DashScopeChatModel`）仍未真实执行，保留为残留风险。`--reasoner=qwen` 入口、密钥变量和契约测试不受影响；将来首次使用千问若报错，按 adapter 层问题诊断。
 
 - [x] 基于 T02 核实的 API 实现真正模型调用，不得写一个返回固定 ActionProposal 的 `QwenReasoner`。
 - [x] 系统指令只说明状态与行动协议；模型输入必须是**当前状态投影 + 能力描述 + 规则必要条件**，不能把测试答案放入 Prompt。
 - [x] 处理结构化输出解析、1 次重试、模型异常和超时；不泄漏密钥。
 - [x] 支持 `--reasoner=qwen` 与 `--reasoner=scripted` 切换；缺少 Key 时显式报错。
-- [ ] 真实 Qwen 可用时至少完成一次单步动作提议 smoke test；完整案例 B 的在线端到端验收在 T09/T10 后执行。不可用时记录 `BLOCKED_BY_ENV`，继续全部离线任务。
+- [x] 任一真实模型端到端在线验收至少完成一次单步动作提议 smoke test，并完成完整案例 B 的在线端到端验收（D16，2026-11-05）：OpenAI 兼容接口 / DeepSeek 真实 B 两次 PASS，6 步、DEMO-D-120B，轨迹见 `state.md`。原字面为“真实 Qwen 可用时”，因当时仅有千问入口；DashScope 适配路径本身仍未真实执行，该残留风险已显式记录。
 
 **验收**：在线模式实际调用模型并有真实行为轨迹；若受限，必须明确报告不可验收项，不可伪装通过。
 
@@ -143,7 +143,7 @@
 
 ### T12. 新增 OpenAI Chat Completions 兼容入口（2026-11-05 用户要求）
 
-保留 T07 千问入口，新增 `--reasoner=openai`。本地实现/契约测试与外部在线验收分开记录，原 T07 在线项不代勾。
+保留 T07 千问入口，新增 `--reasoner=openai`。本地实现/契约测试与外部在线验收分开记录。原“T07 在线项不代勾”约束已被 2026-11-05 的 D16 修订取代：T07 在线口径改为“任一真实模型端到端路径”，由本入口的真实 B 满足；DashScope 路径的残留风险仍单独记录，不以本入口结果冒充千问已验证。
 
 - [x] 核实 AgentScope 2.0.4 OpenAI 扩展源码，复用 Model API 的单步调用。
 - [x] 配置 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`；支持基础地址路径前缀并拦截非法配置。

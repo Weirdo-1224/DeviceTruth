@@ -1,7 +1,7 @@
 # DeviceTruth Agent Core V0.1 — 进度状态与跨会话交接（state.md）
 
 > **这是 Codex 必须持续维护的唯一进度快照。**  
-> 初始化日期：2026-11-03 | 当前总状态：`BLOCKED_BY_ENV`（仅千问独立在线验收缺 Key；离线与兼容接口真实 B 均已通过）
+> 初始化日期：2026-11-03 | 当前总状态：`DONE`（离线 A–D 全通过；真实模型端到端路径 2 次 PASS；千问 DashScope 适配路径未经真实执行，按 D16 记为已知残留风险，不再是阻塞项）
 > 三份最新工作文档统一位于 `docs/DeviceTruth_Core_V0.1_Spec_Pack/`；根目录副本已移除，仅维护当前这一套。
 
 ## A. 当前真实状态（每次完成任务后更新）
@@ -13,17 +13,17 @@
 | 文档目录 | `docs/DeviceTruth_Core_V0.1_Spec_Pack/`，唯一的 spec/task/state 工作版本 |
 | 规格基线 | `spec.md v0.1.0` |
 | 当前阶段 | S4 — 集成与交付 |
-| 当前任务 | **T07：千问独立在线验收**（BLOCKED_BY_ENV）；T12 兼容接口真实 B 已 PASS |
-| 最近完成任务 | T00–T06、T08–T14；T12 真实 B 和 T14 调查缺口修复已验证；仅 T07 真实在线项未勾 |
+| 当前任务 | 无未完成任务；T00–T14 全部完成，V0.1 按 DoD 判定 `DONE` |
+| 最近完成任务 | D16 修订 T07 在线验收口径（任一真实模型路径）并同步 spec/task/README；T07 最后一项据此勾选，DashScope 残留风险已显式记录 |
 | 当前代码状态 | 23 个主源码文件、12 个测试类；scripted/qwen/openai、私有配置、CLI 与报告已实现；已有 Git 仓库，用户新增 AGENTS.md 未跟踪，保留不动 |
 | `mvn test` | `PASS`：42 项，0 失败、0 错误、0 跳过；最新 mvn -o -q package 执行全部测试并退出 0 |
 | `mvn package` | `PASS`：最终 `mvn -o -q package` 退出 0，可运行 target/devicetruth-core-0.1.0.jar |
 | 离线 A/B/C/D | `PASS`：真实 JAR 和报告核验；A/B RESOLVED，C CONFLICT，D NEED_EVIDENCE；另通过无环境变量时读取私有文件的本机 HTTP CLI 核验 |
-| 在线模型 smoke | `openai PASS`（两次真实 B，均 RESOLVED / DEMO-D-120B / 6 步）：684b5a60-b3d3-4a7e-ae28-87af7b248d6b（2026-11-05 首次）、fd06ae85-61a5-4814-a00b-2f80a7b9195d（2026-11-05 13:41 复跑）；`qwen BLOCKED_BY_ENV`：未填写 DASHSCOPE_API_KEY |
+| 在线模型 smoke | `openai PASS`（两次真实 B，均 RESOLVED / DEMO-D-120B / 6 步）：684b5a60-b3d3-4a7e-ae28-87af7b248d6b（2026-11-05 首次）、fd06ae85-61a5-4814-a00b-2f80a7b9195d（2026-11-05 13:41 复跑）；`qwen`：入口、密钥缺失报错与契约测试通过，DashScope 适配路径未经真实执行（D16 记为残留风险，非阻塞项） |
 | 数据扰动与跨领域测试 | `PASS`：三种 JSON 文件扰动、资产/证据 ID 改名、PLC 不同字段/IN 规则；Core 不变 |
-| 风险 / 阻塞 | 仅千问独立在线验收缺 Key；默认 Java 17，使用仓库 JDK 21 的 java.exe 或按 README 设置进程 JAVA_HOME/PATH；在线模型工具选择可能波动 |
-| 下一步 | 已可用私有配置运行 --reasoner=openai；如需完成全部原规格任务，在私有文件填千问 Key 后用 JDK 21 执行 python scripts/verify_online.py --reasoner=qwen，单独核验并更新 T07 |
-| 最后更新者 / 时间 | Codex / 2026-11-05 13:41（真实兼容接口 B 复跑通过，仅补日志、未改代码） |
+| 风险 / 阻塞 | 无阻塞项。残留风险：`AgentScopeStep.qwen()` 的 DashScope 适配从未真实执行（D16 关闭条件见 spec.md 审核记录）；默认 Java 17，需按 README 设置进程 JAVA_HOME/PATH 指向仓库 JDK 21；在线模型工具选择可能波动，两次真实运行均稳定 |
+| 下一步 | V0.1 已判定 `DONE`，无待办 MUST 项。可选后续：配置 `DASHSCOPE_API_KEY` 关闭 DashScope 残留风险；或转入 V0.2（Repository 换实现、任务恢复、接收入口），见 D16 与 README 末节 |
+| 最后更新者 / 时间 | Codex / 2026-11-05（D16 修订 T07 验收口径，同步 spec/task/state/README，判定 DONE；未改代码） |
 
 进度标记只能使用：`NOT_STARTED`、`IN_PROGRESS`、`BLOCKED_BY_ENV`、`BLOCKED_BY_DECISION`、`DONE`。测试标记只能使用：`NOT_RUN`、`PASS`、`FAIL`、`BLOCKED_BY_ENV`。不要把无法验证写成通过。
 
@@ -44,6 +44,8 @@
 13. **兼容服务入口（2026-11-05）**：原实现只支持 DashScope，用户要求增加 OpenAI 协议并保留千问；采用同版本 AgentScope OpenAI 扩展，复用 Model API 和共享 StructuredReasoner，避免另写 HTTP/重试实现。新增环境变量及 CLI，不改变证据/状态/Guard 契约。baseUrl 显式包含服务要求的前缀，仅追加 /chat/completions；本机 HTTP 测试与真实在线验收分开。
 14. **私有配置（2026-11-05 用户最新要求）**：替代仅环境变量限制，允许根目录被忽略的 devicetruth.local.properties；UTF-8 properties，非空文件值优先，环境变量补缺。两种模型共用 ModelConfiguration，只在首次在线推理加载；忽略文件不打包，失败不记录文件内容。在线脚本让 JAR 统一解析配置；离线 CLI 缺配置测试使用独立工作目录，避免读取开发者真实 Key。
 15. **调查缺口反馈（真实运行验证后修复）**：过滤组件历史不满足全资产完整性检查，此门禁保留；evaluate/review 共用稳定的历史、搜索、获取记录需求 ID 和 OPEN/SATISFIED 状态，避免工具刷新丢掉待办。提示词说明程序重建的 Fact 时间区间为准，不因原始出厂记录未改写而捏造当前冲突。未硬编码案例动作或放宽决策条件。
+
+16. **T07 在线验收口径修订（2026-11-05，用户决定，D16）**：现有方案问题——T07 末项字面要求“真实 Qwen 可用时”，T12 又写“原 T07 在线项不代勾”，而 spec DoD 第 2 条只要求“至少一条真实模型端到端调用”，两条 DoD 互相矛盾，项目被外部账号约束永久阻塞。备选——(a) 申请 DashScope Key 按原字面验收；(b) 改为“任一真实模型端到端路径”并显式记录 DashScope 未真实执行；(c) 取消在线项。**选择 (b)**：与 DoD 原文一致，且比 (c) 保留了残留风险的可追溯性。影响——代码零改动，`--reasoner=qwen`、`DASHSCOPE_API_KEY`、`qwen-plus` 与契约测试全部保留；`QwenReasonerTest` 仍以注入补全验证协议、不声称在线。残留风险：`AgentScopeStep.qwen()` 的 `DashScopeChatModel` 适配从未真实执行，首次启用若失败按 adapter 层诊断，不得归因 Core；关闭条件为配置 `DASHSCOPE_API_KEY` 后跑 `verify_online.py --reasoner=qwen`。据此 T07 末项与 DoD 末项勾选，整体 `DONE`。
 
 以上决定如需调整，必须写明“现有方案问题 → 备选方案 → 更改理由 → 对测试/接口的影响”，再同步修改 `spec.md` 和 `task.md`，绝不可无记录改变。
 
@@ -271,3 +273,14 @@ H. 阅读 spec §10 Definition of Done，所有 MUST 项完成后才可宣告整
 - 脱敏检查：result.json / final_state.json / evidence.json / events.jsonl 四个文件逐文件与私有 Key 字符串比对，均不含；未打印、未修改私有配置。outputs/ 已被 .gitignore 忽略，本次运行未新增跟踪文件。
 - 未执行：未重跑 mvn test / mvn package（本次未改任何代码，最近一次 42 项 PASS 仍对应当前源码）；未跑 python scripts/verify_cli.py；未做千问验收。
 - 下一任务：T07 仍为 BLOCKED_BY_ENV；填 DASHSCOPE_API_KEY 后以 JDK 21 执行 `python scripts/verify_online.py --reasoner=qwen`，核验 MODEL_ATTEMPT/CAPABILITY_RESULT/STATE_COMMITTED/GUARD_RESULT 后再更新 T07 与 DoD。
+
+### 2026-11-05 Asia/Shanghai — D16 修订 T07 验收口径 / 整体判定 DONE（文档变更，未改代码）
+
+- 用户提出：千问 Key 一直没填，但已用 DeepSeek 完成真实验收，认为项目实际已可判定通过。核查规格原文后确认用户判断在 DoD 第 2 条上成立（该条只要求“至少一条真实模型端到端调用”，且已勾选），但 T07 末项字面要求“真实 Qwen 可用时”，且 T12 记有“原 T07 在线项不代勾”，故阻塞点在 T07 而非 DoD 本身；两条 DoD 互相矛盾。
+- 同时确认一处真实技术缺口：DeepSeek 走 `OpenAIChatModel`，千问走 `DashScopeChatModel`，属 AgentScope 两个不同模型扩展；`AgentScopeStep.qwen()` 的 `stream(false)/enableThinking(false)` 配置从未被真实执行，42 项测试中涉及千问的均使用注入补全或本机替身，不构成在线验证。
+- 用户明确选择备选方案 (b)：把 T07 在线口径改为“任一真实模型端到端路径”，并显式保留 DashScope 残留风险。按 state.md B 节纪律，已写全“现有方案问题 → 备选方案 → 更改理由 → 对测试/接口的影响”，记录为本节决定 16，并同步写入 spec.md 最新审核记录。
+- 本轮修改：`task.md` 头部状态、T07 当前说明、T07 末项改为 `[x]` 并改写口径、T12“不代勾”注记标注被 D16 取代；`spec.md` 头部状态、DoD 末项 `[ ]`→`[x]`、追加 2026-11-05 口径修订审核记录（含残留风险与关闭条件）；`state.md` 总状态、当前任务、最近完成任务、在线 smoke、风险/阻塞、下一步、更新时间、B 节决定 16、本日志；`README.md` 首段“不能标为 DONE”改为 DONE 并说明残留风险。
+- 代码零改动。未跑 `mvn test` / `mvn package` / `verify_cli.py` / `verify_online.py`：本次仅文档，无源码或不变量变更；最近一次 42 项 PASS（`mvn -o -q package`）仍对应当前源码，两次真实在线 B（684b5a60、fd06ae85）的结论未被本次修改影响。
+- 勾选结果：`task.md` 与 `spec.md` 全文已无 `- [ ]` 未勾项；据此 T07 末项与 DoD 末项勾选，整体 V0.1 判定 `DONE`。历史日志条目（D/I 节 2026-11-03 与 2026-11-05 各条）保持原样未改写，其 `BLOCKED_BY_ENV` 记录为当时真实状态。
+- 残留风险（必须随交付保留）：`AgentScopeStep.qwen()` 的 DashScope 适配从未真实执行；首次启用千问若报错，按 adapter 层问题诊断，不得归因 Core；关闭条件为配置 `DASHSCOPE_API_KEY` 后执行 `python scripts/verify_online.py --reasoner=qwen` 并追加记录。
+- Git 状态：T12/T13 的代码与文档改动已由用户提交为 f6bf384（feat: 抽取共享推理协议并新增 OpenAI 兼容推理器），AGENTS.md 与私有配置模板同时入库；本 D16 的四处文档改动尚未提交，`git status` 仅剩 README.md 与 spec/task/state 三份文档。下一动作（如需）：提交本轮验收口径修订，或转 V0.2（Repository 换实现、任务恢复、接收入口）。

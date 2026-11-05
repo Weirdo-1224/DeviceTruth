@@ -1,6 +1,6 @@
 # DeviceTruth Agent Core V0.1 — 产品与工程规格（spec.md）
 
-> 版本：0.1.0 | 日期：2026-11-03 | 状态：**离线及兼容接口真实 B 已通过；千问独立在线验收 BLOCKED_BY_ENV**
+> 版本：0.1.0 | 日期：2026-11-03 | 状态：**DONE**（离线 A–D 全通过；真实模型端到端路径 PASS；千问 DashScope 适配为已知残留风险，非阻塞项）
 > 工作目录：用户**已经创建**的 `DeviceTruth/`；三份工作文档统一保存在 `docs/DeviceTruth_Core_V0.1_Spec_Pack/`，只维护这一套，构建与运行命令仍在项目根目录执行。  
 > 角色：本文件是**唯一功能与验收基线**；`task.md` 为执行顺序，`state.md` 为跨会话事实记录。发生冲突时，先遵循本文件；不能静默修改核心契约。
 
@@ -268,7 +268,7 @@ DeviceTruth/
 - [x] Core 不含 `CAR-A/B/C` 业务结果分支；模拟规则和数据在独立目录/适配器内。
 - [x] 数据扰动测试通过，至少一项跨领域扩展契约测试通过。
 - [x] `README.md` 提供零基础启动步骤、真实/离线模式、示例输出、边界与限制。
-- [ ] `task.md` 所有 MUST 任务完成，`state.md` 最终状态、命令结果、阻塞项真实准确。
+- [x] `task.md` 所有 MUST 任务完成，`state.md` 最终状态、命令结果、阻塞项真实准确。
 
 2026-11-03 审核：以上未勾的真实 LLM 验收及所有 MUST 完成项，均受 T07 在线验收缺少 `DASHSCOPE_API_KEY` 阻塞；不得标记整体 DONE。复现命令与实际报告路径见本目录 `state.md`，不能将脚本/替身测试当成在线结果。
 
@@ -282,3 +282,5 @@ DeviceTruth/
 - 只做结构文档和空项目；只返回一段 Prompt 而不提交可运行源码；偷偷变更 spec 实现更简单的另外一个产品。
 - 删除用户原有代码、移动 `DeviceTruth/` 以外文件、触碰用户其他项目或保存真实密钥。
 - 将模拟诊断建议描述为可用于真实车辆或工业设备的维修操作指导。
+
+2026-11-05 验收口径修订（D16）：**现有方案问题**——T07 最后一个复选框的字面要求是“真实 Qwen 可用时完成单步 smoke test”，且 T12 记有“原 T07 在线项不代勾”；而本 DoD 第 2 条只要求“至少一条真实模型端到端调用”。当前环境仅有 OpenAI 兼容（DeepSeek）凭据，两条 DoD 因此互相矛盾，项目被一个外部账号约束永久阻塞，而技术上不存在未实现的 MUST 功能。**备选**——(a) 申请 DashScope Key 按原字面验收；(b) 把 T07 在线口径改为“任一真实模型端到端路径”，并显式记录 DashScope 适配未经真实执行；(c) 取消 T07 在线项（`[-]`）。**决定**——用户于 2026-11-05 选择 (b)。**理由**——(b) 与 DoD 第 2 条原文一致；(a) 依赖外部账号与额度，属环境约束而非工程缺陷；(c) 会把“未验证”改写成“无需验证”并丢失风险可追溯性，(b) 保留该风险。**影响**——代码零改动；42 项离线测试与 `verify_cli.py` 不受影响；`QwenReasonerTest` 仍以注入补全验证协议、不声称在线；`--reasoner=qwen`、`DASHSCOPE_API_KEY` 与 `qwen-plus` 默认值全部保留。**残留风险**——`AgentScopeStep.qwen()` 使用 `DashScopeChatModel.builder().stream(false).enableThinking(false)`，与 OpenAI 路径属不同 SDK 类，从未被真实执行；将来首次启用千问若失败，按 adapter 层问题诊断，不得归因 Core。**关闭条件**——配置 `DASHSCOPE_API_KEY` 后执行 `python scripts/verify_online.py --reasoner=qwen`，据结果关闭该风险并追加记录。据此 T07 最后一项与本 DoD 最后一项勾选，整体判定 `DONE`。
