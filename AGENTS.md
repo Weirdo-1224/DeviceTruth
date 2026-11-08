@@ -2,16 +2,17 @@
 
 ## 项目结构与核心模块
 
-DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI。源码位于 `src/main/java/io/devicetruth/`：
+DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI 与独立 HTTP 服务两个入口。源码位于 `src/main/java/io/devicetruth/`：
 
 - `app/`：`DeviceTruthApplication` 负责启动和装配，`CliOptions` 解析参数。
 - `core/reasoning/`：`Reasoner` 根据状态提出 `ActionProposal`，`ScriptedReasoner` 支持离线推理。
 - `core/runtime/`：`TaskOrchestrator` 控制单步循环、执行预算和事件记录。
 - `core/capability/`：`CapabilityGateway` 注册只读能力，校验参数和访问范围。
 - `core/evidence/`、`core/state/`、`core/decision/`：`EvidenceManager` 重建事实并使旧依赖失效，`StateManager` 提交状态版本，`DecisionGuard` 校验决策。
-- `adapter/`：`JsonRepositories` 读取数据，`QwenReasoner`、`AgentScopeStep` 对接模型，`RunReportWriter` 保存报告。
+- `adapter/`：`JsonRepositories` 读取数据，`QwenReasoner`、`OpenAiReasoner`（OpenAI 兼容，可指向 DeepSeek）、`AgentScopeStep` 对接模型，`RunReportWriter` 保存报告。
+- `server/`、`api/`、`application/`：`DeviceTruthServerApplication` 起 HTTP 服务，`ConversationController` 暴露会话/诊断接口，`DiagnosisRunService` 有界异步执行 Core。
 
-测试位于 `src/test/java/io/devicetruth/`；日志配置位于 `src/main/resources/`。`datasets/` 保存模拟场景和资料，`skills/automotive-demo/rules.json` 保存规则，两者随 JAR 打包。
+测试位于 `src/test/java/io/devicetruth/`；`src/main/resources/` 保存 `application.properties`（默认推理器与路由模式）、`logback.xml` 和 `static/index.html` 演示前端。`datasets/` 保存模拟场景和资料，`skills/automotive-demo/rules.json` 保存规则，两者随 JAR 打包。
 
 ## 构建、运行与测试命令
 
@@ -27,6 +28,7 @@ DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI
 | `java -jar target/devicetruth-core-0.1.0.jar --scenario=B --reasoner=qwen` | 使用真实 Qwen 运行场景 B |
 | `python scripts/verify_cli.py` | 核验打包后 CLI 的 A–D 场景及报告 |
 | `python scripts/verify_online.py` | 核验真实 Qwen 调用、场景 B 结果和运行轨迹 |
+| `java -cp target/classes;<依赖> io.devicetruth.server.DeviceTruthServerApplication` | 起 HTTP 服务（默认 8080，`-Dserver.port=` 可改端口），浏览器打开 `/index.html` 使用演示前端 |
 
 两个脚本需要 Python 3 和最新 JAR；在线运行还需要 `DASHSCOPE_API_KEY`、网络和模型额度。修改数据或规则后重新打包。报告保存在 `outputs/runs/<runId>/`。
 
