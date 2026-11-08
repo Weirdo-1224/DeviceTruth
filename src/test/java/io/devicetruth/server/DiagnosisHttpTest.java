@@ -18,7 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** M3 真实 HTTP 验收：202/QUEUED/Location、GET 真实状态、结束后白名单事件、归属与脱敏。 */
 @SpringBootTest(classes = DeviceTruthServerApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"devicetruth.run.output-root=target/test-runs"})
+        properties = {"devicetruth.run.output-root=target/test-runs",
+                "devicetruth.core.reasoner=scripted"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class DiagnosisHttpTest {
     @Autowired TestRestTemplate rest;

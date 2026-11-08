@@ -24,7 +24,7 @@
         }
       ],
       "allowedAdviceLevel": "SIMULATION_ONLY",
-      "simulatedAdvice": "SIMULATED: record a training diagnosis for D-120A; no physical maintenance action is authorized.",
+      "simulatedAdvice": "模拟结论：建议记录一条针对 D-120A 的培训诊断；不授权任何实体维修操作。",
       "requiresHuman": false
     },
     {
@@ -49,7 +49,7 @@
         }
       ],
       "allowedAdviceLevel": "SIMULATION_ONLY",
-      "simulatedAdvice": "SIMULATED: record a training diagnosis for D-120B; no physical maintenance action is authorized.",
+      "simulatedAdvice": "模拟结论：建议记录一条针对 D-120B 的培训诊断；不授权任何实体维修操作。",
       "requiresHuman": false
     }
   ]

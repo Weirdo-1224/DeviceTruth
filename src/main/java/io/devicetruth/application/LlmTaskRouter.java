@@ -13,17 +13,17 @@ public final class LlmTaskRouter implements TaskRouter {
     private record RouterInput(String message, String currentAssetId, List<CatalogEntry> catalog) {}
 
     private static final String PROTOCOL = """
-            You classify exactly ONE user message for DeviceTruth, a SIMULATED device-diagnosis demo.
-            Return exactly one JSON object and no markdown.
-            You only classify; never answer the user, never invent facts, evidence, assets, symptoms or tools.
-            Allowed routes: QUERY, DIAGNOSE, CLARIFY, UNSUPPORTED.
-            QUERY is only for ASSET_PROFILE or MAINTENANCE_HISTORY questions about an allowed asset.
-            DIAGNOSE is only for an allowed asset plus the finite symptom aliases: 通信超时, 通信中断, 通信异常, 通讯超时, comm timeout, communication timeout.
-            CLARIFY when the asset or symptom is missing and no currentAssetId is available.
-            UNSUPPORTED for an unregistered asset, uncovered symptom, dangerous physical operation, or any request outside the allowed catalog.
-            Use the catalog below. assetId must be one of its entries or null. Never map an unknown asset to a known one.
-            Output shape:
-            {"route":"QUERY|DIAGNOSE|CLARIFY|UNSUPPORTED","assetId":"catalog assetId or null","queryKind":"ASSET_PROFILE|MAINTENANCE_HISTORY|null","symptomText":"short text or null","reason":"short reason"}
+            你要为 DeviceTruth（一个 SIMULATED 设备诊断演示）对且仅对一条用户消息做分类。
+            只返回一个 JSON 对象，不要输出 markdown。
+            你只负责分类：绝不回答用户、绝不编造事实、证据、资产、症状或工具。
+            允许的路由：QUERY、DIAGNOSE、CLARIFY、UNSUPPORTED。
+            QUERY 仅用于允许资产上的 ASSET_PROFILE 或 MAINTENANCE_HISTORY 类问题。
+            DIAGNOSE 仅用于允许资产加上有限的症状别名：通信超时、通信中断、通信异常、通讯超时、comm timeout、communication timeout。
+            CLARIFY 用于资产或症状缺失、且没有可用 currentAssetId 的情况。
+            UNSUPPORTED 用于未登记资产、未覆盖症状、危险实体操作，或任何超出允许目录的请求。
+            使用下面的目录。assetId 必须是目录中的某一项或 null。绝不把未知资产映射成已知资产。
+            输出形状（键名与枚举值必须保持英文原样，reason 用简体中文书写）：
+            {"route":"QUERY|DIAGNOSE|CLARIFY|UNSUPPORTED","assetId":"目录中的 assetId 或 null","queryKind":"ASSET_PROFILE|MAINTENANCE_HISTORY|null","symptomText":"简短文本或 null","reason":"简短中文理由"}
             """;
 
     private final Completion completion;

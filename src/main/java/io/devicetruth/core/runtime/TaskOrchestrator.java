@@ -78,7 +78,7 @@ public final class TaskOrchestrator {
                 if(s.actionHistory().stream().anyMatch(h->h.observation()!=null&&!h.observation().success()&&h.observation().error().retryable())) {
                     outcome=Outcome.ESCALATE; reason="TOOL_FAILURE_NO_PROGRESS";
                 }
-                status=RunStatus.COMPLETED; needs.add(need("NEED-PROGRESS","Repeated action produced no new evidence",NeedSource.AGENT,null));
+                status=RunStatus.COMPLETED; needs.add(need("NEED-PROGRESS","重复动作未能产生新证据",NeedSource.AGENT,null));
             } else if(action instanceof CallCapability call) {
                 // 能力调用：先核对声明针对的证据缺口存在，再交给网关执行；成功后重新推导事实并失效依赖
                 if(!needs.stream().map(EvidenceNeed::needId).toList().containsAll(call.targetEvidenceNeedIds())) {
@@ -159,7 +159,7 @@ public final class TaskOrchestrator {
             // 步数预算耗尽：以"证据不足"结束，并记录一条需要追加预算的开放需求
             if(status==RunStatus.ACTIVE&&s.actionHistory().size()+1>=budget.maxSteps()) {
                 outcome=Outcome.NEED_EVIDENCE; status=RunStatus.COMPLETED; reason="EXECUTION_BUDGET_EXHAUSTED";
-                needs.add(need("NEED-BUDGET","Further investigation requires additional execution budget",NeedSource.AGENT,null));
+                needs.add(need("NEED-BUDGET","进一步调查需要追加执行预算",NeedSource.AGENT,null));
             }
             var next=manager.commit(s.version(),action,observation,facts,hypotheses,needs,selectedRule,selectedFacts,status,detail,records);
             event(events,"STATE_COMMITTED",next.version(),Map.of("inputVersion",s.version(),"facts",next.facts(),"hypotheses",next.hypotheses(),"needs",next.evidenceNeeds()));
@@ -167,7 +167,7 @@ public final class TaskOrchestrator {
         // 组装最终结果：采纳规则时给出模拟建议，否则给出停止原因作为摘要
         var state=manager.snapshot();
         var result=new DiagnosisResult(state.taskId(),outcome,request.assetId(),request.asOf(),
-                approved!=null?approved.simulatedAdvice():"Investigation stopped: "+reason,
+                approved!=null?approved.simulatedAdvice():"调查已停止："+reason,
                 approved==null?List.of():List.of(approved.ruleId()),supporting,
                 state.evidenceNeeds().stream().filter(n->n.status()!=NeedStatus.SATISFIED).toList(),warnings,reason,
                 state.actionHistory().size(),state.version(),reasoner.name(),"SIMULATED",state.status());

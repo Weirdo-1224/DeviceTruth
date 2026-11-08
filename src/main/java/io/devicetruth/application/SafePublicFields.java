@@ -14,7 +14,7 @@ import java.util.Set;
 public final class SafePublicFields {
     public static final String STOP_REASON_WITHHELD = "STOP_REASON_WITHHELD";
     public static final String RUN_FAILED_WITHHELD_REASON = "RUN_FAILED_WITHHELD_REASON";
-    public static final String SUMMARY_NO_APPLIED_RULE = "SIMULATED: no applied rule; see outcome and open needs";
+    public static final String SUMMARY_NO_APPLIED_RULE = "SIMULATED：未采纳规则；请查看结论与未满足需求";
     public static final String WARNING_WITHHELD = "WARNING_WITHHELD";
 
     /** 源码逐点核对的 28 个稳定停止码（task.md §5.1 / spec §4.8）。 */

@@ -13,34 +13,34 @@ public final class ScriptedReasoner implements Reasoner {
     @Override public ActionProposal propose(Context context) {
         var s=context.state(); var task=s.task();
         // 第一步总是先查规则，明确诊断目标需要哪些前提与证据
-        if(!called(context,"diagnosis.rules.query")) return call("diagnosis.rules.query",Map.of("domain",task.domain(),"symptomCode",task.symptomCode()),"Discover rule prerequisites");
+        if(!called(context,"diagnosis.rules.query")) return call("diagnosis.rules.query",Map.of("domain",task.domain(),"symptomCode",task.symptomCode()),"查询规则前置条件");
         // 第二步读出厂档案，建立基线配置
-        if(!called(context,"asset.profile.get")) return call("asset.profile.get",Map.of("assetId",task.assetId()),"Read baseline configuration");
+        if(!called(context,"asset.profile.get")) return call("asset.profile.get",Map.of("assetId",task.assetId()),"读取出厂基线配置");
         var supported=s.facts().stream().filter(f->f.status()==FactStatus.SUPPORTED).toList();
         // 有已成立事实但尚无假设时，先提一个试探性假设
         if(s.hypotheses().isEmpty()&&!supported.isEmpty()) {
             var fact=supported.getFirst();
-            return new ProposeHypothesis("Tentative configuration: "+fact.subject()+" "+fact.predicate()+"="+fact.value(),List.of(fact.factId()),fact.evidenceIds());
+            return new ProposeHypothesis("试探性配置假设："+fact.subject()+" 的 "+fact.predicate()+" = "+fact.value(),List.of(fact.factId()),fact.evidenceIds());
         }
         // 查更换历史，确认基线之后是否发生过变更
-        if(!called(context,"asset.history.query")) return call("asset.history.query",Map.of("assetId",task.assetId()),"Check changes since baseline");
+        if(!called(context,"asset.history.query")) return call("asset.history.query",Map.of("assetId",task.assetId()),"核对基线之后的变更");
         // 全量发现（不限定组件/来源）可用证据
-        if(!called(context,"evidence.search")) return call("evidence.search",Map.of("assetId",task.assetId()),"Discover available confirmation records");
+        if(!called(context,"evidence.search")) return call("evidence.search",Map.of("assetId",task.assetId()),"发现可用确认证据");
         // 逐条取回已发现但尚未读取的证据
         for(var meta:s.discoveredEvidence()) {
             if(context.evidence().stream().noneMatch(e->e.evidenceId().equals(meta.evidenceId())))
-                return call("evidence.get",Map.of("assetId",task.assetId(),"evidenceId",meta.evidenceId()),"Read discovered evidence");
+                return call("evidence.get",Map.of("assetId",task.assetId(),"evidenceId",meta.evidenceId()),"读取已发现的证据记录");
         }
         // 条件全部满足的规则：请求下结论
         for(var rule:s.knownRules()) {
             if(rule.conditions().stream().allMatch(c->supported.stream().anyMatch(c::matches))) {
                 var facts=supported.stream().filter(f->rule.conditions().stream().anyMatch(c->c.matches(f))).toList();
                 return new ProposeDecision(rule.ruleId(),facts.stream().map(Fact::factId).toList(),
-                        facts.stream().flatMap(f->f.evidenceIds().stream()).distinct().toList(),List.of(),rule.allowedAdviceLevel(),"Check visible facts against candidate prerequisites");
+                        facts.stream().flatMap(f->f.evidenceIds().stream()).distinct().toList(),List.of(),rule.allowedAdviceLevel(),"用当前可见事实核对规则前置条件");
             }
         }
         // 没有任何规则的条件被满足：承认证据不足，请求人工补充
-        return new RequestInformation("Available evidence does not satisfy a candidate rule",List.of("current configuration confirmation or conflict adjudication"));
+        return new RequestInformation("现有证据无法满足任何候选规则",List.of("当前配置的现场确认，或冲突证据的裁定结论"));
     }
     /** 某能力是否已成功调用过（以行动历史为准）。 */
     private boolean called(Context context,String id) {

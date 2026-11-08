@@ -96,7 +96,7 @@ class DiagnosisSafetyMappingTest {
 
         var view = publicView(snapshot).toString();
         assertThat(view).doesNotContain(MARKER, "review-fixture");
-        assertThat(view).contains("STOP_REASON_WITHHELD", "SIMULATED: no applied rule");
+        assertThat(view).contains("STOP_REASON_WITHHELD", "SIMULATED：未采纳规则");
 
         var events = Json.MAPPER.writeValueAsString(RunEventViews.of(snapshot));
         assertThat(events).doesNotContain(MARKER, "review-fixture");
@@ -116,7 +116,7 @@ class DiagnosisSafetyMappingTest {
         var view = publicView(snapshot).toString();
         var events = Json.MAPPER.writeValueAsString(RunEventViews.of(snapshot));
         assertThat(view + events).doesNotContain(MARKER, "review-fixture");
-        assertThat(view).contains("STOP_REASON_WITHHELD", "SIMULATED: no applied rule");
+        assertThat(view).contains("STOP_REASON_WITHHELD", "SIMULATED：未采纳规则");
         assertThat(view).doesNotContain("description");
     }
 

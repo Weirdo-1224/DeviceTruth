@@ -37,7 +37,7 @@ class AcceptanceTest {
         var c=run("C",new ScriptedReasoner());
         assertThat(c.result().outcome()).isEqualTo(Outcome.CONFLICT);assertThat(c.result().appliedRuleIds()).isEmpty();
         assertThat(c.result().supportingEvidenceIds()).containsExactly("CAR-C-FIELD-1","CAR-C-FIELD-2");
-        assertThat(c.result().diagnosisSummary()).doesNotContain("training diagnosis for");
+        assertThat(c.result().diagnosisSummary()).doesNotContain("培训诊断");
         var d=run("D",new ScriptedReasoner());
         assertThat(d.result().outcome()).isEqualTo(Outcome.NEED_EVIDENCE);assertThat(d.result().appliedRuleIds()).isEmpty();
         assertThat(d.result().missingEvidenceNeeds()).anySatisfy(n->assertThat(n.description()).contains("FIELD_CONFIRMATION"));

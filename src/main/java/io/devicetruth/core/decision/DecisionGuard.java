@@ -51,7 +51,7 @@ public final class DecisionGuard {
             boolean satisfied=claimed.stream().filter(f->sameField(requirement,f)).flatMap(f->f.evidenceIds().stream())
                     .filter(proposal.claimedEvidenceIds()::contains).map(evidence::get)
                     .anyMatch(e->valid(e,state)&&e.sourceType().equals(requirement.sourceType()));
-            if(!satisfied) missing.add(need(rule,"Required "+requirement.sourceType()+" for "+requirement.subject()+"."+requirement.predicate(),investigationComplete(state,evidence)?NeedStatus.BLOCKED:NeedStatus.OPEN));
+            if(!satisfied) missing.add(need(rule,"规则需要 "+requirement.sourceType()+" 证据："+requirement.subject()+"."+requirement.predicate(),investigationComplete(state,evidence)?NeedStatus.BLOCKED:NeedStatus.OPEN));
         }
         missing.addAll(investigationNeeds(state,evidence).stream().filter(n->n.status()!=NeedStatus.SATISFIED).toList());
         if(!missing.isEmpty()) return new Verdict(false,investigationComplete(state,evidence)?Outcome.NEED_EVIDENCE:null,"MISSING_REQUIRED_EVIDENCE",rule,missing,List.of());
@@ -74,10 +74,10 @@ public final class DecisionGuard {
             boolean satisfied=state.facts().stream().filter(f->f.status()==FactStatus.SUPPORTED&&sameField(requirement,f))
                     .flatMap(f->f.evidenceIds().stream()).map(evidence::get)
                     .anyMatch(e->valid(e,state)&&requirement.sourceType().equals(e.sourceType()));
-            needs.add(need(rule,"Required "+requirement.sourceType()+" for "+requirement.subject()+"."+requirement.predicate(),
+            needs.add(need(rule,"规则需要 "+requirement.sourceType()+" 证据："+requirement.subject()+"."+requirement.predicate(),
                     satisfied?NeedStatus.SATISFIED:investigationComplete(state,evidence)?NeedStatus.BLOCKED:NeedStatus.OPEN));
         }
-        if(!contested.isEmpty()) needs.add(new EvidenceNeed("NEED-CONFLICT","Adjudicate overlapping equal-authority current evidence",NeedSource.RULE,NeedStatus.BLOCKED,null));
+        if(!contested.isEmpty()) needs.add(new EvidenceNeed("NEED-CONFLICT","裁定同权威且重叠的当前证据",NeedSource.RULE,NeedStatus.BLOCKED,null));
         // 与 evaluate 共用稳定的调查需求，避免一次工具刷新丢掉仍未完成的门禁前提。
         needs.addAll(investigationNeeds(state,evidence));
         return new Review(needs,!contested.isEmpty(),contested.stream().flatMap(f->f.evidenceIds().stream()).distinct().sorted().toList());
@@ -85,11 +85,11 @@ public final class DecisionGuard {
     private List<EvidenceNeed> investigationNeeds(DiagnosisState state,Map<String,EvidenceRecord> evidence) {
         var pending=state.discoveredEvidence().stream().filter(e->!evidence.containsKey(e.evidenceId())).map(EvidenceMetadata::evidenceId).toList();
         return List.of(
-                new EvidenceNeed("NEED-FULL-HISTORY","Call asset.history.query with assetId only; omit componentId to complete asset-wide history",NeedSource.RULE,
+                new EvidenceNeed("NEED-FULL-HISTORY","仅用 assetId 调用 asset.history.query（省略 componentId），补全整机更换历史",NeedSource.RULE,
                         completed(state,"asset.history.query",false)?NeedStatus.SATISFIED:NeedStatus.OPEN,null),
-                new EvidenceNeed("NEED-FULL-DISCOVERY","Call evidence.search with assetId only; omit componentId and sourceType to discover all evidence",NeedSource.RULE,
+                new EvidenceNeed("NEED-FULL-DISCOVERY","仅用 assetId 调用 evidence.search（省略 componentId 与 sourceType），做全量证据发现",NeedSource.RULE,
                         completed(state,"evidence.search",true)?NeedStatus.SATISFIED:NeedStatus.OPEN,null),
-                new EvidenceNeed("NEED-DISCOVERED-RECORDS","Fetch every discovered record with evidence.get; pending evidence IDs: "+pending,NeedSource.RULE,
+                new EvidenceNeed("NEED-DISCOVERED-RECORDS","用 evidence.get 取回每条已发现记录；待取回证据 ID："+pending,NeedSource.RULE,
                         pending.isEmpty()?NeedStatus.SATISFIED:NeedStatus.OPEN,null));
     }
     /** 调查是否完成 = 已查更换历史 + 已做不限定条件的证据搜索 + 所有已发现证据均已取回。 */

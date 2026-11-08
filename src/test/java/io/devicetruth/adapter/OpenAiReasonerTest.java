@@ -112,7 +112,7 @@ class OpenAiReasonerTest {
         var reasoner=new OpenAiReasoner(environment("/v1")::get);
         assertThatThrownBy(()->reasoner.propose(context())).hasMessage("MODEL_OUTPUT_INVALID_AFTER_RETRY");
         assertThat(requests).hasSize(2);
-        assertThat(requests.get(1).body().at("/messages/0/content").asText()).contains("Previous output was invalid");
+        assertThat(requests.get(1).body().at("/messages/0/content").asText()).contains("上一次输出不是合法的 JSON");
         assertThat(reasoner.drainAttempts()).extracting(Reasoner.Attempt::outcome)
                 .containsExactly("INVALID_JSON_OR_SCHEMA","INVALID_JSON_OR_SCHEMA");
     }
