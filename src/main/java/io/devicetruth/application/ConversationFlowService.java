@@ -9,7 +9,7 @@ import java.util.stream.Collectors;
 
 /**
  * 会话消息处理：先路由并做程序复核，再执行受限处理并原子写入消息。
- * M2 真正交付 QUERY（只读事实查询）与 DIAGNOSE 的 Goal→Request 映射；诊断执行归 M3。
+ * QUERY 走真实只读查询（200）；DIAGNOSE 只登记有界异步任务并返回 202 + QUEUED，真实状态由 GET 查询。
  */
 public final class ConversationFlowService {
     public record FlowResult(int status, Route route, UUID messageId, UUID diagnosisId, String reply, String assetId,
@@ -19,22 +19,21 @@ public final class ConversationFlowService {
         }
     }
 
-    /** 一次诊断目标映射的可见结果：只证明"目标是怎样映射成 Core 请求的"，不声称已执行。 */
-    public record DiagnosisPlanResult(Route route, String reply, String assetId, DiagnosisRequest request) {}
-
     private final ConversationService conversations;
     private final TaskRouter router;
     private final SupportedScenarioCatalog catalog;
     private final QueryService queries;
     private final DiagnosisApplicationService diagnoses;
+    private final DiagnosisRunService runs;
 
     public ConversationFlowService(ConversationService conversations, TaskRouter router, SupportedScenarioCatalog catalog,
-                                   QueryService queries, DiagnosisApplicationService diagnoses) {
+                                   QueryService queries, DiagnosisApplicationService diagnoses, DiagnosisRunService runs) {
         this.conversations = conversations;
         this.router = router;
         this.catalog = catalog;
         this.queries = queries;
         this.diagnoses = diagnoses;
+        this.runs = runs;
     }
 
     public FlowResult handle(UUID sessionId, String content, String assetIdHint) {
@@ -48,8 +47,7 @@ public final class ConversationFlowService {
 
         return switch (decision.route()) {
             case QUERY -> query(session, decision, content, requestedAt);
-            // M2 只验证 Goal→Request：不进入 Core，也不返回任何"已执行"的外观结果。
-            case DIAGNOSE -> throw new ApplicationExceptions.NotImplementedException(Route.DIAGNOSE);
+            case DIAGNOSE -> diagnose(session, decision, content, requestedAt);
             // CLARIFY/UNSUPPORTED 在锁内一次性提交，容量不足时不留半条交互。
             case CLARIFY, UNSUPPORTED -> recordText(session, decision, content, requestedAt);
         };
@@ -72,35 +70,34 @@ public final class ConversationFlowService {
         var userMessage = session.commitPlanned(Route.QUERY, () -> {
             var result = queries.query(decision.assetId(), decision.queryKind());
             answer[0] = result;
-            return new Interaction(decision.assetId(), content, result.answer(), result);
+            return new Interaction(decision.assetId(), content, result.answer());
         });
         return new FlowResult(200, Route.QUERY, userMessage.messageId(), null, answer[0].answer(),
                 decision.assetId(), requestedAt, answer[0], null);
     }
 
     /**
-     * 诊断路由的 Goal→Request 映射（M2 验收用）：
-     * 不创建会话消息、不调用 Core，只返回映射结果，并明确说明诊断尚未执行。
+     * 诊断：先在会话锁内做容量预检与 USER/SYSTEM 原子写入，再登记有界异步任务。
+     * 会话超限时不留半条消息；执行器拒绝时移除注册项并返回 429，绝不留下永远 QUEUED 的 ID。
+     * 回复只说"已接受"，不承诺任何诊断结论。
      */
-    public DiagnosisPlanResult planDiagnosis(UUID sessionId, String content) {
-        validateContent(content);
-        var session = conversations.require(sessionId);
-        RouteDecision decision = router.decide(new TaskRouter.RouteRequest(content, session.currentAssetId(), null));
-        if (decision.route() != Route.DIAGNOSE)
-            throw new IllegalArgumentException("message does not map to a supported diagnosis");
-        var mapping = diagnoses.map(decision.assetId(), content, Instant.now());
-        if (mapping.goal().isEmpty())
-            throw new IllegalArgumentException("diagnosis goal rejected: " + mapping.reason());
+    private FlowResult diagnose(ConversationSession session, RouteDecision decision, String content, Instant requestedAt) {
+        var mapping = diagnoses.map(decision.assetId(), content, requestedAt);
+        if (mapping.goal().isEmpty()) throw new IllegalStateException("diagnosis goal rejected: " + mapping.reason());
         var goal = mapping.goal().get();
         DiagnosisRequest request = DiagnosisApplicationService.toRequest(goal);
-        String reply = String.format(
-                "诊断目标已映射为 Core 请求（assetId=%s, domain=%s, symptomCode=%s, asOf=%s），诊断尚未执行。",
-                request.assetId(), request.domain(), request.symptomCode(), request.asOf());
-        return new DiagnosisPlanResult(Route.DIAGNOSE, reply, request.assetId(), request);
-    }
 
-    private String renderQueryReply(QueryAnswer answer) {
-        return answer.answer();
+        String reply = String.format(
+                "已接受模拟诊断任务（assetId=%s, symptomCode=%s, asOf=%s）。诊断尚未完成，请使用 diagnosisId 查询执行状态。",
+                request.assetId(), request.symptomCode(), request.asOf());
+        String[] diagnosisId = new String[1];
+        var userMessage = session.commitPlanned(Route.DIAGNOSE, () -> {
+            var accepted = runs.submit(goal, session.sessionId());
+            diagnosisId[0] = accepted.diagnosisId().toString();
+            return new Interaction(decision.assetId(), content, reply);
+        });
+        return new FlowResult(202, Route.DIAGNOSE, userMessage.messageId(), UUID.fromString(diagnosisId[0]),
+                reply, decision.assetId(), requestedAt, null, request);
     }
 
     private static void validateContent(String content) {

@@ -111,15 +111,25 @@ class ServerHttpTest {
         assertThat(Json.MAPPER.readTree(response.getBody()).path("route").asText()).isEqualTo("UNSUPPORTED");
     }
 
-    @Test void diagnoseStaysNotImplementedAndPersistsNoMessages() throws Exception {
-        // M2 只完成 Goal→Request 映射；诊断执行归 M3，HTTP 仍须明确 501 且不写会话。
+    @Test void diagnoseIsAcceptedWith202AndPersistsPairedMessages() throws Exception {
+        // M3：DIAGNOSE 不再 501，固定 202 + QUEUED + Location；会话消息成对写入，不含任何诊断结论。
         UUID sessionId = createSession();
         var diagnose = send(sessionId, "CAR-B 通信超时，帮我诊断", null);
-        assertThat(diagnose.getStatusCode().value()).isEqualTo(501);
-        assertThat(Json.MAPPER.readTree(diagnose.getBody()).path("code").asText()).isEqualTo("NOT_IMPLEMENTED");
+        assertThat(diagnose.getStatusCode().value()).isEqualTo(202);
+        var body = Json.MAPPER.readTree(diagnose.getBody());
+        assertThat(body.path("route").asText()).isEqualTo("DIAGNOSE");
+        assertThat(body.path("executionStatus").asText()).isEqualTo("QUEUED");
+        var diagnosisId = UUID.fromString(body.path("diagnosisId").asText());
+        assertThat(diagnose.getHeaders().getLocation().toString())
+                .isEqualTo("/api/diagnoses/" + diagnosisId);
 
         var messages = rest.getForEntity("/api/sessions/" + sessionId + "/messages", String.class);
-        assertThat(Json.MAPPER.readTree(messages.getBody()).path("messages").size()).isZero();
+        var list = Json.MAPPER.readTree(messages.getBody()).path("messages");
+        assertThat(list.size()).isEqualTo(2);
+        assertThat(list.get(0).path("role").asText()).isEqualTo("USER");
+        assertThat(list.get(1).path("role").asText()).isEqualTo("SYSTEM");
+        assertThat(list.get(1).path("content").asText()).contains("诊断尚未完成");
+        assertThat(messages.getBody()).doesNotContain("NOT_IMPLEMENTED");
     }
 
     @Test void explicitUnknownAssetWithConfirmedContextIsUnsupportedNotDiagnosed() throws Exception {

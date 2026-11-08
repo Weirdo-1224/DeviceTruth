@@ -38,6 +38,11 @@ public class ApiExceptionHandler {
         return error(HttpStatus.NOT_IMPLEMENTED, "NOT_IMPLEMENTED", "该路由已识别，但对应处理将在后续里程碑启用。");
     }
 
+    @ExceptionHandler(ApplicationExceptions.RunCapacityExceededException.class)
+    ResponseEntity<ErrorResponse> runCapacity() {
+        return error(HttpStatus.TOO_MANY_REQUESTS, "RUN_CAPACITY_EXCEEDED", "诊断执行队列已满，请稍后再试。");
+    }
+
     /** 仓储返回了不属于请求资产的记录：属于内部一致性问题，不对外透传任何记录内容。 */
     @ExceptionHandler(ApplicationExceptions.QueryAssetMismatchException.class)
     ResponseEntity<ErrorResponse> queryAssetMismatch() {

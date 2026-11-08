@@ -1,6 +1,6 @@
 # DeviceTruth V0.2｜S0/S1 分会话实施任务（Task）
 
-> 状态基线：M0 已由 Codex Review #2 判定 **PASS 并置 `DONE`**；M1 已由 Codex Review #3 判定 **PASS 并置 `DONE`**；M2 已由 Codex Review（`reviews/M2.md` 首审）判定 **PASS 并置 `DONE`**（均为 2026-11-08；未解决 P0=0/P1=0）。M3 仍为 `TODO`，仅在 M2 PASS 后启动。每次只推进一个里程碑；Review PASS 后才能改 DONE。原 R01~R07 要求保留为里程碑内部检查项，不再各自创建会话和 Review。M0 的真实命令、退出码与源码依据见 [S0_AUDIT.md](./S0_AUDIT.md) §2.3。
+> 状态基线：M0 已由 Codex Review #2 判定 **PASS 并置 `DONE`**；M1 已由 Codex Review #3 判定 **PASS 并置 `DONE`**；M2 已由 Codex Review（`reviews/M2.md` 首审）判定 **PASS 并置 `DONE`**；M3 已由 Codex Review（`reviews/M3.md` 首审 CHANGES_REQUIRED → 修复复审 **PASS**）判定 **PASS 并置 `DONE`**（均为 2026-11-08；未解决 P0=0/P1=0）。**S1 已关闭**。S2（多轮会话/补证/Hypothesis 闭环）尚未启动、未拆分里程碑，保持 TODO；每次只推进一个里程碑；Review PASS 后才能改 DONE。原 R01~R07 要求保留为里程碑内部检查项，不再各自创建会话和 Review。M0 的真实命令、退出码与源码依据见 [S0_AUDIT.md](./S0_AUDIT.md) §2.3。
 >
 > 每个里程碑由开发者实施或完成文档审计，Codex 独立 Review。**不默认允许模型执行 commit/push/reset/clean。**
 
@@ -23,7 +23,7 @@
 | M0 | S0 | 原 R01+R02：基线审计 → 契约冻结 | 无 | **DONE**（2026-11-08，Review #2 PASS） | `reviews/M0.md`（#1 CHANGES_REQUIRED → #2 PASS） |
 | M1 | S1 | 原 R03+R04：双 Main/Catalog/Session/Router | M0 PASS | **DONE**（2026-11-08，Review #3 PASS） | reviews/M1.md（#1 CHANGES_REQUIRED → #2 CHANGES_REQUIRED → **#3 PASS**） |
 | M2 | S1 | 原 R05：QueryService + Goal→Core 请求映射 | M1 PASS | **DONE**（2026-11-08，Review 首审 PASS） | reviews/M2.md（PASS，P2×2 延期） |
-| M3 | S1 | 原 R06+R07：异步运行/结果事件/最终验收 | M2 PASS | TODO | reviews/M3.md（未生成） |
+| M3 | S1 | 原 R06+R07：异步运行/结果事件/最终验收 | M2 PASS | **DONE**（2026-11-08，首审 CHANGES_REQUIRED → 修复复审 PASS） | reviews/M3.md（#1 CHANGES_REQUIRED → **#2 PASS**，P2×5 登记） |
 
 ### 通用开发边界
 
@@ -363,6 +363,30 @@ M3 连续完成异步诊断和最终验收，但设两个内部检查点：A 先
 8. 最终结果明确区分“已有 HTTP+受控 Core”与“尚未实现完整 Hypothesis O-H-E-D / 多轮恢复 / 双域 Skill / Vue”。
 
 **M3 Codex Review**：审查从 M2 checkpoint 到当前交付的代码，并复核整个 S0/S1 的架构一致性与**真实集成证据**；拒绝静态编造的 API 响应、虚假的在线通过。针对 P0/P1 要求修复复测。无在线模型条件时可以注明 S1 离线验收通过、在线验收阻塞，不能混为全量通过。报告写入 `reviews/M3.md`。
+
+### 5.3 M3 首审修复记录（2026-11-08；`reviews/M3.md` = CHANGES_REQUIRED，P0=0/P1=2）
+
+- **M3-P1-01（已修）事件视图对 7/11 类事件生成错误 summary/referenceIds**
+  - 根因：`RunEventViews.view()` 把 `event.data()` 当 `Map` 逐层导航，但 `TaskOrchestrator` 放进内存 `RunEvent.data` 的是 Java record（`Attempt`/`ActionProposal`/`CapabilityResult`/`Verdict` 等），`instanceof Map` 恒为假 → 字段全取 null。落盘 `events.jsonl` 经 Jackson 序列化所以文件正常，API 走内存 report 故错误（成功调用显示 `TOOL_FAILURE`、动作恒 `UNKNOWN`、`结案校验：` 空、referenceIds 全空）。
+  - 最小修改：`RunEventViews` 新增 `normalized(...)`，用 `Json.MAPPER.convertValue` 把载荷规范化为 JSON Map 后再读取（与 `RunReportWriter` 落盘形状一致）；规范化失败时退化为固定安全文案，不猜测内容。未改 `core/`、未改任何冻结契约。
+  - 复现→修复：`EventsProbe`（真实 scripted Core 跑 CAR-B）修复前 `提议动作 UNKNOWN / 能力结果：TOOL_FAILURE / 结案校验：（空）/ []`；修复后 `提议动作 CALL_CAPABILITY / 能力结果：成功 / 结案校验：RULE_AND_EVIDENCE_VERIFIED / [DEMO-D-120B]`，`HYPOTHESIS_INVALIDATED` 带 `[H-1]`。
+  - 防回归：`DiagnosisHttpTest` 新增 scripted B 的 7 类事件 summary/referenceIds 精确断言（含 5 个能力 ID、`PROPOSE_DECISION`→`DEMO-D-120B`、8 类事件、摘要非空）。
+- **M3-P1-02（已修）`S1_ACCEPTANCE_REPORT.md` 全部 NOT_RUN**
+  - 修复：按 `.m3-logs/` 真实证据（主探针 20 项、特殊探针 7 项、CLI 日志、`verify_cli.py`、`clean package` 145/0/0/0）逐项填写 TC-01~TC-20 的状态/命令/证据；TC-20 记 `BLOCKED_BY_ENV` 并写明障碍（无可用模型凭据）；§6 区分"已有 HTTP+受控 Core"与"S2/S3/S4 未实现"。
+  - 说明：P1-01 修复后**重新执行**了两个 HTTP 探针再转录，未复用修复前结果。
+- **顺带清理 P2**：删除 `DiagnosisRunService.completedResult()` 死代码（M3-P2-02）。其余 P2 仍登记延期。
+- 修复后门禁：`mvn -o clean package` 退出 0（**145 项 0/0/0**，`Start-Class=io.devicetruth.app.DeviceTruthApplication`）；CLI A–D 退出 0（7/7/7/6）、E 退出 2；`python scripts/verify_cli.py` 退出 0；主探针 20/20、特殊探针 7/7。
+- 状态：保持 **`REVIEW_PENDING`**，等 Codex 复审；未 commit/push/tag。
+
+### 5.4 M3 复审结果与里程碑关闭（2026-11-08）
+
+- Codex Review #2（`reviews/M3.md` §6/§7）判定 **PASS**：未解决 P0=0、P1=0（M3-P1-01 事件视图映射错误、M3-P1-02 验收报告未填写均已验证关闭），P2×5 登记延期（M3-P2-02 死代码已顺手关闭）。
+- 复审实际执行（Reviewer 独立复跑）：`mvn -q -o clean package` 退出 0（**28 个测试类 145 项，0 失败/0 错误/0 跳过**）；`Start-Class=io.devicetruth.app.DeviceTruthApplication`；CLI A–D 退出 0（7/7/7/6；RESOLVED/RESOLVED/CONFLICT/NEED_EVIDENCE）、`--scenario=E` 退出 2；`python scripts/verify_cli.py` 退出 0。
+- Reviewer `EventsProbe`（真实 scripted Core 跑 CAR-B）复核 P1-01 修复：34 条事件 8 类，5 条 `CAPABILITY_RESULT` 全部 `能力结果：成功` + 真实能力 ID，动作类型真实（含 `PROPOSE_DECISION [DEMO-D-120B]`），`GUARD_RESULT=结案校验：RULE_AND_EVIDENCE_VERIFIED [DEMO-D-120B]`，`HYPOTHESIS_INVALIDATED [H-1]`，缺陷摘要 0 条。
+- Reviewer HTTP 探针（3 个真实 Server 自起自停）R-01~R-19 全 PASS：202/QUEUED/Location、真实结果与固定 asOf、无 `reportPath`、白名单码 `DASHSCOPE_API_KEY_MISSING` 原样返回、Core FAILED 不包装 COMPLETED、合成 `PROMPT_FRAGMENT` 经真实 GET 不回显、归属/不存在同码 404。
+- 边界：`pom.xml`、`core/`、`adapter/`、`app/`、`src/main/resources`、`datasets/`、`skills/`、`scripts/` 相对 `0dff7c9` 零改动；`core/adapter/app` 无 Spring 组件注解。
+- 状态转换：`REVIEW_PENDING → DONE`，**S1 关闭**。**未授权 commit**；交付对照快照另存于 `outputs/baselines/M3/`（`M3-delivery.patch` + 未跟踪文件副本 + 18 个交付文件 SHA-256 全 OK、聚合 `9ed731c0…`），S2 以此为比较基线。
+- 在线 Router/在线 Reasoner 维持 `BLOCKED_BY_ENV`（`S1_ACCEPTANCE_REPORT.md` TC-20 如实记录），不记在线 PASS。
 
 ## 6. 测试编号映射（原方案 TC-01~TC-20）
 

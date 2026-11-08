@@ -15,8 +15,8 @@ public final class ConversationSession {
     private String currentAssetId;
     private UUID activeDiagnosisId;
 
-    /** 会话内一次完整交互的提交内容：资产绑定、用户消息、系统回复（可带结构化查询结果）。 */
-    public record Interaction(String assetId, String userContent, String reply, QueryAnswer queryAnswer) {}
+    /** 会话内一次完整交互的提交内容：资产绑定、用户消息、系统回复。 */
+    public record Interaction(String assetId, String userContent, String reply) {}
 
     ConversationSession(UUID sessionId, Instant createdAt, int maxMessages) {
         this.sessionId = sessionId;
@@ -44,7 +44,7 @@ public final class ConversationSession {
      */
     public synchronized ConversationMessage commitInteraction(Route route, String assetId,
                                                               String userContent, String reply) {
-        return writeLocked(route, new Interaction(assetId, userContent, reply, null));
+        return writeLocked(route, new Interaction(assetId, userContent, reply));
     }
 
     /**

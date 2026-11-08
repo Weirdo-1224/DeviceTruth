@@ -5,13 +5,12 @@
 ## 1. 当前总体状态
 
 - 计划：S0 → S1；后续 S2 → S3 → S4，不调整。
-- 当前阶段：**S1 进行中**（S0 已关闭；M0、M1、M2 均 DONE）。
-- 当前里程碑：**M3（S1）= TODO**，仅在 M2 Review PASS 后启动（`reviews/M2.md` 首审 PASS，未解决 P0=0/P1=0，新增 P2=2 延期；连同 M1 延期共 4 项 P2）。
-- 下一里程碑：**M3 之后为 S2**，不在 S1 范围内规划。
+- 当前阶段：**S1 已关闭**（S0 已关闭；M0、M1、M2、M3 均 DONE，2026-11-08）。
+- 当前里程碑：**无**；最后完成 M3（S1）。下一里程碑：**S2（未拆分、TODO）**，需先做里程碑拆分规划，不在 S1 文档内预建编号、不提前标完成。
 - 文档规格状态：**FROZEN**（M0 Review #2 PASS 后转入；此后改规格须走 `spec.md` §10 并经用户批准）。
-- 当前开发基线 commit：**M2 checkpoint `0dff7c9`**（subject：`feat: M2 事实查询与诊断请求映射通过 Review 并交接至 M3`，用户已授权建立；未 push、无 tag、无 stash）。M3 的 diff 基线 = `git diff 0dff7c9..HEAD`（工作树已干净）；对照快照另存于 `outputs/baselines/M2/`（18 个交付文件 SHA-256 全 OK、聚合 `6282c5f2…`）。
-- 工作树状态（M3 开工前）：M2 交付已提交为 checkpoint `0dff7c9`，`git status` 干净；`target/`、`outputs/runs` 为运行产物，不纳交付；根目录 m1-*/m2-*.log 已清理（证据已收敛进 reviews/task）。
-- 是否完成 S1：**否**（M0/M1/M2 DONE；M3 未开始）。
+- 当前开发基线 commit：仍为 **M2 checkpoint `0dff7c9`**（M3 未授权 commit）。M3 交付 = 工作树相对 `0dff7c9` 的 diff；对照快照 `outputs/baselines/M3/`（patch + 未跟踪副本 + 18 个交付文件 SHA-256 全 OK、聚合 `9ed731c0…`），S2 比较基线 = `git diff 0dff7c9 -- src README.md`。
+- 工作树状态（M3 交接时）：M3 业务交付 + 流程文档更新均未提交；`target/`、`outputs/runs`、`.m3-logs/` 为运行产物/证据，不纳交付。
+- 是否完成 S1：**是（离线验收 PASS）**；在线 Router/在线 Reasoner 为 `BLOCKED_BY_ENV`，不属 S1 完成条件但不得宣称在线通过。
 
 ## 2. 里程碑进度
 
@@ -20,7 +19,7 @@
 | M0 | **DONE** | `reviews/M0.md`（#1 CHANGES_REQUIRED → #2 PASS） | `S0_AUDIT.md` 审计 + `spec.md` 冻结 + Review P1/P2 修复 |
 | M1 | **DONE** | `reviews/M1.md`（#1 CHANGES_REQUIRED → #2 CHANGES_REQUIRED → **#3 PASS**） | 双入口 + Server/健康端点 + Catalog + Session + 四类路由（QUERY/DIAGNOSE 暂为明确 501）；完整 token 边界资产校验（CAR-ZZ/CAR-B2/CAR-B-UNKNOWN 不再回落 CAR-B，规则/证据 ID 豁免） |
 | M2 | **DONE** | `reviews/M2.md`（首审 **PASS**） | QueryService（仅 ASSET_PROFILE/MAINTENANCE_HISTORY，真实 profile/history + 真实 sources）；DiagnosisGoal→DiagnosisRequest（Catalog 固定 asOf + 规则存在性）；QUERY 返回 200 真实结果，DIAGNOSE 仍明确 501 |
-| M3 | TODO | 未执行 | 待异步 Run/Events + S1 最终验收 |
+| M3 | **DONE** | `reviews/M3.md`（首审 CHANGES_REQUIRED → 修复复审 **PASS**） | 有界异步 DiagnosisRunService（队列拒绝同步移除注册项、Core FAILED 不包装 COMPLETED）+ 每任务 ReasonerFactory + 202/QUEUED/Location + GET 状态/结果（三 ID 分离、§4.8 白名单过滤、openNeeds 无 description）+ 结束后 11 类白名单事件视图 + TC-01~TC-20 验收报告（TC-20 在线 BLOCKED_BY_ENV） |
 
 ## 3. 已确定的**设计意图**（S1 契约已冻结，实现待 M1–M3）
 
@@ -85,49 +84,61 @@
 - 变更面相对 `2c599e7`：`api/application/server` 8 改 + 7 新增（含 3 个测试类），`core/adapter/app/pom.xml/datasets/skills/scripts` 零改动；`core/adapter/app` 无新增 Spring 注解。
 - 基线：`outputs/baselines/M2/`（patch + 8 个未跟踪文件副本 + 18 个交付文件 SHA-256 全 OK，聚合 `6282c5f2…`）；本轮未授权 commit，M3 以工作树 diff `2c599e7 -- src README.md` 为比较基线。
 
+### 4.6 M3 首审修复已验证事实（2026-11-08，开发者自测）
+
+- M3-P1-01 根因：`RunEventViews` 把内存 `RunEvent.data` 当 Map 导航，而 Core 存的是 record，字段全取 null → 成功能力调用显示 `TOOL_FAILURE`、动作恒 `UNKNOWN`、`结案校验：` 空、referenceIds 全空。修复：`Json.MAPPER.convertValue` 先规范化为 JSON Map（与 `RunReportWriter` 落盘形状一致），`core/` 零改动。
+- 前后对比（`EventsProbe`，真实 scripted Core 跑 CAR-B）：修复前 `提议动作 UNKNOWN / 能力结果：TOOL_FAILURE / 结案校验：（空）`；修复后 `提议动作 CALL_CAPABILITY / 能力结果：成功 / 结案校验：RULE_AND_EVIDENCE_VERIFIED / [DEMO-D-120B]`，34 条事件 8 类。
+- M3-P1-02：`S1_ACCEPTANCE_REPORT.md` 已按真实证据逐项填写 TC-01~TC-20；TC-20 = `BLOCKED_BY_ENV`。
+- 门禁：`mvn -o clean package` 退出 0（**145 项 0/0/0**，`Start-Class` 仍为 CLI 主类）；CLI A–D 退出 0（7/7/7/6）、E 退出 2；`verify_cli.py` 退出 0；P1-01 修复后**重跑**主探针 **20/20**、特殊探针 **7/7**。
+- 顺带清理 M3-P2-02 死代码 `completedResult()`。范围仅 `RunEventViews`、`DiagnosisRunService`、`DiagnosisHttpTest` 与文档；`core/adapter/app/pom/datasets/skills/scripts` 相对 `0dff7c9` 仍零改动。
+
+### 4.7 M3 通过已核实的事实（2026-11-08，Review 修复复审 PASS）
+
+- 门禁：`mvn -q -o clean package` 退出 0（**28 类 145 项，0 失败/0 错误/0 跳过**）；`Start-Class=io.devicetruth.app.DeviceTruthApplication`；CLI A–D 退出 0（7/7/7/6）、`--scenario=E` 退出 2；`verify_cli.py` 退出 0。
+- Reviewer `EventsProbe` 复核 P1-01：34 条事件 8 类，5 条 `CAPABILITY_RESULT` 全部 `能力结果：成功` + 真实能力 ID，7 条 `ACTION_PROPOSED` 类型真实（含 `PROPOSE_DECISION [DEMO-D-120B]`），`GUARD_RESULT` 带判定码与规则 ID，`HYPOTHESIS_INVALIDATED [H-1]`，缺陷摘要 0 条。
+- Reviewer HTTP 探针（3 个真实 Server 自起自停）R-01~R-19 全 PASS：202/QUEUED/Location、真实结果、`diagnosisAsOf` 固定、无 `reportPath`、白名单码原样、FAILED 不包装、合成 `PROMPT_FRAGMENT` 经真实 GET 不回显、归属/不存在同码 404。
+- `pom.xml/core/adapter/app/resources/datasets/skills/scripts` 相对 `0dff7c9` 零改动；`core/adapter/app` 无 Spring 组件注解；端口无残留。
+- 基线：未授权 commit；`outputs/baselines/M3/`（patch + 未跟踪副本 + 18 个交付文件 SHA-256 全 OK、聚合 `9ed731c0…`）为 S2 比较基线。M2-P2-01（死代码）、M2-P2-02（`planDiagnosis` 无测试）已随 M3 交付清理/移除，视为关闭。
+
 ## 5. 未解决的风险与限制
 
-- **`spec.md` §4.8 安全映射只在契约层存在**（M0-P1-01 = CLOSED 指契约，不指实现）。Core 仍会把模型自由 `reason` 写进 `stopReason`/`diagnosisSummary`/`NEED-AGENT` 描述/`TERMINATED`。M3 必须实现 28 项白名单过滤并用“合成路径 + `PROMPT_FRAGMENT`”合法提案做负例，证明 GET 结果与 `/events` 不回显；Core 内部报告保留原值。
-- **在线一律 `BLOCKED_BY_ENV`**：交接环境未检测到 `DASHSCOPE_API_KEY`（只判断存在性，未读取值），也未执行 `verify_online.py` 或任何真实 Qwen/OpenAI 兼容调用。M1 在线 Router 仅验证过“缺配置 → 503”与“本机替身完整适配路径”，真实中文模型能力 **NOT_VERIFIED**；历史在线结论仅作 `[HISTORICAL]`。
-- **M2 已交付 QUERY，但 DIAGNOSE 仍为临时 `501` 测试态**：QUERY 已走真实只读仓储；DIAGNOSE 的 Goal→Request 映射已具备（`DiagnosisApplicationService` / `planDiagnosis`），但**尚未接入 Core**，HTTP 仍明确 501 且不写会话。M3 接上 `DiagnosisRunService` 后必须删除该 501 分支或提供测试证明不可达；不得把 501 当作诊断已实现。
-- **`HypothesisStatus.SUPPORTED` 在主源码中从未被赋值**（实际只有 `OPEN`/`INVALIDATED`）→ 任何文档/答复不得宣称假设驱动 O-H-E-D 闭环；已登记 S2。
-- 未解决 P2：**4**（延期，不阻塞 M3）——`M1-P2-01` 空白 `assetId:" "` 被当作未提供，应 400；`M1-P2-02` `RouterUnavailableHttpTest` 走「不支持模式」而非 qwen/openai 缺配置 `required` 路径；`M2-P2-01` 死代码（`ConversationSession.Interaction.queryAnswer` 无读取方、`ConversationFlowService.renderQueryReply` 无调用方，建议随 M3 清理）；`M2-P2-02` `planDiagnosis` 无交付内测试（行为已经 Reviewer 探针实测正确，M3 接入真实链路时补测）。以下为非 Review 项、但下一里程碑必须遵守的约束：M2 的 `MAINTENANCE_HISTORY` 查询必须 `componentId=null`（`JsonRepositories` 只按 `payload.subject` 过滤）；空结果明确说明“没有此类模拟记录”，不得编造；M3 队列拒绝须同时移除注册项，避免永久 `QUEUED`；`ExecutionStatus.FAILED` 不得包装成 `COMPLETED`。
-- M2 遗留语义点（Review 已确认可接受）：① `QueryAnswer.answer` 由记录 `payload` 生成的说明文本是**模板化陈述**（含 subject/predicate/value/sourceType/effectiveAt），不含分析结论；② `QueryService` 对未登记资产直接抛仓储 `QueryException`（路由层已拦截，HTTP 不会触达），未在查询层再兜一次；③ `planDiagnosis` 目前只作为应用层 API 供 M3 复用，HTTP 未暴露。
+- **§4.8 安全映射已在 M3 实现并实测**：28 项白名单过滤、`PROMPT_FRAGMENT`/合成路径经真实 GET 不回显、白名单停止码原样返回、Core 内部报告保留原值。残余注意点：过滤只在应用层公开视图，Core 仍会把模型自由文本写进内部 `stopReason`/`diagnosisSummary`——属冻结设计（Core 零改动），新增公开字段时必须过 `SafePublicFields`/`RunEventViews`。
+- **在线一律 `BLOCKED_BY_ENV`**：未检测到 `DASHSCOPE_API_KEY`（只判断存在性，未读取值），未执行 `verify_online.py` 或任何真实外部模型调用；在线 Router 仅验证「缺配置 → 503」与本机替身适配路径，真实中文模型能力 **NOT_VERIFIED**，历史在线结论仅作 `[HISTORICAL]`。
+- **`HypothesisStatus.SUPPORTED` 在主源码中从未被赋值**（实际只有 `OPEN`/`INVALIDATED`）→ 不得宣称假设驱动 O-H-E-D 闭环；已登记 S2。
+- 未解决 P2：**6**（延期）——`M1-P2-01` 空白 `assetId:" "` 被当作未提供，应 400；`M1-P2-02` `RouterUnavailableHttpTest` 走「不支持模式」而非 qwen/openai 缺配置路径；`M3-P2-01` 安全负例为手工拼装视图而非真实 GET 端点（Reviewer 已补 GET 级证据）；`M3-P2-03` `NotImplementedException` 及其 501 handler 为无抛出方残留死代码；`M3-P2-04` 存储上限在无可清理项时可超限；`M3-P2-05` `ConversationSession.activeDiagnosisId` 无消费方。
+- 会话/运行为内存态：重启丢失，不宣称长期记忆；`sessionId` 非认证，仅 loopback Demo。
+- M2 遗留语义点（仍有效）：① `QueryAnswer.answer` 为模板化陈述，不含分析结论；② `QueryService` 对未登记资产直接抛仓储 `QueryException`（路由层已拦截）；`MAINTENANCE_HISTORY` 查询必须 `componentId=null`；空结果明确「没有此类模拟记录」，不得编造。
 
 ## 6. 下一里程碑交接卡（开发者开始工作时首先读取）
 
 ```text
-MILESTONE_ID: M3
-STATUS: TODO（M2 = DONE；开工时先按规约置 IN_PROGRESS 并记录基线 Git 状态）
-REVIEW_GATE: 只有 reviews/M3.md = PASS 后，才能把 M3 改为 DONE 并关闭 S1
-PHASE: S1
-PRECONDITION: M2 = DONE（reviews/M2.md PASS，2026-11-08），spec.md = FROZEN
-BASELINE: M2 checkpoint commit 0dff7c9（用户已授权建立；未 push、无 tag）。
-          M3 的 diff 基线 = git diff 0dff7c9..HEAD；工作树当前干净，
-          对照副本 outputs/baselines/M2/（18 个交付文件 SHA-256 全 OK，聚合 6282c5f2…）。
+MILESTONE_ID: 未定（S2；开工第一步先做 S2 里程碑拆分规划，再建编号，不得直接编码）
+STATUS: TODO（M0–M3 = DONE，S1 已关闭 2026-11-08；开工时按规约置 IN_PROGRESS 并记录基线 Git 状态）
+REVIEW_GATE: S2 首个里程碑完成后走独立 Review；未 Review PASS 不得推进
+PHASE: S2（多轮会话、状态持久化/补证/暂停恢复、Hypothesis 调查闭环，范围见 task.md §7）
+PRECONDITION: M3 = DONE（reviews/M3.md 修复复审 PASS，2026-11-08）；spec.md = FROZEN
+BASELINE: 无 M3 checkpoint commit（未授权）。S2 比较基线 = git diff 0dff7c9 -- src README.md；
+          对照副本 outputs/baselines/M3/（M3-delivery.patch + 未跟踪文件副本 +
+          18 个交付文件 SHA-256 全 OK）。core/adapter/app/pom/datasets/skills/scripts 自 0dff7c9 零改动。
 READ_FIRST（本轮只需这些，不要全仓扫描）:
-  1. docs/DeviceTruth_V0.2_S0_S1/state.md（本文件，特别是 §4.5 与 §5）
-  2. docs/DeviceTruth_V0.2_S0_S1/task.md §5（M3 必做项 + M0 冻结补充）
-  3. docs/DeviceTruth_V0.2_S0_S1/spec.md §4.4–§4.8、§6、§8（执行状态、三 ID、事件白名单、安全映射、上限）
-  4. docs/DeviceTruth_V0.2_S0_S1/reviews/M2.md（Review 结论与遗留 P2）
-  5. src/main/java/io/devicetruth/application/{ConversationFlowService,DiagnosisApplicationService,
-     DiagnosisGoal,RouteValidator}.java（M2 出口：DIAGNOSE 的 501 与 planDiagnosis 在此）
-  6. src/main/java/io/devicetruth/core/runtime/TaskOrchestrator.java 与
-     src/main/java/io/devicetruth/adapter/RunReportWriter.java（RunReport 真实字段与报告目录）
-  7. src/main/java/io/devicetruth/adapter/{OpenAiReasoner,QwenReasoner,StructuredReasoner}.java（Reasoner 作用域）
-GOAL:
-  有界异步 DiagnosisRunService + ReasonerFactory（每任务独立）+ 202/QUEUED/Location
-  + GET 状态/结果 + 结束后白名单事件视图；ExecutionStatus.FAILED 不得包装成 COMPLETED
-MUST_PROVE:
-  - Core FAILED → API FAILED 且 errorCode 经 §4.8 白名单过滤
-  - coreTaskId 只取 report.state().taskId()，reportPath 仅内部
-  - 队列拒绝同时移除注册项，无永久 QUEUED 幽灵任务
-  - 合成路径 + PROMPT_FRAGMENT 负例：GET/events 均不回显，白名单停止码原样返回
-  - 接入后删除 DIAGNOSE 501 分支或测试证明不可达；顺手清理 M2-P2-01 死代码
+  1. docs/DeviceTruth_V0.2_S0_S1/state.md（本文件，特别是 §4.7 与 §5）
+  2. docs/DeviceTruth_V0.2_S0_S1/task.md §7（S2 范围与禁止提前实现项）
+  3. docs/DeviceTruth_V0.2_S0_S1/spec.md §9/§10（[S2] 登记条目、冻结变更流程）
+  4. docs/DeviceTruth_V0.2_S0_S1/reviews/M3.md（S1 出口契约与遗留 P2）
+  5. docs/DeviceTruth_V0.2_S0_S1/S1_ACCEPTANCE_REPORT.md（S1 最终能力边界）
+  6. src/main/java/io/devicetruth/application/{DiagnosisRunService,ConversationFlowService,RunEventViews}.java
+     （S1 出口：异步运行、会话流、事件白名单视图）
+  7. src/main/java/io/devicetruth/core/{runtime/TaskOrchestrator,state/StateManager,
+     decision/DecisionGuard}.java（S2 要扩展的 Core 面；改动须先经用户批准并登记 spec §10）
+GOAL（方向，具体以 S2 拆分规划为准）:
+  多轮诊断会话与补证恢复；候选 Hypothesis 的 SUPPORTED/INVALIDATED 因果闭环
+  （当前 SUPPORTED 无赋值路径，是 S2 首要技术缺口）
+MUST_PROVE（沿用 S1 门禁）:
+  - 离线全量构建/CLI 回归不退化；core/adapter/app 改动逐项登记并经用户批准
+  - 在线能力仍单独记录，无凭据时 BLOCKED_BY_ENV，不得宣称在线通过
 DON'T:
-  - 不改 Guard/Orchestrator/EvidenceManager，不新增第二套 Agent 编排
-  - 不实现实时推流/中途补证，不宣称完整 Hypothesis O-H-E-D
-  - 不伪造事件、诊断结论或在线模型能力；不发起未经授权的 git 操作
+  - 不冻结/改写 spec.md 技术结论（S2 契约需先拆分并经用户批准）
+  - 不宣称 S3/S4 能力（双域 Skill、Vue）；不发起未经授权的 git 操作
 ```
 
 ## 7. 本文更新规则

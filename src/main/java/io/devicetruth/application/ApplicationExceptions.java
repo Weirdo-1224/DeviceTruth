@@ -29,6 +29,11 @@ public final class ApplicationExceptions {
         public RouterUnavailableException() { super("ROUTER_UNAVAILABLE"); }
     }
 
+    /** 有界诊断执行器拒绝任务：已移除注册项，不会留下永远 QUEUED 的任务。 */
+    public static final class RunCapacityExceededException extends RuntimeException {
+        public RunCapacityExceededException() { super("RUN_CAPACITY_EXCEEDED"); }
+    }
+
     /** 只读仓储返回了不属于请求资产或不符合预期来源的记录：视为内部错误，不把数据当成本资产的事实。 */
     public static final class QueryAssetMismatchException extends RuntimeException {
         public QueryAssetMismatchException() { super("QUERY_ASSET_MISMATCH"); }

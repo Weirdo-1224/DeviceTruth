@@ -44,7 +44,7 @@ python3 scripts/verify_cli.py
 
 无 Key 的 `scripted` 模式不会调用外部 LLM。规则和 fixtures 会打入 JAR；修改 JSON 后需重新打包。演示时间固定为 `datasets/scenarios.json` 中的 `2026-11-03T04:00:00Z`，确保复现不受系统日期影响。
 
-## HTTP Server（V0.2 S1，M1）
+## HTTP Server（V0.2 S1，M1–M3）
 
 CLI 仍是默认 fat JAR 主类（打包后 `Start-Class=io.devicetruth.app.DeviceTruthApplication`）。Web 使用独立主类 `io.devicetruth.server.DeviceTruthServerApplication`，默认只监听 `127.0.0.1:8080`，不调用 CLI 的单次执行、报告落盘或退出逻辑。
 
@@ -68,14 +68,31 @@ java -cp "target/classes:$(cat target/server-cp.txt)" io.devicetruth.server.Devi
 |---|---|---|
 | POST | `/api/sessions` | `201` + `{sessionId,createdAt,dataNature}`，`sessionId` 为合法 UUID，不是认证凭据 |
 | GET | `/api/sessions/{sessionId}/messages` | `200` + 有界消息列表（USER/SYSTEM） |
-| POST | `/api/sessions/{sessionId}/messages` | `{content,assetId?}`；`CLARIFY`/`UNSUPPORTED` 返回 `200`；`QUERY`/`DIAGNOSE` 在 M1 明确返回 `501 NOT_IMPLEMENTED` |
+| POST | `/api/sessions/{sessionId}/messages` | `{content,assetId?}`；`CLARIFY`/`UNSUPPORTED`/`QUERY` 返回 `200`；`DIAGNOSE` 固定 `202` + `Location: /api/diagnoses/{id}` + `executionStatus=QUEUED` |
+| GET | `/api/diagnoses/{id}?sessionId=` | `200` 当前执行状态；结束后含真实 `outcome/stepsUsed/appliedRuleIds/supportingEvidenceIds` 与经安全映射的 `stopReason/diagnosisSummary/warnings/openNeeds/errorCode` |
+| GET | `/api/diagnoses/{id}/events?sessionId=` | `200` + `{diagnosisId,eventsAvailable,events[]}`；运行中 `eventsAvailable=false`，结束后返回白名单事件 |
 | GET | `/api/health` | `200` 稳定健康端点 |
 
-错误体统一为 `{code,message,requestId}`：`400 INVALID_REQUEST`、`404 NOT_FOUND`、`429 SESSION_CAPACITY_EXCEEDED`、`503 ROUTER_UNAVAILABLE`、`501 NOT_IMPLEMENTED`、`500 INTERNAL_ERROR`。客户端不能提交 `reasoner/provider/apiKey/baseUrl/model`，未知字段会被严格拒绝（`spring.jackson.deserialization.fail-on-unknown-properties=true`）。
+错误体统一为 `{code,message,requestId}`：`400 INVALID_REQUEST`、`404 NOT_FOUND`（诊断不存在与不属于当前会话同码，不区分）、`429 SESSION_CAPACITY_EXCEEDED`（会话/消息满）、`429 RUN_CAPACITY_EXCEEDED`（诊断执行队列满，同时移除注册项，不留幽灵任务）、`503 ROUTER_UNAVAILABLE`、`500 INTERNAL_ERROR`。客户端不能提交 `reasoner/provider/apiKey/baseUrl/model`，未知字段会被严格拒绝（`spring.jackson.deserialization.fail-on-unknown-properties=true`）。
 
-服务端配置（`src/main/resources/application.properties`）：`devicetruth.router.mode=offline|online`、`devicetruth.core.reasoner=scripted|openai|qwen`、`devicetruth.session.max-sessions=100`、`devicetruth.session.max-messages-per-session=40`。默认 `offline` + `scripted`；在线 Router 缺少服务端配置时返回 `503`，不会降级冒充模型识别成功。
+诊断执行是**真实异步**链路：`DiagnosisRunService` 用有界线程池（默认并发 2、队列 10）接受任务，每个任务通过 `ReasonerFactory.create()` 新建独立 Reasoner，再调用原有 `TaskOrchestrator.run(...)`。POST 永远只表示"已接受"，真实状态与结论只能 GET；Core 自己判定 `runStatus=FAILED` 时才映射为 `FAILED`，绝不包装成 `COMPLETED`。`coreTaskId` 取自 `report.state().taskId()`，报告目录只留在内部，响应里没有 `reportPath`。
 
-用 curl/PowerShell 直接发送中文时，请确保请求体按 UTF-8 编码并声明 `Content-Type: application/json; charset=UTF-8`；Windows 终端默认本地编码会导致 `400`。所有响应和数据集均为 `SIMULATED`；M1 尚未实现真实 QUERY 事实与 DIAGNOSE 执行。
+公开派生字段按 `spec.md` §4.8 过滤：`stopReason/errorCode` 只放行 28 个显式白名单停止码（如 `DASHSCOPE_API_KEY_MISSING` 原样返回，其余含模型自由文本一律换成 `STOP_REASON_WITHHELD`/`RUN_FAILED_WITHHELD_REASON`）；`diagnosisSummary` 仅在真正采纳规则时输出原文；缺口只给 `openNeeds[{needId,status,relatedRuleId}]`，不带 `description`；事件摘要按白名单生成，绝不透传 `RunEvent.data`、`Reasoner.Context` 或完整 Prompt。
+
+服务端配置（`src/main/resources/application.properties`）：`devicetruth.router.mode=offline|online`、`devicetruth.core.reasoner=scripted|openai|qwen`、`devicetruth.session.max-sessions=100`、`devicetruth.session.max-messages-per-session=40`、`devicetruth.run.max-concurrent-runs=2`、`devicetruth.run.max-queue=10`、`devicetruth.run.max-stored-runs=100`、`devicetruth.run.output-root=outputs/runs`。默认 `offline` + `scripted`；在线 Router 缺少服务端配置时返回 `503`，不会降级冒充模型识别成功。`reasoner` 配置成未知值不会让容器启动失败，而是在诊断运行时得到 `FAILED`。
+
+用 curl/PowerShell 直接发送中文时，请确保请求体按 UTF-8 编码并声明 `Content-Type: application/json; charset=UTF-8`；Windows 终端默认本地编码会导致 `400`。所有响应和数据集均为 `SIMULATED`。
+
+诊断示例（PowerShell，先按上文启动 Server）：
+
+```powershell
+$sid = (Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8080/api/sessions).sessionId
+$r = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/sessions/$sid/messages" `
+  -ContentType 'application/json; charset=UTF-8' -Body '{"content":"CAR-B 通信超时，帮我诊断"}'
+$r.route; $r.executionStatus; $r.diagnosisId
+Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/diagnoses/$($r.diagnosisId)?sessionId=$sid"
+Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/diagnoses/$($r.diagnosisId)/events?sessionId=$sid"
+```
 
 ## CLI 与运行产物
 
@@ -234,7 +251,7 @@ python3 scripts/verify_online.py --reasoner=openai
 
 ## 验证、排错与交接
 
-`mvn -q test` (V0.2 S1 当前 125 tests) 覆盖五类动作、JSON/ID/时间校验、Gateway、单步提交、预算、证据修订、Guard、A/B/C/D/E、模型协议替身、数据扰动和工业契约，以及 M1 的 Catalog/Session/四类路由/HTTP 契约（含 `201/200/400/404/429/501/503` 与容量上限），另含 M1 修复回归（模型建议不能授权/覆盖资产、`CAR-Z` 与多资产边界、危险请求程序复核、会话交互原子提交）。M2 新增事实查询与诊断目标映射测试：`QueryService` 只走真实 `profile/history`，`sources` 取真实 `evidenceId/sourceRef/sourceType`，出厂/维修记录不等同当前配置，空结果不编造，跨资产记录被拒；`DiagnosisGoal` 的业务时间固定取 Catalog 的模拟 `asOf`，`DIAGNOSE` 仍明确 501 且不写会话。新增本机 HTTP 替身测试检查 OpenAI 兼容请求的路径/认证/JSON、配置错误、有限重试、HTTP 失败脱敏，以及 B 经真实 SDK 和 Core 的完整链路；这些不是外部真实模型验收。扰动测试真实写出和读取临时 JSON，改变 B 的确认值/移除确认/注入冲突，Core 不变。`scripts/verify_cli.py` 另行启动打包 JAR，检查输出文件、事件序号、两种在线模式的缺 Key 失败，以及无环境变量时从私有文件连接本机模拟接口（不访问外部服务），汇总到 `target/cli-verification.json`。
+`mvn -q test` / `mvn -q package` (V0.2 S1 当前 **145 tests，28 个测试类**，0 失败/0 错误/0 跳过) 覆盖五类动作、JSON/ID/时间校验、Gateway、单步提交、预算、证据修订、Guard、A/B/C/D/E、模型协议替身、数据扰动和工业契约，以及 M1 的 Catalog/Session/四类路由/HTTP 契约（含 `201/200/400/404/429/501/503` 与容量上限），另含 M1 修复回归（模型建议不能授权/覆盖资产、`CAR-Z` 与多资产边界、危险请求程序复核、会话交互原子提交）。M2 新增事实查询与诊断目标映射测试：`QueryService` 只走真实 `profile/history`，`sources` 取真实 `evidenceId/sourceRef/sourceType`，出厂/维修记录不等同当前配置，空结果不编造，跨资产记录被拒；`DiagnosisGoal` 的业务时间固定取 Catalog 的模拟 `asOf`。M3 新增异步诊断测试：`DiagnosisRunService` 真实调用 `TaskOrchestrator`（CAR-B → `RESOLVED`/`DEMO-D-120B`）、每任务独立 Reasoner 实例、Core `FAILED` → `FAILED` 且不包装 `COMPLETED`、队列拒绝移除注册项（无幽灵任务）、`RUNNING` 期间事件不可读、归属不匹配与不存在同为 404；`GET /api/diagnoses/{id}` 与 `/events` 的 202/QUEUED/Location、白名单事件视图、以及"合成路径 + `PROMPT_FRAGMENT`"负例全部断言不回显（Core 内部报告仍保留原值）。新增本机 HTTP 替身测试检查 OpenAI 兼容请求的路径/认证/JSON、配置错误、有限重试、HTTP 失败脱敏，以及 B 经真实 SDK 和 Core 的完整链路；这些不是外部真实模型验收。扰动测试真实写出和读取临时 JSON，改变 B 的确认值/移除确认/注入冲突，Core 不变。`scripts/verify_cli.py` 另行启动打包 JAR，检查输出文件、事件序号、两种在线模式的缺 Key 失败，以及无环境变量时从私有文件连接本机模拟接口（不访问外部服务），汇总到 `target/cli-verification.json`。
 
 - `release version 21 not supported`：检查 `mvn -version` 的 Java 路径，确保当前终端 JAVA_HOME 和 PATH 均指向 21。
 - Maven 首次下载失败：确认可访问 Maven Central；不要把依赖下载失败写成测试通过。已缓存后可执行 `mvn -o -q test`。
