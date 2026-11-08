@@ -44,6 +44,39 @@ python3 scripts/verify_cli.py
 
 无 Key 的 `scripted` 模式不会调用外部 LLM。规则和 fixtures 会打入 JAR；修改 JSON 后需重新打包。演示时间固定为 `datasets/scenarios.json` 中的 `2026-11-03T04:00:00Z`，确保复现不受系统日期影响。
 
+## HTTP Server（V0.2 S1，M1）
+
+CLI 仍是默认 fat JAR 主类（打包后 `Start-Class=io.devicetruth.app.DeviceTruthApplication`）。Web 使用独立主类 `io.devicetruth.server.DeviceTruthServerApplication`，默认只监听 `127.0.0.1:8080`，不调用 CLI 的单次执行、报告落盘或退出逻辑。
+
+已验证的启动方式（2026-11-08，JDK 21.0.13.0.2 / Maven 3.9.9 / Spring Boot 3.5.16）：本项目的 `spring-boot-maven-plugin` 显式固定了 CLI 主类，`-Dspring-boot.run.main-class` 会被该配置覆盖而仍启动 CLI，因此按 spec §7 的备用方案使用显式 classpath。
+
+```powershell
+mvn -q package
+mvn -q dependency:build-classpath "-Dmdep.outputFile=target/server-cp.txt"
+java -cp "target/classes;$(Get-Content target/server-cp.txt)" io.devicetruth.server.DeviceTruthServerApplication
+```
+
+```bash
+mvn -q package
+mvn -q dependency:build-classpath '-Dmdep.outputFile=target/server-cp.txt'
+java -cp "target/classes:$(cat target/server-cp.txt)" io.devicetruth.server.DeviceTruthServerApplication
+```
+
+启动成功后日志包含 `Tomcat started on port 8080 (http)`；健康检查返回 `{"status":"UP","dataNature":"SIMULATED"}`。
+
+| 方法 | 路径 | 行为 |
+|---|---|---|
+| POST | `/api/sessions` | `201` + `{sessionId,createdAt,dataNature}`，`sessionId` 为合法 UUID，不是认证凭据 |
+| GET | `/api/sessions/{sessionId}/messages` | `200` + 有界消息列表（USER/SYSTEM） |
+| POST | `/api/sessions/{sessionId}/messages` | `{content,assetId?}`；`CLARIFY`/`UNSUPPORTED` 返回 `200`；`QUERY`/`DIAGNOSE` 在 M1 明确返回 `501 NOT_IMPLEMENTED` |
+| GET | `/api/health` | `200` 稳定健康端点 |
+
+错误体统一为 `{code,message,requestId}`：`400 INVALID_REQUEST`、`404 NOT_FOUND`、`429 SESSION_CAPACITY_EXCEEDED`、`503 ROUTER_UNAVAILABLE`、`501 NOT_IMPLEMENTED`、`500 INTERNAL_ERROR`。客户端不能提交 `reasoner/provider/apiKey/baseUrl/model`，未知字段会被严格拒绝（`spring.jackson.deserialization.fail-on-unknown-properties=true`）。
+
+服务端配置（`src/main/resources/application.properties`）：`devicetruth.router.mode=offline|online`、`devicetruth.core.reasoner=scripted|openai|qwen`、`devicetruth.session.max-sessions=100`、`devicetruth.session.max-messages-per-session=40`。默认 `offline` + `scripted`；在线 Router 缺少服务端配置时返回 `503`，不会降级冒充模型识别成功。
+
+用 curl/PowerShell 直接发送中文时，请确保请求体按 UTF-8 编码并声明 `Content-Type: application/json; charset=UTF-8`；Windows 终端默认本地编码会导致 `400`。所有响应和数据集均为 `SIMULATED`；M1 尚未实现真实 QUERY 事实与 DIAGNOSE 执行。
+
 ## CLI 与运行产物
 
 ```text
@@ -201,7 +234,7 @@ python3 scripts/verify_online.py --reasoner=openai
 
 ## 验证、排错与交接
 
-`mvn -q test` (42 tests) 覆盖五类动作、JSON/ID/时间校验、Gateway、单步提交、预算、证据修订、Guard、A/B/C/D/E、模型协议替身、数据扰动和工业契约。新增本机 HTTP 替身测试检查 OpenAI 兼容请求的路径/认证/JSON、配置错误、有限重试、HTTP 失败脱敏，以及 B 经真实 SDK 和 Core 的完整链路；这些不是外部真实模型验收。扰动测试真实写出和读取临时 JSON，改变 B 的确认值/移除确认/注入冲突，Core 不变。`scripts/verify_cli.py` 另行启动打包 JAR，检查输出文件、事件序号、两种在线模式的缺 Key 失败，以及无环境变量时从私有文件连接本机模拟接口（不访问外部服务），汇总到 `target/cli-verification.json`。
+`mvn -q test` (V0.2 S1 当前 101 tests) 覆盖五类动作、JSON/ID/时间校验、Gateway、单步提交、预算、证据修订、Guard、A/B/C/D/E、模型协议替身、数据扰动和工业契约，以及 M1 的 Catalog/Session/四类路由/HTTP 契约（含 `201/200/400/404/429/501/503` 与容量上限），另含首审修复回归（模型建议不能授权/覆盖资产、`CAR-Z` 与多资产边界、危险请求程序复核、会话交互原子提交）。新增本机 HTTP 替身测试检查 OpenAI 兼容请求的路径/认证/JSON、配置错误、有限重试、HTTP 失败脱敏，以及 B 经真实 SDK 和 Core 的完整链路；这些不是外部真实模型验收。扰动测试真实写出和读取临时 JSON，改变 B 的确认值/移除确认/注入冲突，Core 不变。`scripts/verify_cli.py` 另行启动打包 JAR，检查输出文件、事件序号、两种在线模式的缺 Key 失败，以及无环境变量时从私有文件连接本机模拟接口（不访问外部服务），汇总到 `target/cli-verification.json`。
 
 - `release version 21 not supported`：检查 `mvn -version` 的 Java 路径，确保当前终端 JAVA_HOME 和 PATH 均指向 21。
 - Maven 首次下载失败：确认可访问 Maven Central；不要把依赖下载失败写成测试通过。已缓存后可执行 `mvn -o -q test`。

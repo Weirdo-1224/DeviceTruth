@@ -1,6 +1,6 @@
 # DeviceTruth V0.2｜S0/S1 分会话实施任务（Task）
 
-> 状态基线：M0 已由 Codex Review #2 判定 **PASS 并置 `DONE`**（2026-11-08，P0/P1/P2 均为 0），M1–M3 仍为 `TODO`。每次只推进一个里程碑；Review PASS 后才能改 DONE。原 R01~R07 要求保留为里程碑内部检查项，不再各自创建会话和 Review。M0 的真实命令、退出码与源码依据见 [S0_AUDIT.md](./S0_AUDIT.md) §2.3。
+> 状态基线：M0 已由 Codex Review #2 判定 **PASS 并置 `DONE`**；M1 已由 Codex Review #3 判定 **PASS 并置 `DONE`**（2026-11-08，未解决 P0=0/P1=0，P2=2 为已登记延期项）；M2–M3 仍为 `TODO`。每次只推进一个里程碑；Review PASS 后才能改 DONE。原 R01~R07 要求保留为里程碑内部检查项，不再各自创建会话和 Review。M0 的真实命令、退出码与源码依据见 [S0_AUDIT.md](./S0_AUDIT.md) §2.3。
 >
 > 每个里程碑由开发者实施或完成文档审计，Codex 独立 Review。**不默认允许模型执行 commit/push/reset/clean。**
 
@@ -21,7 +21,7 @@
 | ID | 阶段 | 里程碑范围 | 依赖 | 状态 | Codex 报告 |
 |---|---|---|---|---|---|
 | M0 | S0 | 原 R01+R02：基线审计 → 契约冻结 | 无 | **DONE**（2026-11-08，Review #2 PASS） | `reviews/M0.md`（#1 CHANGES_REQUIRED → #2 PASS） |
-| M1 | S1 | 原 R03+R04：双 Main/Catalog/Session/Router | M0 PASS | TODO | reviews/M1.md（未生成） |
+| M1 | S1 | 原 R03+R04：双 Main/Catalog/Session/Router | M0 PASS | **DONE**（2026-11-08，Review #3 PASS） | reviews/M1.md（#1 CHANGES_REQUIRED → #2 CHANGES_REQUIRED → **#3 PASS**） |
 | M2 | S1 | 原 R05：QueryService + Goal→Core 请求映射 | M1 PASS | TODO | reviews/M2.md（未生成） |
 | M3 | S1 | 原 R06+R07：异步运行/结果事件/最终验收 | M2 PASS | TODO | reviews/M3.md（未生成） |
 
@@ -171,6 +171,92 @@ M1 连续完成双入口/Catalog 和 Session/Router；开发者不在两者之�
 - 会话/消息必须线程安全且有界（默认 `maxSessions=100`、`maxMessagesPerSession=40`、单条 ≤ 2000 字符）。
 
 **M1 Codex Review**：同时复核双 Main、Catalog、Session 和 Router 的实际 diff；确认 Router 只是分类而不是另一套 Agent，Catalog 边界、会话线程安全、未知/缺失信息准确处理。报告写入 `reviews/M1.md`。
+
+### 3.3 M1 执行记录（2026-11-08，Review 待执行）
+
+状态：`REVIEW_PENDING`。以下为开发者自测事实，不等同 Codex Review PASS。
+
+- **双入口**：`pom.xml` 显式 `<mainClass>io.devicetruth.app.DeviceTruthApplication</mainClass>`；`mvn -q clean package` 退出 0，JAR 的 `META-INF/MANIFEST.MF` 为 `Main-Class: org.springframework.boot.loader.launch.JarLauncher`、`Start-Class: io.devicetruth.app.DeviceTruthApplication`。
+- **全量测试**：`mvn -q clean package`（含 test 阶段）退出 0，20 个测试类 **88 项**，0 失败/0 错误/0 跳过（M0 基线 42 + M1 新增 46）。
+- **Server 启动**：`spring-boot:run` 的 `-Dspring-boot.run.main-class` 在本项目 3.5.16 插件下被 `pom.xml` 显式 `mainClass` 覆盖，实测启动成 CLI；按 `spec.md` §7 备用方案使用显式 classpath：
+  `mvn -q dependency:build-classpath '-Dmdep.outputFile=target/server-cp.txt'`，再 `java -cp "target/classes;$(cat target/server-cp.txt)" io.devicetruth.server.DeviceTruthServerApplication`。
+  日志确认 `Tomcat started on port 8080 (http)`；`GET http://127.0.0.1:8080/api/health` → `200 {"status":"UP","dataNature":"SIMULATED"}`；验证后已停止进程并确认端口释放。
+- **四路由实测**（UTF-8 请求体）：CLARIFY（缺设备/缺症状）`200`；UNSUPPORTED（`SN-0245`、危险操作）`200`；QUERY 与 DIAGNOSE 明确 `501 NOT_IMPLEMENTED`；501 路径不写入会话消息。`400/404/429/503` 由 HTTP 集成测试覆盖。
+- **Catalog**：只从打包 `datasets/scenarios.json` 派生 CAR-A/B/C/D；`SN-0245` → `UNSUPPORTED_ASSET`；`diagnosisAsOf=2026-11-03T04:00:00Z`；未知资产不会复用 CAR-B。
+- **在线 Router**：仅验证“服务端缺少模型配置 → `503 ROUTER_UNAVAILABLE`”契约，未做真实外部模型调用。在线验收仍为未执行，不得记为通过。
+- **CLI 回归**：A/B/C/D 退出 0（7/7/7/6；A/B `RESOLVED`、C `CONFLICT`、D `NEED_EVIDENCE`）；`python scripts/verify_cli.py` 退出 0（PASS）。
+- **遗留**：QUERY/DIAGNOSE 的临时 `501` 分支须在 M2/M3 完成后删除或证明不可达；`reviews/M1.md` 首审已生成。
+
+### 3.4 M1 首审修复记录（2026-11-08，Codex Review #1 = CHANGES_REQUIRED → 待复审）
+
+Codex `reviews/M1.md` 首审结论：**CHANGES_REQUIRED**，P0=0、**P1=4**、P2=2。本轮只修 4 个 P1，不扩大为架构重构、不改冻结 `spec.md`、不动 `core/` 与 `DecisionGuard`。
+
+| ID | 根因（首审定位） | 最小修复 | 复现证据（真实 HTTP，修复后） |
+|---|---|---|---|
+| M1-P1-01 | `RouteValidator.resolveAsset` 无文本资产时直接采用模型 `suggestedAssetId`，且优先于会话上下文 | 删除 `suggestedAssetId` 入参，资产只由「消息明确编号 / 请求 hint / 已确认上下文」确定；模型候选只在 `validateSuggestion` 做一致性校验，不一致 → `CLARIFY ASSET_CONFLICT`，无可信资产 → `CLARIFY ASSET_MISSING` | `ONLINE no-asset` → `200 CLARIFY`（原 501）；`ONLINE override` → `200 CLARIFY`，`assetId=None`（原错误绑定 `CAR-C`） |
+| M1-P1-02 | 正则 `[A-Z]{2,}-[0-9]{2,}` 漏 `CAR-Z` 并回落上下文 B；`catalogAssetInText` 命中即返回，多资产无歧义检测 | 正则改为 `(?i)(?<![A-Za-z0-9-])[A-Z]{2,}-(?:[A-Z]|[0-9]{2,})(?![A-Za-z0-9-])`（识别 `CAR-Z`，排除 `DEMO-D-120A` 三段式）；`catalogAssetsInText` 返回全集 `Set`，>1 → `CLARIFY ASSET_AMBIGUOUS` | `OFFLINE CAR-Z after bind` → `200 UNSUPPORTED`（原 501）；`OFFLINE multi` → `200 CLARIFY`，`assetId=None`（原 501） |
+| M1-P1-03 | 危险词检测只在 `DeterministicTaskRouter`，在线模型建议 DIAGNOSE 时程序不复核 | 危险词表移入 `RouteValidator.mentionsDangerousOperation`，`validateSuggestion` 首行统一复核，两种模式共用；确定顺序「危险 → 模型 UNSUPPORTED → 资产 → 症状/规则」 | `ONLINE dangerous`（`帮我重启 CAR-B 通信超时`）→ `200 UNSUPPORTED`（原 501） |
+| M1-P1-04 | 先改资产再两次 `append`，429 时留下半条 USER 与新资产；逐方法 `synchronized` 不保证交互原子 | `ConversationSession.commitInteraction`：同一把锁内 `messages.size()+2 > max` 预检 → 绑定资产 → 追加 USER+SYSTEM；`ConversationFlowService` 只调用这一次 | `max-messages=3` 下 429 后 `count: 2 roles [USER, SYSTEM] leak: False`（原 3 条含半条 USER） |
+
+修复后门禁（本轮真实执行）：
+
+| 门禁 | 真实命令 | 退出码 | 结果 |
+|---|---|---|---|
+| 全量测试 | `mvn -q clean package` | 0 | **21 个测试类 101 项，0 失败/0 错误/0 跳过**（原 88 + 新增 13） |
+| 打包 | 同上 | 0 | `Start-Class=io.devicetruth.app.DeviceTruthApplication` |
+| CLI A–D | `java -jar target/devicetruth-core-0.1.0.jar --scenario=<A/B/C/D> --reasoner=scripted` | 0×4 | 7/7/7/6；RESOLVED/RESOLVED/CONFLICT/NEED_EVIDENCE |
+| 打包核验 | `python scripts/verify_cli.py` | 0 | 4 项 PASS |
+| 真实 HTTP 探针 | `target/review-fix-probe.py`（3 个真实 Server + 本机模型替身，不入交付） | 0 | 4 个 P1 全部翻转；前后健康均 200 |
+
+新增/修改测试（13 项）：`TaskRouterTest` +2（CAR-Z 有上下文仍 UNSUPPORTED、多资产 ASSET_AMBIGUOUS）、`LlmTaskRouterTest` +5（模型不能授权资产/不能覆盖上下文/不能替换未知资产/危险请求拒绝/CAR-Z 拒绝）、`ConversationServiceTest` +3（拒绝时资产与消息不变、满容量不改上下文、20 并发配对提交）、`ServerCapacityHttpTest` 改 1（429 后仍 2 条）、`ServerHttpTest` +2（CAR-Z→UNSUPPORTED、多资产→CLARIFY）、新增 `ServerAtomicityHttpTest`（奇数容量）。
+
+未修 P2（按用户指令延期，不阻塞）：`M1-P2-01`（`assetId:" "` 空白被当作未提供，应 400）、`M1-P2-02`（`RouterUnavailableHttpTest` 走的是「不支持模式」而非 qwen/openai 缺配置 `required` 路径）。
+
+### 3.5 M1 Review #2 修复记录（2026-11-08，M1-P1-02 同根残留 → 待独立复审）
+
+Codex `reviews/M1.md` §8 结论：**CHANGES_REQUIRED**，P0=0、**P1=1（M1-P1-02 同根残留）**、P2=2（延期）。本轮只修这一项，沿用原问题编号，不另建问题、不改 `spec.md`、不动 `core/`、`adapter/`、`app/`、Guard、Gateway、证据算法、`pom.xml` 和运行配置。
+
+**共同根因**：`RouteValidator` 内存在两套互不一致的编号边界——`EXPLICIT_ASSET`（单字母或 ≥2 位数字后缀）漏掉 `CAR-ZZ`/`CAR-B2`，漏检后回落到会话中的 CAR-B；`catalogAssetsInText` 的 `(?![A-Za-z0-9])` 不把连字符算作编号的一部分，把 `CAR-B-UNKNOWN` 的前缀 `CAR-B` 当成已登记资产。
+
+**最小修复**（`application/RouteValidator.java`）：
+
+1. 用唯一 `ASSET_TOKEN` 正则（`(?<![A-Za-z0-9_-])[A-Za-z]{2,}(?:-[A-Za-z0-9]+)+(?![A-Za-z0-9_-])`）提取完整编号，`assetTokensInText` 是唯一入口，`resolveAsset` 不再有第二套匹配规则。
+2. Catalog 命中改为大小写不敏感的**精确**匹配（`findAsset`），不做前缀/子串匹配；因此 `CAR-B-UNKNOWN` 不再被截成 `CAR-B`。
+3. 未登记判定：文本出现完整编号且不属于 Catalog 即 `UNSUPPORTED_ASSET`，不再回落 `currentAssetId`。
+4. 为不误伤相关表达，已登记的规则/证据 ID（如 `DEMO-D-120A`、`CAR-B-FIELD-1`）通过 `isKnownNonAssetId` 豁免。ID 只来自现有只读仓储：按 Catalog 的 `domain/symptomCode` 调 `RuleRepository.query`，按已登记资产取 `AssetRepository.profile` 和 `EvidenceRepository.search`；未扩充 Catalog、未新增数据源、未改 adapter。
+5. 相应删除已无调用方的 `catalogAssetsInText`/`mentionsUnregisteredAsset`；`RouteValidator` 构造器新增 `AssetRepository`/`EvidenceRepository`，`ServerConfiguration` 仍传入同一个 `JsonRepositories` 实例。
+
+修复前后真实 HTTP 实测（UTF-8，请求只含 `content`）：
+
+| 案例 | 修复前 | 修复后 |
+|---|---|---|
+| 有 CAR-B 上下文 + `CAR-ZZ 帮我看看` | 200 CLARIFY，assetId=CAR-B | **200 UNSUPPORTED，assetId=null** |
+| 有 CAR-B 上下文 + `CAR-B2 帮我看看` | 200 CLARIFY，assetId=CAR-B | **200 UNSUPPORTED，assetId=null** |
+| 全新会话 + `CAR-B-UNKNOWN 帮我看看` | 200 CLARIFY，assetId=CAR-B | **200 UNSUPPORTED，assetId=null** |
+| 在线（本机替身建议 DIAGNOSE/CAR-B）+ `CAR-B-UNKNOWN 通信超时` | 501 NOT_IMPLEMENTED | **200 UNSUPPORTED，assetId=null** |
+
+保留行为回归（同轮真实 HTTP）：`CAR-C 帮我看看` → CLARIFY/assetId=CAR-C；`这台设备 通信超时`（有 B 上下文）→ 501（进入诊断，资产仍为 B）；多资产 → CLARIFY/assetId=null；文本 B + hint C → CLARIFY/assetId=null；`SN-0245` → UNSUPPORTED；`CAR-C 通信超时，参考 DEMO-D-120A` → 501（规则 ID 未被当成未知资产）；`CAR-B-FIELD-1 这条证据可靠吗` → CLARIFY/assetId=null（**未**被截成 CAR-B）；`car-b 帮我看看` → CLARIFY/assetId=CAR-B；拒绝 `CAR-ZZ` 后仍复用 CAR-B（501）。
+
+修复后门禁（本轮真实执行）：
+
+| 门禁 | 真实命令 | 退出码 | 结果 |
+|---|---|---|---|
+| 定向测试 | `mvn -o '-Dtest=TaskRouterTest,LlmTaskRouterTest,ConversationServiceTest,SupportedScenarioCatalogTest,SymptomResolverTest' -Dsurefire.useFile=false test` | 0 | 46 项，0 失败 |
+| 全量测试与打包 | `mvn -q -o clean package` | 0 | **21 个测试类 109 项，0 失败/0 错误/0 跳过**（原 101 + 新增 8） |
+| CLI 核验 | `python scripts/verify_cli.py` | 0 | A/B/C/D 仍为 RESOLVED/RESOLVED/CONFLICT/NEED_EVIDENCE，7/7/7/6；4 项 PASS |
+| 真实 HTTP 探针 | `target/p1-02-probe.py`（真实 Server + 本机模型替身，不入交付） | 0 | 4 个案例全部翻转；上述保留行为回归通过 |
+
+新增测试（8 项）：`TaskRouterTest` +5（无上下文完整未知编号拒绝、有上下文不回落、完整编号提取不被截短、规则/证据 ID 不误伤、拒绝后已知资产/多资产/上下文复用不变）、`LlmTaskRouterTest` +3（模型建议绕过完整编号的无上下文/有上下文负例、规则/证据 ID 不变成资产且模型冲突只澄清）。
+
+**未验证**：外部真实在线模型与 `verify_online.py`（本机替身不记在线 PASS）；P2 按指令延期。
+
+### 3.6 M1 复审结果与里程碑关闭（2026-11-08）
+
+- Codex Review #3（`reviews/M1.md` §9）判定 **PASS**：未解决 P0=0、P1=0、P2=2（`M1-P2-01` 空白 `assetId` 应 400、`M1-P2-02` RouterUnavailableHttpTest 走的非缺配置路径；均经用户指令延期）。`M1-P1-01/02/03/04` 全部 CLOSED。
+- 复审实际执行：`mvn -q -o clean package` 退出 0（**21 类 109 项，0 失败/0 错误/0 跳过**）；`Start-Class` 核对为 CLI 主类；`python scripts/verify_cli.py` 退出 0（A/B `RESOLVED`、C `CONFLICT`、D `NEED_EVIDENCE`，7/7/7/6）；独立 HTTP 探针退出 0（**16/16**：四个 §8.3 复现案例全部翻转 + 九项保留行为回归 + P1-01/03 保持关闭，本机模型替身 3 次调用，端口无残留）。首审 88 项、Review #2 101 项不重复累计。
+- 本轮变更面仅 4 个文件（`RouteValidator`、`ServerConfiguration`、`TaskRouterTest` +5、`LlmTaskRouterTest` +3），其余 30 个交付文件 SHA-256 与 Review #2 一致；`spec.md` 与 `core/adapter/app` 零改动。
+- 状态转换：`REVIEW_PENDING → DONE`。未获 commit 授权，未建 checkpoint commit；基线快照保存于 `outputs/baselines/M1/`（`M1-delivery.patch`、`untracked/` 31 个未跟踪文件副本、`SHA256SUMS.txt` 33 个交付文件全 OK、聚合 SHA-256 `6abaca40…`（task/state 流程文档不入清单）），M2 以工作树当前状态 + 该快照为比较基线。
+- M2 启动前置：M1 = DONE（本记录）+ 基线快照可校验；QUERY/DIAGNOSE 的临时 501 分支仍为测试态，M2/M3 完成后必须删除或证明不可达。
 
 ## 4. M2｜S1：事实查询 + Core 请求适配（原 R05）
 
