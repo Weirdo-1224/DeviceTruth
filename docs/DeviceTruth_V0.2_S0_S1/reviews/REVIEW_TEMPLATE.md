@@ -1,22 +1,22 @@
-# RXX｜Codex 独立 Code Review
+# MX｜Codex 独立里程碑 Review
 
-> 将此模板另存为 `reviews/R01.md`...`reviews/R07.md`。**不要覆盖 REVIEW_TEMPLATE.md；不能预先生成带 PASS 的空报告。**
+> 将此模板另存为 `reviews/M0.md`...`reviews/M3.md`。**不要覆盖 REVIEW_TEMPLATE.md；不能预先生成带 PASS 的空报告。**
 
-- Review ID：RXX
+- Review ID：MX
 - 审查日期：待实际填写
 - 审查人：Codex
-- 任务范围：从 `task.md` 当前 RXX 对应条目引用
+- 里程碑范围：从 `task.md` 当前 MX 对应条目引用，列出已覆盖的内部检查点
 - 审查时 Git 分支/HEAD：待填写
-- 本轮比较基线：待填写（本轮开始的 commit + dirty tree 基线）
+- 当前里程碑比较基线：待填写（上一 checkpoint commit；无 commit 时为完整补丁和文件哈希）
 - Review 结论：`PENDING / PASS / CHANGES_REQUIRED / BLOCKED`
 
 ## 1. 独立读取和审查的证据
 
 | 对象 | 真实路径/命令 | 审查结果 |
 |---|---|---|
-| 当前任务验收标准 | `task.md` RXX | 待审 |
+| 当前里程碑验收标准 | `task.md` MX | 待审 |
 | 已冻结契约 | `spec.md` | 待审 |
-| 本轮 diff | 实际 Git diff 范围 | 待审 |
+| 当前里程碑 diff | 上一 checkpoint 到当前交付的实际 Git diff 范围 | 待审 |
 | 关联源码 | 类路径/方法/行号 | 待审 |
 | 新增测试 | 测试名/执行命令/退出码 | 待审 |
 | 原基线相关测试 | 执行命令/退出码 | 待审 |
@@ -48,20 +48,20 @@
 
 ## 5. 中文调用链解释（供项目负责人理解新增代码）
 
-用 5~10 行写清本轮新增模块的调用入口、关键 Service、调用旧 Core/Repository 的位置、输入输出；如果本轮仅审计/文档，说明确认的启动和数据流。不得对未实现模块假设其已运行。
+用 5~10 行写清当前里程碑新增模块的调用入口、关键 Service、调用旧 Core/Repository 的位置、输入输出；如果当前里程碑仅审计/文档，说明确认的启动和数据流。不得对未实现模块假设其已运行。
 
 ## 6. 修复复审
 
 - 第一次审查结论：待填写
-- DeepSeek 修复内容/修改文件：待填写
+- 开发者修复内容/修改文件：待填写
 - Codex 复测命令和结果：待填写
 - 最终遗留 P0/P1：待填写
 - 最终遗留 P2：待填写
 
 ## 7. 最终决议
 
-- `[ ] PASS：允许更新 task.md/state.md 并进入下一轮`
-- `[ ] CHANGES_REQUIRED：同一轮交给 DeepSeek 修复，不得推进下一轮`
+- `[ ] PASS：允许执行交接步骤并进入下一里程碑`
+- `[ ] CHANGES_REQUIRED：同一里程碑交给开发者修复，不得推进`
 - `[ ] BLOCKED：记录具体环境或必要前置能力缺失`
 
 **不得在本报告宣称“全部通过”，除非实际执行了对应测试并记录证据。**

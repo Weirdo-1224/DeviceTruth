@@ -1,6 +1,6 @@
 # DeviceTruth V0.2｜S0 真实仓库审计报告
 
-> 状态：**NOT_STARTED（待 R01 填写，不代表已审计）**
+> 状态：**NOT_STARTED（待 M0 前半段填写，不代表已审计）**
 >
 > 仅写亲自查看的真实文件/代码/命令输出。原方案的 42 项测试通过属于历史报告。
 
@@ -68,14 +68,15 @@
 ## F. 启动方案与后续契约待决策
 
 1. 保留旧 CLI fat JAR 主类：待验证。
-2. Server 独立 Main 推荐启动命令：待确定并在 R03 实际验证。
+2. Server 独立 Main 推荐启动命令：待确定并在 M1 实际验证。
 3. Repository 缺少的 API：列真实方法，不新增虚构声明。
-4. 运行/Session 限制：待 R02 冻结。
+4. 运行/Session 限制：待 M0 后半段冻结。
 5. 风险/疑点及最小修复建议：待填。
 
-## G. R01 交付与 Codex Review
+## G. M0 审计交付与 Codex Review
 
 - DeepSeek 自查是否完成：**否**。
-- Codex Review：`reviews/R01.md`（待生成）。
-- R01 状态：**TODO**。
-- 可以进入 R02：**否，等待真实审查和独立 Review**。
+- Codex Review：`reviews/M0.md`（待生成；同时审查审计事实与契约冻结）。
+- M0 状态：**TODO**。
+- 可以进入 M0 契约冻结子阶段：**否，等待本报告由真实命令和源码证据填充**。
+- 可以进入 M1：**否，等待 M0 完整交付和独立 Review PASS**。

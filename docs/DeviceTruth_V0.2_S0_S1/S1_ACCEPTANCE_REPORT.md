@@ -1,6 +1,6 @@
 # DeviceTruth V0.2｜S1 最终验收报告
 
-> 状态：**NOT_STARTED（待 R07 实测）**。全部测试项均初始化为 NOT_RUN，禁止将示例当作实际验收。
+> 状态：**NOT_STARTED（待 M3 最终验收子阶段实测）**。全部测试项均初始化为 NOT_RUN，禁止将示例当作实际验收。
 
 ## 1. 验收元数据
 
@@ -86,7 +86,7 @@ Core 对应调用/RunReport 文件与任务 ID： [实际路径或内部引用�
 
 ## 7. Codex 最终 Review
 
-- R07 复审文件：`reviews/R07.md`（待生成）
+- M3 复审文件：`reviews/M3.md`（待生成）
 - 结论：**PENDING**
 - 主要阻塞项：待填
 - 残留非阻塞项：待填
