@@ -111,12 +111,9 @@ class ServerHttpTest {
         assertThat(Json.MAPPER.readTree(response.getBody()).path("route").asText()).isEqualTo("UNSUPPORTED");
     }
 
-    @Test void queryAndDiagnoseReturn501WithoutPersistingMessages() throws Exception {
+    @Test void diagnoseStaysNotImplementedAndPersistsNoMessages() throws Exception {
+        // M2 只完成 Goal→Request 映射；诊断执行归 M3，HTTP 仍须明确 501 且不写会话。
         UUID sessionId = createSession();
-        var query = send(sessionId, "CAR-B 的出厂控制器型号？", null);
-        assertThat(query.getStatusCode().value()).isEqualTo(501);
-        assertThat(Json.MAPPER.readTree(query.getBody()).path("code").asText()).isEqualTo("NOT_IMPLEMENTED");
-
         var diagnose = send(sessionId, "CAR-B 通信超时，帮我诊断", null);
         assertThat(diagnose.getStatusCode().value()).isEqualTo(501);
         assertThat(Json.MAPPER.readTree(diagnose.getBody()).path("code").asText()).isEqualTo("NOT_IMPLEMENTED");

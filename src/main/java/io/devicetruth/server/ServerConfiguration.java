@@ -4,7 +4,9 @@ import io.devicetruth.adapter.JsonRepositories;
 import io.devicetruth.application.ConversationFlowService;
 import io.devicetruth.application.ConversationService;
 import io.devicetruth.application.DeterministicTaskRouter;
+import io.devicetruth.application.DiagnosisApplicationService;
 import io.devicetruth.application.LlmTaskRouter;
+import io.devicetruth.application.QueryService;
 import io.devicetruth.application.RouteValidator;
 import io.devicetruth.application.SupportedScenarioCatalog;
 import io.devicetruth.application.TaskRouter;
@@ -42,8 +44,18 @@ public class ServerConfiguration {
         throw new IllegalArgumentException("devicetruth.router.mode must be offline or online");
     }
 
+    /** 事实查询只依赖只读 AssetRepository；不构造诊断 Scope，也不经过 CapabilityGateway。 */
+    @Bean QueryService queryService(JsonRepositories repositories) {
+        return new QueryService(repositories);
+    }
+
+    @Bean DiagnosisApplicationService diagnosisApplicationService(SupportedScenarioCatalog catalog,
+            RouteValidator validator) {
+        return new DiagnosisApplicationService(catalog, validator);
+    }
+
     @Bean ConversationFlowService conversationFlowService(ConversationService conversations, TaskRouter router,
-            SupportedScenarioCatalog catalog) {
-        return new ConversationFlowService(conversations, router, catalog);
+            SupportedScenarioCatalog catalog, QueryService queries, DiagnosisApplicationService diagnoses) {
+        return new ConversationFlowService(conversations, router, catalog, queries, diagnoses);
     }
 }

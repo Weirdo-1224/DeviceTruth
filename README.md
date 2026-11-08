@@ -234,7 +234,7 @@ python3 scripts/verify_online.py --reasoner=openai
 
 ## 验证、排错与交接
 
-`mvn -q test` (V0.2 S1 当前 101 tests) 覆盖五类动作、JSON/ID/时间校验、Gateway、单步提交、预算、证据修订、Guard、A/B/C/D/E、模型协议替身、数据扰动和工业契约，以及 M1 的 Catalog/Session/四类路由/HTTP 契约（含 `201/200/400/404/429/501/503` 与容量上限），另含首审修复回归（模型建议不能授权/覆盖资产、`CAR-Z` 与多资产边界、危险请求程序复核、会话交互原子提交）。新增本机 HTTP 替身测试检查 OpenAI 兼容请求的路径/认证/JSON、配置错误、有限重试、HTTP 失败脱敏，以及 B 经真实 SDK 和 Core 的完整链路；这些不是外部真实模型验收。扰动测试真实写出和读取临时 JSON，改变 B 的确认值/移除确认/注入冲突，Core 不变。`scripts/verify_cli.py` 另行启动打包 JAR，检查输出文件、事件序号、两种在线模式的缺 Key 失败，以及无环境变量时从私有文件连接本机模拟接口（不访问外部服务），汇总到 `target/cli-verification.json`。
+`mvn -q test` (V0.2 S1 当前 125 tests) 覆盖五类动作、JSON/ID/时间校验、Gateway、单步提交、预算、证据修订、Guard、A/B/C/D/E、模型协议替身、数据扰动和工业契约，以及 M1 的 Catalog/Session/四类路由/HTTP 契约（含 `201/200/400/404/429/501/503` 与容量上限），另含 M1 修复回归（模型建议不能授权/覆盖资产、`CAR-Z` 与多资产边界、危险请求程序复核、会话交互原子提交）。M2 新增事实查询与诊断目标映射测试：`QueryService` 只走真实 `profile/history`，`sources` 取真实 `evidenceId/sourceRef/sourceType`，出厂/维修记录不等同当前配置，空结果不编造，跨资产记录被拒；`DiagnosisGoal` 的业务时间固定取 Catalog 的模拟 `asOf`，`DIAGNOSE` 仍明确 501 且不写会话。新增本机 HTTP 替身测试检查 OpenAI 兼容请求的路径/认证/JSON、配置错误、有限重试、HTTP 失败脱敏，以及 B 经真实 SDK 和 Core 的完整链路；这些不是外部真实模型验收。扰动测试真实写出和读取临时 JSON，改变 B 的确认值/移除确认/注入冲突，Core 不变。`scripts/verify_cli.py` 另行启动打包 JAR，检查输出文件、事件序号、两种在线模式的缺 Key 失败，以及无环境变量时从私有文件连接本机模拟接口（不访问外部服务），汇总到 `target/cli-verification.json`。
 
 - `release version 21 not supported`：检查 `mvn -version` 的 Java 路径，确保当前终端 JAVA_HOME 和 PATH 均指向 21。
 - Maven 首次下载失败：确认可访问 Maven Central；不要把依赖下载失败写成测试通过。已缓存后可执行 `mvn -o -q test`。

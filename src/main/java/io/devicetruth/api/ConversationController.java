@@ -5,10 +5,13 @@ import io.devicetruth.api.ApiDtos.HealthResponse;
 import io.devicetruth.api.ApiDtos.MessageRequest;
 import io.devicetruth.api.ApiDtos.MessageView;
 import io.devicetruth.api.ApiDtos.MessagesResponse;
+import io.devicetruth.api.ApiDtos.QueryView;
 import io.devicetruth.api.ApiDtos.RouteResponse;
+import io.devicetruth.api.ApiDtos.SourceView;
 import io.devicetruth.application.ConversationFlowService;
 import io.devicetruth.application.ConversationMessage;
 import io.devicetruth.application.ConversationService;
+import io.devicetruth.application.QueryAnswer;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -49,7 +52,7 @@ public class ConversationController {
     public ResponseEntity<RouteResponse> message(@PathVariable UUID sessionId, @RequestBody MessageRequest request) {
         var result = flow.handle(sessionId, request.content(), request.assetId());
         return ResponseEntity.ok(new RouteResponse(result.route().name(), result.messageId(), result.reply(),
-                ApiDtos.SIMULATED, result.assetId()));
+                ApiDtos.SIMULATED, result.assetId(), result.requestedAt(), view(result.queryAnswer())));
     }
 
     @GetMapping("/health")
@@ -58,5 +61,14 @@ public class ConversationController {
     private MessageView view(ConversationMessage message) {
         return new MessageView(message.messageId(), message.role().name(),
                 message.route() == null ? null : message.route().name(), message.content(), message.createdAt());
+    }
+
+    private static QueryView view(QueryAnswer answer) {
+        if (answer == null) return null;
+        return new QueryView(answer.scope(), answer.assetId(), answer.answer(),
+                answer.sources().stream()
+                        .map(s -> new SourceView(s.evidenceId(), s.sourceRef(), s.sourceType(), s.dataNature()))
+                        .toList(),
+                answer.limitations(), answer.dataNature());
     }
 }

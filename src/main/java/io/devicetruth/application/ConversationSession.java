@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /** 有界内存会话：所有读写同步，避免并发追加丢消息或串案。 */
 public final class ConversationSession {
@@ -13,6 +14,9 @@ public final class ConversationSession {
     private final List<ConversationMessage> messages = new ArrayList<>();
     private String currentAssetId;
     private UUID activeDiagnosisId;
+
+    /** 会话内一次完整交互的提交内容：资产绑定、用户消息、系统回复（可带结构化查询结果）。 */
+    public record Interaction(String assetId, String userContent, String reply, QueryAnswer queryAnswer) {}
 
     ConversationSession(UUID sessionId, Instant createdAt, int maxMessages) {
         this.sessionId = sessionId;
@@ -40,13 +44,26 @@ public final class ConversationSession {
      */
     public synchronized ConversationMessage commitInteraction(Route route, String assetId,
                                                               String userContent, String reply) {
+        return writeLocked(route, new Interaction(assetId, userContent, reply, null));
+    }
+
+    /**
+     * 先在同一把会话锁内做容量预检并执行只读工作（如查询），成功后再一次性写入两条消息。
+     * 查询抛异常或容量不足时资产与消息都不变，避免"先写消息再查询失败"留下半条交互。
+     */
+    public synchronized ConversationMessage commitPlanned(Route route, Supplier<Interaction> work) {
         if (messages.size() + 2 > maxMessages) throw new ApplicationExceptions.MessageCapacityExceededException();
-        if (assetId != null) currentAssetId = assetId;
+        return writeLocked(route, work.get());
+    }
+
+    private ConversationMessage writeLocked(Route route, Interaction interaction) {
+        if (messages.size() + 2 > maxMessages) throw new ApplicationExceptions.MessageCapacityExceededException();
+        if (interaction.assetId() != null) currentAssetId = interaction.assetId();
         var userMessage = new ConversationMessage(UUID.randomUUID(), ConversationMessage.Role.USER,
-                route, userContent, Instant.now());
+                route, interaction.userContent(), Instant.now());
         messages.add(userMessage);
         messages.add(new ConversationMessage(UUID.randomUUID(), ConversationMessage.Role.SYSTEM,
-                route, reply, Instant.now()));
+                route, interaction.reply(), Instant.now()));
         return userMessage;
     }
 

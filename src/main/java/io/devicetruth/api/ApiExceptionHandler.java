@@ -38,6 +38,12 @@ public class ApiExceptionHandler {
         return error(HttpStatus.NOT_IMPLEMENTED, "NOT_IMPLEMENTED", "该路由已识别，但对应处理将在后续里程碑启用。");
     }
 
+    /** 仓储返回了不属于请求资产的记录：属于内部一致性问题，不对外透传任何记录内容。 */
+    @ExceptionHandler(ApplicationExceptions.QueryAssetMismatchException.class)
+    ResponseEntity<ErrorResponse> queryAssetMismatch() {
+        return error(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "服务内部错误。");
+    }
+
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
             IllegalArgumentException.class})
     ResponseEntity<ErrorResponse> invalidRequest() {

@@ -1,6 +1,6 @@
 # DeviceTruth V0.2｜S0/S1 分会话实施任务（Task）
 
-> 状态基线：M0 已由 Codex Review #2 判定 **PASS 并置 `DONE`**；M1 已由 Codex Review #3 判定 **PASS 并置 `DONE`**（2026-11-08，未解决 P0=0/P1=0，P2=2 为已登记延期项）；M2–M3 仍为 `TODO`。每次只推进一个里程碑；Review PASS 后才能改 DONE。原 R01~R07 要求保留为里程碑内部检查项，不再各自创建会话和 Review。M0 的真实命令、退出码与源码依据见 [S0_AUDIT.md](./S0_AUDIT.md) §2.3。
+> 状态基线：M0 已由 Codex Review #2 判定 **PASS 并置 `DONE`**；M1 已由 Codex Review #3 判定 **PASS 并置 `DONE`**；M2 已由 Codex Review（`reviews/M2.md` 首审）判定 **PASS 并置 `DONE`**（均为 2026-11-08；未解决 P0=0/P1=0）。M3 仍为 `TODO`，仅在 M2 PASS 后启动。每次只推进一个里程碑；Review PASS 后才能改 DONE。原 R01~R07 要求保留为里程碑内部检查项，不再各自创建会话和 Review。M0 的真实命令、退出码与源码依据见 [S0_AUDIT.md](./S0_AUDIT.md) §2.3。
 >
 > 每个里程碑由开发者实施或完成文档审计，Codex 独立 Review。**不默认允许模型执行 commit/push/reset/clean。**
 
@@ -22,7 +22,7 @@
 |---|---|---|---|---|---|
 | M0 | S0 | 原 R01+R02：基线审计 → 契约冻结 | 无 | **DONE**（2026-11-08，Review #2 PASS） | `reviews/M0.md`（#1 CHANGES_REQUIRED → #2 PASS） |
 | M1 | S1 | 原 R03+R04：双 Main/Catalog/Session/Router | M0 PASS | **DONE**（2026-11-08，Review #3 PASS） | reviews/M1.md（#1 CHANGES_REQUIRED → #2 CHANGES_REQUIRED → **#3 PASS**） |
-| M2 | S1 | 原 R05：QueryService + Goal→Core 请求映射 | M1 PASS | TODO | reviews/M2.md（未生成） |
+| M2 | S1 | 原 R05：QueryService + Goal→Core 请求映射 | M1 PASS | **DONE**（2026-11-08，Review 首审 PASS） | reviews/M2.md（PASS，P2×2 延期） |
 | M3 | S1 | 原 R06+R07：异步运行/结果事件/最终验收 | M2 PASS | TODO | reviews/M3.md（未生成） |
 
 ### 通用开发边界
@@ -281,6 +281,41 @@ Codex `reviews/M1.md` §8 结论：**CHANGES_REQUIRED**，P0=0、**P1=1（M1-P1-
 - `originalUserMessage` 只留在应用层；旧 `DiagnosisRequest` 不含该字段，不得宣称已传入 Core。
 
 **M2 Codex Review**：Repo 和 Gateway 边界、真实 fixture 数据、时间源、源 ID 严格对应、没有硬编码答复。报告写入 `reviews/M2.md`。
+
+### 4.1 M2 执行记录（2026-11-08，开发者自测；已由 Review 首审置 DONE）
+
+- **基线**：M1 checkpoint `2c599e7`；开工前 `git status` 为空，HEAD 仅多出文档提交 `fc067d7`；基线测试 `mvn -q -o clean test` 退出 0（21 类 109 项）。
+- **交付内容**：
+  - `QueryService`（新）：仅 `ASSET_PROFILE → AssetRepository.profile(assetId)` 与 `MAINTENANCE_HISTORY → AssetRepository.history(assetId, null)`；不构造 `DiagnosisRequest`、不经过 `CapabilityGateway`、不做状态重建。
+  - `QueryAnswer`（新）：`scope/assetId/answer/sources/limitations/dataNature`；`sources[]` 逐项取记录真实 `evidenceId/sourceRef/sourceType`，`evidenceId` 与 `sourceRef` 分开保存。
+  - 资产一致性：返回记录 `assetId` 与请求不一致 → `QueryAssetMismatchException` → `500 INTERNAL_ERROR`，不返回他人数据。
+  - 语义边界：`ASSET_PROFILE` 明确“不代表当前实际安装配置”，`MAINTENANCE_HISTORY` 明确“发生过更换 ≠ 当前已现场确认”；两者都带 `limitations`；空结果明确“没有该类模拟记录”。
+  - `DiagnosisGoal` + `DiagnosisApplicationService`（新）：由 Catalog 取 `domain/symptomCode/diagnosisAsOf`，别名只认 `SymptomResolver` 白名单，再用 `RuleRepository.query`（经 `RouteValidator.hasRule`）确认规则存在；`originalUserMessage/normalizedGoal` 只留应用层；`toRequest()` 生成旧四字段 `DiagnosisRequest`。
+  - `ConversationFlowService`：`QUERY` 走真实查询并返回 `200` + 结构化 `query`；`DIAGNOSE` **仍抛 501 且在任何会话写入前抛出**（M3 才接 Core），另提供 `planDiagnosis(...)` 只做 Goal→Request 映射、不写会话、回复中写明“诊断尚未执行”。
+  - 原子性：`ConversationSession.commitPlanned(route, Supplier)` 在同一会话锁内“容量预检 → 执行只读查询 → 写入 USER/SYSTEM”，查询失败或 429 都不留半条消息；原 `commitInteraction` 复用同一 `writeLocked`。
+  - 装配：`ServerConfiguration` 新增两个 `@Bean`（`QueryService` 只依赖只读 `JsonRepositories`；`DiagnosisApplicationService` 依赖 Catalog + `RouteValidator`）；`core/adapter/app` 仍无 Spring 注解，扫描范围未放宽。
+- **门禁（真实执行）**：
+
+| 命令 | 退出码 | 结果 |
+|---|---|---|
+| `mvn -q -o '-Dtest=QueryServiceTest,DiagnosisApplicationServiceTest,ServerHttpTest,QueryHttpTest,ServerAtomicityHttpTest' test` | 0 | 定向测试全绿（含新增 16 项） |
+| `mvn -q -o clean package` | 0 | **24 类 125 项，0 失败/0 错误/0 跳过**（109 + 16）；`Start-Class=io.devicetruth.app.DeviceTruthApplication` |
+| `java -jar target/devicetruth-core-0.1.0.jar --scenario=A|B|C|D --reasoner=scripted` | 0×4 | 7/7/7/6；RESOLVED/RESOLVED/CONFLICT/NEED_EVIDENCE |
+| `--scenario=E` | 2 | 非法参数仍拒绝，未新增 E 场景 |
+| `python scripts/verify_cli.py` | 0 | 4 项 PASS |
+| `python target/m2-probe.py`（真实 Server，自起自停，随机端口） | 0 | **12/12**：TC-01/02/03/08/14/15 与“DIAGNOSE 未执行”“消息原子记录”全部通过；端口无残留 |
+
+- **未验证**：在线 Router / 真实模型未调用（`BLOCKED_BY_ENV` 语义沿用）；M3 的异步 Core、FAILED 映射、事件安全视图不在本轮范围。
+- **本轮未修**：`M1-P2-01/02` 按要求延期，状态不变。
+
+### 4.2 M2 复审结果与里程碑关闭（2026-11-08）
+
+- Codex Review（`reviews/M2.md` §7）判定 **PASS**：未解决 P0=0、P1=0，新增 P2=2（`M2-P2-01` 死代码：`ConversationSession.Interaction.queryAnswer` 与 `ConversationFlowService.renderQueryReply` 无消费方；`M2-P2-02` `planDiagnosis` 无交付内测试，行为已经探针实测）。连同 M1 延期的 `M1-P2-01/02`，共 4 项 P2 登记延期，不阻塞 M3。
+- 复审实际执行：`mvn -q -o clean package` 退出 0（**24 类 125 项，0 失败/0 错误/0 跳过**，M1 基线 109 + 新增 16）；`Start-Class=io.devicetruth.app.DeviceTruthApplication`；CLI A–D 退出 0（7/7/7/6；RESOLVED/RESOLVED/CONFLICT/NEED_EVIDENCE）、`--scenario=E` 退出 2；`python scripts/verify_cli.py` 退出 0（4 项 PASS）。
+- Reviewer 独立 HTTP 探针（真实 Server 自起自停，随机端口）退出 0：**13/13**——QUERY 两类真实来源（`CAR-B-FACTORY/simulated:CAR-B/FACTORY/FACTORY`、仅 `CAR-B-REPLACE`）、空历史不编造、SN-0245 无 CAR-B 泄漏、DIAGNOSE 501 无半条消息、响应无 `reportPath/stopReason/diagnosisSummary`。
+- Reviewer 独立 `PlanProbe`（真实装配 `planDiagnosis`）退出 0：`assetId=CAR-B, domain=automotive-demo, symptomCode=COMM_TIMEOUT, asOf=2026-11-03T04:00:00Z`，会话 0 消息，回复含“诊断尚未执行”。
+- 状态转换：`REVIEW_PENDING → DONE`。用户未在本轮明确授权 checkpoint commit，按备选方案保存 M2 比较基线于 `outputs/baselines/M2/`（`M2-delivery.patch` = `git diff 2c599e7 -- src README.md`；`untracked/` 8 个新增文件副本含 `reviews/M2.md`；`SHA256SUMS.txt` 18 个交付文件全 OK，聚合 SHA-256 `6282c5f2…`；task/state 流程文档不入清单）。M3 的 diff 基线 = `git diff 2c599e7 -- src README.md`（工作树）。
+- M3 启动前置：M2 = DONE（本记录）；DIAGNOSE 的 501 分支在 M3 接入 `DiagnosisRunService` 后必须删除或用测试证明不可达；§4.8 安全映射 M3 必测。
 
 ## 5. M3｜S1：异步诊断与最终验收
 
