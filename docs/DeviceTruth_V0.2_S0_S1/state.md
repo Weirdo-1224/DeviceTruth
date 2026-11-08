@@ -9,7 +9,7 @@
 - 当前里程碑：**M2 = TODO**（M1 已由 Review #3 PASS 置 DONE，2026-11-08；`reviews/M1.md` §9，未解决 P0=0/P1=0，P2=2 延期）。M2 仅在完成 §6 交接后启动。
 - 下一里程碑：**M3（S1）**，仍是 `TODO`，仅在 M2 Review PASS 后启动。
 - 文档规格状态：**FROZEN**（M0 Review #2 PASS 后转入；此后改规格须走 `spec.md` §10 并经用户批准）。
-- 当前开发基线 commit：仍是 **M0 checkpoint** `d4832de`（未 push、无 tag、无 stash）。M1 交付未获 commit 授权，**未建 checkpoint commit**；M1 基线快照保存在 `outputs/baselines/M1/`（`M1-delivery.patch`、`untracked/` 副本、`SHA256SUMS.txt` 33 个交付文件全 OK、聚合 SHA-256 `6abaca40…`（task/state 流程文档不入清单）），M2 以当前工作树 + 该快照为比较基线。
+- 当前开发基线 commit：**M1 checkpoint** `2c599e7`（subject：`feat: M1 HTTP 接入层通过 Review #3 并交接至 M2`，用户已授权建立；未 push、无 tag、无 stash）。M1 交接时的对照快照仍在 `outputs/baselines/M1/`（`SHA256SUMS.txt` 33 个交付文件全 OK、聚合 `6abaca40…`），M2 以 `2c599e7` 为比较基线。
 - 工作树状态（M1 交付 + M1.md 报告）：改 `pom.xml`、`README.md`、`docs/.../task.md`、`docs/.../state.md`；新增 `src/main/resources/application.properties`、`io/devicetruth/{server,api,application}/` 与对应测试、`reviews/M1.md`。`target/`、`outputs/`、`m1-*.log` 为运行产物，不纳交付。
 - 是否完成 S1：**否**（M1 DONE；M2/M3 未开始）。
 
@@ -66,7 +66,7 @@
 - 门禁：`mvn -q -o clean package` 退出 0（**21 类 109 项，0 失败/0 错误/0 跳过**）；`Start-Class=io.devicetruth.app.DeviceTruthApplication`；`python scripts/verify_cli.py` 退出 0（A/B `RESOLVED`、C `CONFLICT`、D `NEED_EVIDENCE`，7/7/7/6，缺 Key FAILED 无降级）。
 - 独立 HTTP 探针（2 个真实 Server + 本机模型替身）退出 0：**16/16**——§8.3 四个复现案例（CAR-ZZ/CAR-B2/CAR-B-UNKNOWN 有/无上下文、在线替身建议 DIAGNOSE）全部翻转为 `200 UNSUPPORTED assetId=null`；九项保留行为回归（CAR-C、上下文复用、多资产 ASSET_AMBIGUOUS、文本/hint 冲突、SN-0245、规则/证据 ID 不误伤、小写 car-b、拒绝后上下文不污染）；P1-01/03 关闭状态保持；全程 `SIMULATED`，端口无残留。
 - 变更面仅 4 文件（`RouteValidator`、`ServerConfiguration`、`TaskRouterTest` +5、`LlmTaskRouterTest` +3）；其余 30 个交付文件 SHA-256 与 Review #2 一致；`spec.md`、`core/adapter/app`、数据集零改动。
-- M1 基线快照：`outputs/baselines/M1/`（`SHA256SUMS.txt` 33 个交付文件全 OK，聚合 `6abaca40…`；task/state 流程文档随交接更新不入清单）；M2 比较基线 = 当前工作树 + 该快照（checkpoint commit 仍为 `d4832de`）。
+- M1 基线快照：`outputs/baselines/M1/`（`SHA256SUMS.txt` 33 个交付文件全 OK，聚合 `6abaca40…`；task/state 流程文档随交接更新不入清单）；M2 比较基线 = checkpoint commit `2c599e7`（快照仅作对照副本）。
 
 ## 5. 未解决的风险与限制
 
@@ -75,7 +75,7 @@
 - **M1 的 QUERY/DIAGNOSE 仍为临时 `501` 测试态**：M2/M3 完成后必须删除该分支或提供测试证明不可达；不得把 501 当作查询/诊断已实现。
 - **`HypothesisStatus.SUPPORTED` 在主源码中从未被赋值**（实际只有 `OPEN`/`INVALIDATED`）→ 任何文档/答复不得宣称假设驱动 O-H-E-D 闭环；已登记 S2。
 - 未解决 P2：**2**（`M1-P2-01` 空白 `assetId:" "` 被当作未提供，应 400；`M1-P2-02` `RouterUnavailableHttpTest` 走「不支持模式」而非 qwen/openai 缺配置 `required` 路径）。按用户指令延期，不阻塞 M2。以下为非 Review 项、但下一里程碑必须遵守的约束：M2 的 `MAINTENANCE_HISTORY` 查询必须 `componentId=null`（`JsonRepositories` 只按 `payload.subject` 过滤）；空结果明确说明“没有此类模拟记录”，不得编造；M3 队列拒绝须同时移除注册项，避免永久 `QUEUED`；`ExecutionStatus.FAILED` 不得包装成 `COMPLETED`。
-- 工作树在 M2 开始时：M1 交付（含 `reviews/M1.md`）在工作树未提交，基线快照见 `outputs/baselines/M1/`。M2 的 diff 对照 = 当前工作树状态 + 快照哈希（不要再只用 `git diff d4832de` 圈 M0→M1 的全部改动）。
+- 工作树在 M2 开始时：M1 交付已由 checkpoint commit `2c599e7` 收进 HEAD，`git status` 应为空。M2 的 diff 基线 = `git diff 2c599e7..HEAD`；交接快照 `outputs/baselines/M1/` 仅作对照副本。
 
 ## 6. 下一里程碑交接卡（开发者开始工作时首先读取）
 
@@ -85,11 +85,11 @@ STATUS: TODO（M1 = DONE，Review #3 PASS；完成本交接后由开发者置 IN
 REVIEW_GATE: 只有 reviews/M2.md = PASS 后，才能把 M2 改为 DONE 并启动 M3
 PHASE: S1
 PRECONDITION: M1 = DONE（reviews/M1.md §9 PASS），spec.md = FROZEN
-BASELINE: 当前工作树未提交（M1 交付 + reviews/M1.md），checkpoint commit 仍为 d4832de
-          比较基线 = 工作树现状 + outputs/baselines/M1/ 快照
+BASELINE: 本地 checkpoint commit = 2c599e7（subject: feat: M1 HTTP 接入层通过 Review #3 并交接至 M2）
+          定位：git log -1 --format=%H；HEAD 的父提交是 M0 checkpoint d4832de
+          M2 的 diff 基线 = git diff 2c599e7..HEAD；交接时对照快照在 outputs/baselines/M1/
           （M1-delivery.patch、untracked/ 31 文件副本、SHA256SUMS.txt 33 个交付文件全 OK、
-          聚合 SHA-256 6abaca40…（task/state 流程文档随交接更新不入清单），可 sha256sum -c 自校验；只认 LF 版清单）
-          不要只用 git diff d4832de 圈 M2 交付（那包含 M0→M1 的全部改动）
+          聚合 SHA-256 6abaca40…（task/state 流程文档不入清单），可 sha256sum -c 自校验；只认 LF 版清单）
 READ_FIRST（本轮只需这些，不要全仓扫描）:
   1. docs/DeviceTruth_V0.2_S0_S1/state.md（本文件，特别是 §4.3 与 §5 约束）
   2. docs/DeviceTruth_V0.2_S0_S1/task.md §4（M2 必做项 + M0 冻结补充）

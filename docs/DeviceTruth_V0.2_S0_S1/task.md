@@ -255,7 +255,7 @@ Codex `reviews/M1.md` §8 结论：**CHANGES_REQUIRED**，P0=0、**P1=1（M1-P1-
 - Codex Review #3（`reviews/M1.md` §9）判定 **PASS**：未解决 P0=0、P1=0、P2=2（`M1-P2-01` 空白 `assetId` 应 400、`M1-P2-02` RouterUnavailableHttpTest 走的非缺配置路径；均经用户指令延期）。`M1-P1-01/02/03/04` 全部 CLOSED。
 - 复审实际执行：`mvn -q -o clean package` 退出 0（**21 类 109 项，0 失败/0 错误/0 跳过**）；`Start-Class` 核对为 CLI 主类；`python scripts/verify_cli.py` 退出 0（A/B `RESOLVED`、C `CONFLICT`、D `NEED_EVIDENCE`，7/7/7/6）；独立 HTTP 探针退出 0（**16/16**：四个 §8.3 复现案例全部翻转 + 九项保留行为回归 + P1-01/03 保持关闭，本机模型替身 3 次调用，端口无残留）。首审 88 项、Review #2 101 项不重复累计。
 - 本轮变更面仅 4 个文件（`RouteValidator`、`ServerConfiguration`、`TaskRouterTest` +5、`LlmTaskRouterTest` +3），其余 30 个交付文件 SHA-256 与 Review #2 一致；`spec.md` 与 `core/adapter/app` 零改动。
-- 状态转换：`REVIEW_PENDING → DONE`。未获 commit 授权，未建 checkpoint commit；基线快照保存于 `outputs/baselines/M1/`（`M1-delivery.patch`、`untracked/` 31 个未跟踪文件副本、`SHA256SUMS.txt` 33 个交付文件全 OK、聚合 SHA-256 `6abaca40…`（task/state 流程文档不入清单）），M2 以工作树当前状态 + 该快照为比较基线。
+- 状态转换：`REVIEW_PENDING → DONE`。用户已授权建立**本地 checkpoint commit `2c599e7`**（不 push、不打 tag），M2 以该提交为比较基线；交接时对照快照另存于 `outputs/baselines/M1/`（`M1-delivery.patch`、`untracked/` 31 个未跟踪文件副本、`SHA256SUMS.txt` 33 个交付文件全 OK、聚合 SHA-256 `6abaca40…`，task/state 流程文档不入清单）。
 - M2 启动前置：M1 = DONE（本记录）+ 基线快照可校验；QUERY/DIAGNOSE 的临时 501 分支仍为测试态，M2/M3 完成后必须删除或证明不可达。
 
 ## 4. M2｜S1：事实查询 + Core 请求适配（原 R05）
