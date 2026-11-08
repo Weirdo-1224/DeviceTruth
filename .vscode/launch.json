@@ -1,0 +1,14 @@
+{
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Spring Boot-DeviceTruthServerApplication<devicetruth-core>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "io.devicetruth.server.DeviceTruthServerApplication",
+            "projectName": "devicetruth-core",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}
