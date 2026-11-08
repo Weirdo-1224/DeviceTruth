@@ -7,3 +7,4 @@ outputs/runs/
 *.log
 .idea/
 *.iml
+.arts/
