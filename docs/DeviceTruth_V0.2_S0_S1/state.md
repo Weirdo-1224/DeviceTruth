@@ -85,8 +85,8 @@ STATUS: TODO（M1 = DONE，Review #3 PASS；完成本交接后由开发者置 IN
 REVIEW_GATE: 只有 reviews/M2.md = PASS 后，才能把 M2 改为 DONE 并启动 M3
 PHASE: S1
 PRECONDITION: M1 = DONE（reviews/M1.md §9 PASS），spec.md = FROZEN
-BASELINE: 本地 checkpoint commit = 2c599e7（subject: feat: M1 HTTP 接入层通过 Review #3 并交接至 M2）
-          定位：git log -1 --format=%H；HEAD 的父提交是 M0 checkpoint d4832de
+BASELINE: 交付基线 commit = 2c599e7（subject: feat: M1 HTTP 接入层通过 Review #3 并交接至 M2）
+          注意：随后仅有文档状态 commit fc067d7（task/state 基线口径），不含业务代码；
           M2 的 diff 基线 = git diff 2c599e7..HEAD；交接时对照快照在 outputs/baselines/M1/
           （M1-delivery.patch、untracked/ 31 文件副本、SHA256SUMS.txt 33 个交付文件全 OK、
           聚合 SHA-256 6abaca40…（task/state 流程文档不入清单），可 sha256sum -c 自校验；只认 LF 版清单）
