@@ -1,6 +1,6 @@
 # DeviceTruth V0.2｜S0/S1 分会话实施任务（Task）
 
-> 初始状态：**全部 TODO，未经真实运行或 Review**。每次只推进一个里程碑；Review PASS 后才能改 DONE。原 R01~R07 要求保留为里程碑内部检查项，不再各自创建会话和 Review。
+> 状态基线：M0 已由 Codex Review #2 判定 **PASS 并置 `DONE`**（2026-11-08，P0/P1/P2 均为 0），M1–M3 仍为 `TODO`。每次只推进一个里程碑；Review PASS 后才能改 DONE。原 R01~R07 要求保留为里程碑内部检查项，不再各自创建会话和 Review。M0 的真实命令、退出码与源码依据见 [S0_AUDIT.md](./S0_AUDIT.md) §2.3。
 >
 > 每个里程碑由开发者实施或完成文档审计，Codex 独立 Review。**不默认允许模型执行 commit/push/reset/clean。**
 
@@ -20,7 +20,7 @@
 
 | ID | 阶段 | 里程碑范围 | 依赖 | 状态 | Codex 报告 |
 |---|---|---|---|---|---|
-| M0 | S0 | 原 R01+R02：基线审计 → 契约冻结 | 无 | TODO | reviews/M0.md（未生成） |
+| M0 | S0 | 原 R01+R02：基线审计 → 契约冻结 | 无 | **DONE**（2026-11-08，Review #2 PASS） | `reviews/M0.md`（#1 CHANGES_REQUIRED → #2 PASS） |
 | M1 | S1 | 原 R03+R04：双 Main/Catalog/Session/Router | M0 PASS | TODO | reviews/M1.md（未生成） |
 | M2 | S1 | 原 R05：QueryService + Goal→Core 请求映射 | M1 PASS | TODO | reviews/M2.md（未生成） |
 | M3 | S1 | 原 R06+R07：异步运行/结果事件/最终验收 | M2 PASS | TODO | reviews/M3.md（未生成） |
@@ -83,6 +83,42 @@ M0 在同一个连续工作周期内完成两个严格有序的子阶段：先�
 
 **通过判据**：S0_AUDIT 可追溯；核心契约确切；S1 不需要靠猜测 API 开发；CLI 保护和测试可实施。此后每次改规格必须写变更说明并经用户批准。
 
+### 2.3 M0 执行记录（2026-11-08，开发者自测完成；已由 Review #2 判定 DONE）
+
+事实全部记录在 [S0_AUDIT.md](./S0_AUDIT.md)，此处只留最小索引。基线：`main` @ `14952b6`，工作树干净、无 tag、无 stash。
+
+| 门禁 | 真实命令 | 退出码 | 结果 |
+|---|---|---|---|
+| Java | `java -version`（`JAVA_HOME=.tools/jdk-21.0.13.0.2+1`） | 0 | `21.0.13.0.2`（默认环境仍是 17，必须显式设置） |
+| Maven | `mvn -version` | 0 | 3.9.9 / Java 21 / UTF-8 |
+| 单测 | `mvn -q clean test` | 0 | **42 项，0 失败/0 错误/0 跳过** |
+| 打包 | `mvn -q package` | 0 | `target/devicetruth-core-0.1.0.jar`（46,924,270 字节） |
+| CLI A–D | `java -jar target/devicetruth-core-0.1.0.jar --scenario=<A/B/C/D> --reasoner=scripted` | 0×4 | A/B `RESOLVED`、C `CONFLICT`、D `NEED_EVIDENCE`（7/7/7/6 步） |
+| 非法参数 | `--reasoner=invalid` | 2 | 报错并拒绝 |
+| E 负例 | `mvn -q '-Dtest=AcceptanceTest#caseEUnknownToolAndForgedEvidenceNeverResolve' test` | 0 | 1 项通过；E 不是 CLI 场景 |
+| 打包壳验收 | `python scripts/verify_cli.py` | 0 | A–D、缺 Key、私有配置本机 HTTP 全部 PASS |
+
+冻结要点（详情见 `spec.md`）：双 Main 与 `mainClass` 显式固定（M1 必做必验）、Catalog 只从 `scenarios.json` 派生（A–D 同 `domain=automotive-demo`、同 `symptomCode=COMM_TIMEOUT`、同 `asOf=2026-11-03T04:00:00Z`）、症状别名白名单、`requestedAt`/`diagnosisAsOf` 分离、三 ID 分离（报告目录 UUID ≠ `taskId`）、`ExecutionStatus` 与 Core `RunStatus` 映射、源码识别 11 类事件的公开白名单视图（§4.8 安全映射，B 实跑触发其中 8 类）、QUERY 两类只读 Repository 查询、队列满 `429`、Router 不可用 `503`、并发与容量上限。
+
+审计新发现（需 Review 关注）：`HypothesisStatus.SUPPORTED` 在主源码中**从未被赋值**（假设只有 OPEN/INVALIDATED），因此 S1 不得宣称假设驱动闭环；`pom.xml` 目前**没有** `mainClass` 配置，第二个 Main 出现前必须显式固定；`pom.xml` **没有** `spring-boot-starter-web`；主源码仅一处 Spring 注解，所有组件由手工 `new` 装配。
+
+未执行且有明确原因的事项：`python scripts/verify_online.py` 与任何真实外部模型调用（本轮未触碰在线额度，历史在线结论只作 `[HISTORICAL]` 记录）；Server 启动命令无法在本轮验证（Server 类尚不存在，M1 必须实测）。
+
+**复审轮次（2026-11-08，Codex Review #1 = CHANGES_REQUIRED）**：P0=0、P1=1（`M0-P1-01` 终止事件/`stopReason` 安全映射）、P2=1（`M0-P2-01` 事件类型措辞）。两项均已在文档层闭合：
+
+- P1：用真实 Core 复现（合法 `ESCALATE`/`REQUEST_INFORMATION` 的 reason 进入 `stopReason`/`diagnosisSummary`/`NEED-AGENT` 描述/`TERMINATED.data`），随后在 `spec.md` 新增 §4.8——28 项显式停止码白名单、`STOP_REASON_WITHHELD`/`RUN_FAILED_WITHHELD_REASON`、缺口只给 `openNeeds`、`TERMINATED` 用过滤值；Core/Guard/Orchestrator 零改动，安全回归列为 M3 必测。
+- P2：区分“源码识别 11 类”与“scripted B 实跑 8 类”，并给出其余 3 类的真实覆盖证据。
+- 复现细节、命令与修复后门禁（`mvn -q clean test` 42/0/0/0、`mvn -q package`、`verify_cli.py`、E 定向测试、`Start-Class` 均为退出 0）见 `S0_AUDIT.md` §K。
+- 首审当时状态为 **REVIEW_PENDING**，未标 DONE、未进入 M1（该状态已被下面的 #2 复审结论取代）。
+
+### 2.4 M0 复审结果与里程碑关闭（2026-11-08）
+
+- Codex Review #2（`reviews/M0.md` §8）判定 **PASS**：未解决 P0=0、P1=0、P2=0，未发现新增问题。`M0-P1-01`、`M0-P2-01` 均 CLOSED。
+- 复审实际执行：`mvn -q '-Dtest=AcceptanceTest,RuntimeTest' test` 退出 0（9 项，0 失败/0 错误/0 跳过）；Python 只读核验 §4.8 白名单来源 `WHITELIST_PROVENANCE=PASS 5+8+15=28`；`git diff 14952b6 -- src pom.xml scripts datasets skills .mvn .vscode` 为空。首审的干净全量 42 项、package、`verify_cli.py`、CLI A–D 证据对相同代码继续有效（本轮未重跑，也不冒充重跑）。
+- 复审结论限定在 M0 范围：`stopReason` 安全映射只在**契约层**闭合，HTTP 过滤实现与实测归 M3；PASS 不代表 S1 完成或在线模型通过。
+- 未发现需要用户裁决的重大架构分歧，因此按 §2.2 约定把 `spec.md` 由 `DRAFT`/`FROZEN_CANDIDATE` 转为 **FROZEN**（变更表已记录）。
+- 状态转换：`REVIEW_PENDING → DONE`。用户授权后已建立**本地 checkpoint commit**（不 push、不打 tag），M1 以该提交为比较基线；提交前的补丁与哈希副本见 `state.md` §6。
+
 ## 3. M1｜S1：HTTP 接入层
 
 M1 连续完成双入口/Catalog 和 Session/Router；开发者不在两者之间切换会话或等待正式 Review，但必须先验证入口与 Catalog，再接会话和路由。
@@ -105,6 +141,13 @@ M1 连续完成双入口/Catalog 和 Session/Router；开发者不在两者之�
 
 **内部检查点 A**：双 Main 生命周期、扫描范围、jar mainClass、真实启动日志、可回退性；不为了 Web 改坏原 CLI。通过后继续本里程碑的 Session/Router，不单独生成 Review 报告。
 
+**M0 冻结补充（M1 必须遵守）**：
+
+- `pom.xml` 的 `spring-boot-maven-plugin` 必须补 `<configuration><mainClass>io.devicetruth.app.DeviceTruthApplication</mainClass></configuration>`，并重新打包核对 `META-INF/MANIFEST.MF` 的 `Start-Class`。
+- 新增代码只落在 `io.devicetruth.server`、`io.devicetruth.api`、`io.devicetruth.application`；`core/`、`adapter/`、`app/` 不得新增任何 Spring 组件注解（现网事实：全主源码只有一处 `@SpringBootApplication`）。
+- Catalog 只从打包资源 `datasets/scenarios.json` 派生，不得手工复制第二份资产表，也不得新增 `domainOf/listAssets/listSymptoms`。
+- Server 启动命令与健康端点必须在 M1 真实跑通并记录日志/端口；未验证前不得写入“已通过”。
+
 ### 3.2 会话与四类路由（原 R04）
 
 **目标**：通过会话 API 接收中文消息，程序验证四种路由，不接入完整故障调查。
@@ -119,6 +162,13 @@ M1 连续完成双入口/Catalog 和 Session/Router；开发者不在两者之�
 6. 与 M2/M3 尚未实现的处理路径连接时可以返回明确的 `501/NOT_IMPLEMENTED` 测试态，不得用 `200` 或伪造 DTO 冒充真实 QUERY/DIAGNOSE 结果；M2/M3 完成后必须有测试证明临时分支已删除或不可达。
 
 **测试/验收**：`201/200`、四路由、上下文、非法 ID、模型不可用、容量限制、session 隔离；在线路由须实际可用才标通过。对应 TC-01/TC-07/TC-08/TC-09/TC-19/TC-20 的相关部分。
+
+**M0 冻结补充（M1 必须遵守）**：
+
+- 症状别名只允许 `spec.md` §4.2 的白名单命中 `COMM_TIMEOUT`，且必须再经 `RuleRepository.query` 确认有规则；其它表述不得默认映射。
+- 会话/消息容量超限 → `429 SESSION_CAPACITY_EXCEEDED`；诊断队列满 → `429 RUN_CAPACITY_EXCEEDED`；Router 依赖模型不可用 → `503 ROUTER_UNAVAILABLE`；归属不符/不存在 → `404 NOT_FOUND`。
+- 客户端不得提交 `reasoner/provider/apiKey/baseUrl/model`；模式只由服务端属性决定，默认 `offline`+`scripted`。
+- 会话/消息必须线程安全且有界（默认 `maxSessions=100`、`maxMessagesPerSession=40`、单条 ≤ 2000 字符）。
 
 **M1 Codex Review**：同时复核双 Main、Catalog、Session 和 Router 的实际 diff；确认 Router 只是分类而不是另一套 Agent，Catalog 边界、会话线程安全、未知/缺失信息准确处理。报告写入 `reviews/M1.md`。
 
@@ -136,6 +186,13 @@ M1 连续完成双入口/Catalog 和 Session/Router；开发者不在两者之�
 6. M3 未完成前，诊断交付仅可验证 Goal→Request；不可伪装诊断已执行。
 
 **测试/验收**：真实 profile/history 查询、来源字段、当前配置不能确定时的安全表达、固定业务时间、未知故障。对应 TC-02/TC-03/TC-08/TC-13/TC-14/TC-15。
+
+**M0 冻结补充（M2 必须遵守）**：
+
+- `ASSET_PROFILE` → `AssetRepository.profile(assetId)`；`MAINTENANCE_HISTORY` → `AssetRepository.history(assetId, null)`（`componentId` 必须传 `null`，`JsonRepositories` 只按 `payload.subject` 过滤）。
+- `sources[]` 直接取记录的 `evidenceId/sourceRef/sourceType`（真实值形如 `simulated:CAR-B/FACTORY`），并校验返回记录 `assetId` 与请求一致。
+- 空结果要明确说“该资产没有此类模拟记录”，不得回落到别家资产或编造记录。
+- `originalUserMessage` 只留在应用层；旧 `DiagnosisRequest` 不含该字段，不得宣称已传入 Core。
 
 **M2 Codex Review**：Repo 和 Gateway 边界、真实 fixture 数据、时间源、源 ID 严格对应、没有硬编码答复。报告写入 `reviews/M2.md`。
 
@@ -160,6 +217,14 @@ M3 连续完成异步诊断和最终验收，但设两个内部检查点：A 先
 **测试/验收**：真实 Core 调用可在日志/报告中证明；双并发状态不串案；Core FAILED→API FAILED；202 竞态稳定；事件安全。对应 TC-04/TC-05/TC-06/TC-10/TC-11/TC-16/TC-17。
 
 **内部检查点 A**：先验证有界执行器、Reasoner 实例作用域、状态转换、Core FAILED 映射和无幽灵任务；再完成 GET 结果、事件来源/过滤、归属与脱敏。不要仅凭 Controller 单测宣告全链通过。
+
+**M0 冻结补充（M3 必须遵守）**：
+
+- `coreTaskId` 只能取自 `report.state().taskId()`；`reportPath` 是 `RunReportWriter` 返回的独立 UUID 目录，两者必须分别保存，API 不返回路径。
+- 事件视图严格按 `spec.md` §4.7 白名单映射；`REASON_INPUT` 禁止输出 `context`，`RunEvent.data` 一律不得透传。
+- `ExecutionStatus.FAILED` 的错误码取 Reasoner 稳定错误码或 `stopReason`（如 `MODEL_OUTPUT_INVALID_AFTER_RETRY`、`DASHSCOPE_API_KEY_MISSING`），`outcome` 保持空。
+- 队列拒绝时必须同时移除注册项，避免永久 `QUEUED`。
+- **安全回归（M0-P1-01 修复要求，必测）**：用含合成路径与 `PROMPT_FRAGMENT` 标记的**合法** `ESCALATE` / `REQUEST_INFORMATION` 提案跑真实 Core，断言 `GET /api/diagnoses/{id}` 的 `stopReason/diagnosisSummary/openNeeds` 与 `/events` 的 `TERMINATED.summary` 都不回显该标记（应得到 `STOP_REASON_WITHHELD` 等固定值），同时断言白名单内的停止码（如 `DASHSCOPE_API_KEY_MISSING`）原样返回；Core 报告内的原值不受影响。
 
 ### 5.2 端到端验收与文档收敛（原 R07）
 
