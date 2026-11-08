@@ -9,8 +9,8 @@
 - 当前里程碑：**M3（S1）= TODO**，仅在 M2 Review PASS 后启动（`reviews/M2.md` 首审 PASS，未解决 P0=0/P1=0，新增 P2=2 延期；连同 M1 延期共 4 项 P2）。
 - 下一里程碑：**M3 之后为 S2**，不在 S1 范围内规划。
 - 文档规格状态：**FROZEN**（M0 Review #2 PASS 后转入；此后改规格须走 `spec.md` §10 并经用户批准）。
-- 当前开发基线：业务代码基线仍为 M1 checkpoint `2c599e7` + M2 未提交交付；M2 比较基线已保存于 `outputs/baselines/M2/`（`M2-delivery.patch`、`untracked/` 8 个新增文件副本、`SHA256SUMS.txt` 18 个交付文件全 OK、聚合 `6282c5f2…`）。M3 的 diff 基线 = `git diff 2c599e7 -- src README.md`（工作树）；若用户授权补建 M2 checkpoint commit，以其为更准确基线。
-- 工作树状态（M3 开工前）：M2 修改/新增文件仍未 commit（用户未授权本轮 commit）；`git status` 会列出 M2 交付文件。`target/`、`outputs/runs` 为运行产物，不纳交付；根目录 m1-*/m2-*.log 已清理（证据已收敛进 reviews/task）。
+- 当前开发基线 commit：**M2 checkpoint `0dff7c9`**（subject：`feat: M2 事实查询与诊断请求映射通过 Review 并交接至 M3`，用户已授权建立；未 push、无 tag、无 stash）。M3 的 diff 基线 = `git diff 0dff7c9..HEAD`（工作树已干净）；对照快照另存于 `outputs/baselines/M2/`（18 个交付文件 SHA-256 全 OK、聚合 `6282c5f2…`）。
+- 工作树状态（M3 开工前）：M2 交付已提交为 checkpoint `0dff7c9`，`git status` 干净；`target/`、`outputs/runs` 为运行产物，不纳交付；根目录 m1-*/m2-*.log 已清理（证据已收敛进 reviews/task）。
 - 是否完成 S1：**否**（M0/M1/M2 DONE；M3 未开始）。
 
 ## 2. 里程碑进度
@@ -102,10 +102,9 @@ STATUS: TODO（M2 = DONE；开工时先按规约置 IN_PROGRESS 并记录基线 
 REVIEW_GATE: 只有 reviews/M3.md = PASS 后，才能把 M3 改为 DONE 并关闭 S1
 PHASE: S1
 PRECONDITION: M2 = DONE（reviews/M2.md PASS，2026-11-08），spec.md = FROZEN
-BASELINE: M2 交付尚未 commit（用户未授权本轮 commit）。M3 比较基线 =
-          git diff 2c599e7 -- src README.md（工作树），对照副本 outputs/baselines/M2/
-          （18 个交付文件 SHA-256 全 OK，聚合 6282c5f2…）。若用户补建 M2 checkpoint
-          commit，则以该 commit 为更准确基线，开工前先与用户确认。
+BASELINE: M2 checkpoint commit 0dff7c9（用户已授权建立；未 push、无 tag）。
+          M3 的 diff 基线 = git diff 0dff7c9..HEAD；工作树当前干净，
+          对照副本 outputs/baselines/M2/（18 个交付文件 SHA-256 全 OK，聚合 6282c5f2…）。
 READ_FIRST（本轮只需这些，不要全仓扫描）:
   1. docs/DeviceTruth_V0.2_S0_S1/state.md（本文件，特别是 §4.5 与 §5）
   2. docs/DeviceTruth_V0.2_S0_S1/task.md §5（M3 必做项 + M0 冻结补充）

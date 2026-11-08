@@ -314,7 +314,7 @@ Codex `reviews/M1.md` §8 结论：**CHANGES_REQUIRED**，P0=0、**P1=1（M1-P1-
 - 复审实际执行：`mvn -q -o clean package` 退出 0（**24 类 125 项，0 失败/0 错误/0 跳过**，M1 基线 109 + 新增 16）；`Start-Class=io.devicetruth.app.DeviceTruthApplication`；CLI A–D 退出 0（7/7/7/6；RESOLVED/RESOLVED/CONFLICT/NEED_EVIDENCE）、`--scenario=E` 退出 2；`python scripts/verify_cli.py` 退出 0（4 项 PASS）。
 - Reviewer 独立 HTTP 探针（真实 Server 自起自停，随机端口）退出 0：**13/13**——QUERY 两类真实来源（`CAR-B-FACTORY/simulated:CAR-B/FACTORY/FACTORY`、仅 `CAR-B-REPLACE`）、空历史不编造、SN-0245 无 CAR-B 泄漏、DIAGNOSE 501 无半条消息、响应无 `reportPath/stopReason/diagnosisSummary`。
 - Reviewer 独立 `PlanProbe`（真实装配 `planDiagnosis`）退出 0：`assetId=CAR-B, domain=automotive-demo, symptomCode=COMM_TIMEOUT, asOf=2026-11-03T04:00:00Z`，会话 0 消息，回复含“诊断尚未执行”。
-- 状态转换：`REVIEW_PENDING → DONE`。用户未在本轮明确授权 checkpoint commit，按备选方案保存 M2 比较基线于 `outputs/baselines/M2/`（`M2-delivery.patch` = `git diff 2c599e7 -- src README.md`；`untracked/` 8 个新增文件副本含 `reviews/M2.md`；`SHA256SUMS.txt` 18 个交付文件全 OK，聚合 SHA-256 `6282c5f2…`；task/state 流程文档不入清单）。M3 的 diff 基线 = `git diff 2c599e7 -- src README.md`（工作树）。
+- 状态转换：`REVIEW_PENDING → DONE`。用户已授权建立**本地 checkpoint commit `0dff7c9`**（不 push、不打 tag）；M3 以该提交为比较基线（`git diff 0dff7c9..HEAD`），交接快照另存于 `outputs/baselines/M2/`（`M2-delivery.patch` = `git diff 2c599e7 -- src README.md`；`untracked/` 8 个新增文件副本含 `reviews/M2.md`；`SHA256SUMS.txt` 18 个交付文件全 OK，聚合 SHA-256 `6282c5f2…`；task/state 流程文档不入清单）。
 - M3 启动前置：M2 = DONE（本记录）；DIAGNOSE 的 501 分支在 M3 接入 `DiagnosisRunService` 后必须删除或用测试证明不可达；§4.8 安全映射 M3 必测。
 
 ## 5. M3｜S1：异步诊断与最终验收
