@@ -385,7 +385,7 @@ M3 连续完成异步诊断和最终验收，但设两个内部检查点：A 先
 - Reviewer `EventsProbe`（真实 scripted Core 跑 CAR-B）复核 P1-01 修复：34 条事件 8 类，5 条 `CAPABILITY_RESULT` 全部 `能力结果：成功` + 真实能力 ID，动作类型真实（含 `PROPOSE_DECISION [DEMO-D-120B]`），`GUARD_RESULT=结案校验：RULE_AND_EVIDENCE_VERIFIED [DEMO-D-120B]`，`HYPOTHESIS_INVALIDATED [H-1]`，缺陷摘要 0 条。
 - Reviewer HTTP 探针（3 个真实 Server 自起自停）R-01~R-19 全 PASS：202/QUEUED/Location、真实结果与固定 asOf、无 `reportPath`、白名单码 `DASHSCOPE_API_KEY_MISSING` 原样返回、Core FAILED 不包装 COMPLETED、合成 `PROMPT_FRAGMENT` 经真实 GET 不回显、归属/不存在同码 404。
 - 边界：`pom.xml`、`core/`、`adapter/`、`app/`、`src/main/resources`、`datasets/`、`skills/`、`scripts/` 相对 `0dff7c9` 零改动；`core/adapter/app` 无 Spring 组件注解。
-- 状态转换：`REVIEW_PENDING → DONE`，**S1 关闭**。**未授权 commit**；交付对照快照另存于 `outputs/baselines/M3/`（`M3-delivery.patch` + 未跟踪文件副本 + 18 个交付文件 SHA-256 全 OK、聚合 `9ed731c0…`），S2 以此为比较基线。
+- 状态转换：`REVIEW_PENDING → DONE`，**S1 关闭**。用户已授权建立**本地 checkpoint commit `e98b431`**（不 push、不打 tag）；交付快照另存于 `outputs/baselines/M3/`（`M3-delivery.patch` + 未跟踪文件副本 + 18 个交付文件 SHA-256 全 OK、聚合 `9ed731c0…`），S2 以此为比较基线。
 - 在线 Router/在线 Reasoner 维持 `BLOCKED_BY_ENV`（`S1_ACCEPTANCE_REPORT.md` TC-20 如实记录），不记在线 PASS。
 
 ## 6. 测试编号映射（原方案 TC-01~TC-20）

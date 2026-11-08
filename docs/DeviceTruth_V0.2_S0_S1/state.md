@@ -8,7 +8,7 @@
 - 当前阶段：**S1 已关闭**（S0 已关闭；M0、M1、M2、M3 均 DONE，2026-11-08）。
 - 当前里程碑：**无**；最后完成 M3（S1）。下一里程碑：**S2（未拆分、TODO）**，需先做里程碑拆分规划，不在 S1 文档内预建编号、不提前标完成。
 - 文档规格状态：**FROZEN**（M0 Review #2 PASS 后转入；此后改规格须走 `spec.md` §10 并经用户批准）。
-- 当前开发基线 commit：仍为 **M2 checkpoint `0dff7c9`**（M3 未授权 commit）。M3 交付 = 工作树相对 `0dff7c9` 的 diff；对照快照 `outputs/baselines/M3/`（patch + 未跟踪副本 + 18 个交付文件 SHA-256 全 OK、聚合 `9ed731c0…`），S2 比较基线 = `git diff 0dff7c9 -- src README.md`。
+- 当前开发基线 commit：**M3 checkpoint `e98b431`**（subject：`feat: M3 异步诊断与 S1 最终验收通过 Review 并交接至 S2`，用户已授权建立；未 push、无 tag、无 stash）。S2 的 diff 基线 = `git diff e98b431`；交付快照另存于 `outputs/baselines/M3/`（patch + 未跟踪副本 + 18 个交付文件 SHA-256 全 OK、聚合 `9ed731c0…`，快照对相同工作树计算，继续有效）。`.m3-logs/` 为未提交运行证据。
 - 工作树状态（M3 交接时）：M3 业务交付 + 流程文档更新均未提交；`target/`、`outputs/runs`、`.m3-logs/` 为运行产物/证据，不纳交付。
 - 是否完成 S1：**是（离线验收 PASS）**；在线 Router/在线 Reasoner 为 `BLOCKED_BY_ENV`，不属 S1 完成条件但不得宣称在线通过。
 
@@ -117,9 +117,10 @@ STATUS: TODO（M0–M3 = DONE，S1 已关闭 2026-11-08；开工时按规约置 
 REVIEW_GATE: S2 首个里程碑完成后走独立 Review；未 Review PASS 不得推进
 PHASE: S2（多轮会话、状态持久化/补证/暂停恢复、Hypothesis 调查闭环，范围见 task.md §7）
 PRECONDITION: M3 = DONE（reviews/M3.md 修复复审 PASS，2026-11-08）；spec.md = FROZEN
-BASELINE: 无 M3 checkpoint commit（未授权）。S2 比较基线 = git diff 0dff7c9 -- src README.md；
-          对照副本 outputs/baselines/M3/（M3-delivery.patch + 未跟踪文件副本 +
-          18 个交付文件 SHA-256 全 OK）。core/adapter/app/pom/datasets/skills/scripts 自 0dff7c9 零改动。
+BASELINE: M3 checkpoint commit e98b431（用户已授权建立；未 push、无 tag）。
+          S2 的 diff 基线 = git diff e98b431；对照副本 outputs/baselines/M3/
+          （M3-delivery.patch + 未跟踪文件副本 + 18 个交付文件 SHA-256 全 OK、聚合 9ed731c0…）。
+          core/adapter/app/pom/datasets/skills/scripts 自 0dff7c9 零改动。
 READ_FIRST（本轮只需这些，不要全仓扫描）:
   1. docs/DeviceTruth_V0.2_S0_S1/state.md（本文件，特别是 §4.7 与 §5）
   2. docs/DeviceTruth_V0.2_S0_S1/task.md §7（S2 范围与禁止提前实现项）
