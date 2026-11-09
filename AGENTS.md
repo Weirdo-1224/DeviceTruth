@@ -51,3 +51,10 @@ DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI
 开发前阅读 `docs/DeviceTruth_Core_V0.1_Spec_Pack/` 下的 `spec.md`、`task.md`、`state.md`，按实际验证更新进度。生成报告、依赖缓存和凭据不提交。
 
 **后续每次开发完成时，必须用通俗中文解释关键代码及实际运行链路**：说明改了什么、关键类和方法分别负责什么、输入如何经过各模块形成输出，并给出实际执行的命令、结果及未验证项。结合具体场景说明，不只罗列类名或抽象术语。
+
+## V1.0 规划与跨会话入口
+
+当前 V1.0 规划入口为 `.planning/README.md`，开始工作先读 `.planning/STATE.md`、`.planning/PROJECT.md` 和 `.planning/NEXT_SESSION.md`。
+当前产品需求基准为 `docs/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md`；V0.1/V0.2 的 spec/task/state 用于理解历史与 legacy 回归，不自动覆盖新版决策，也不自动续跑旧 S2 队列。
+当 STATE 为 `planning / review_pending` 且未获用户明确实施授权时，只分析和修订规划，不执行 PLAN、不修改业务代码；存在任务文件不代表已授权开发。
+按实际验证维护当前 STATE/ROADMAP；没有执行的计划不得勾完成或生成完成报告。其余仓库编码、安全、测试与通俗中文解释要求继续适用。

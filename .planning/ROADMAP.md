@@ -1,0 +1,135 @@
+# Roadmap: DeviceTruth V1.0
+
+> **REVIEW_PENDING — 本轮只规划。** 5 个阶段对应指定设计 M0→M4，共 13 个计划、37 项任务；全部未开始。
+> GSD phase 从 1 编号，产品 milestone 从 M0 命名，避免与旧 V0.2 的 M0–M3 混用。
+> 这是 brownfield 演进，复用现有单体/网关/模型/证据/测试；阶段成功以可演示行为与证据判断。
+
+## Phases
+
+- [ ] **Phase 1: 基线与通用契约（M0）** — 在保留旧回归的前提下，明确新契约和唯一主循环，再让自由消息/排队任务进入 PostgreSQL。
+- [ ] **Phase 2: 自由对话与知识检索（M1）** — 从 Vue 提交无故障码问题，由 Agent 检索知识、追问并在同一 run 接收补答后继续产出引用结果。
+- [ ] **Phase 3: 设备事实与持久连续调查（M2）** — 把同一任务的补证、资产时序查询、刷新/重启恢复、预算和取消贯通为完整调查。
+- [ ] **Phase 4: 标准 Skill 与双域验证（M3）** — 通过标准指引与领域数据，在不复制 Runtime 的情况下处理汽车充电与工业 SC-0245-B。
+- [ ] **Phase 5: 完整工作台、质量与交付（M4）** — 在正确持久事件之上实现实时进度、可读报告与完整评测，再完成可恢复部署。
+
+### Phase 1: 基线与通用契约
+
+**Milestone:** M0
+**Goal:** 在保留旧回归的前提下，明确新契约和唯一主循环，再让自由消息/排队任务进入 PostgreSQL。
+**Depends on:** 无；实施前须用户审查通过本规划
+**Requirements:** BASE-01, BASE-02, STORE-01, STORE-02, STORE-05, TRUST-06, WEB-06
+**Success Criteria:**
+
+1. 旧 CLI A/B/C/D 与 E 安全负例在当前基线可复现。
+2. 通用输入、引用、风险、状态和权限契约明确；Runtime 比较保留测试代码/固定输入/复现命令/对比表，清理 target 后仍可重跑，仅选一套主循环；不冒称 PG 恢复已验证。
+3. 新 API 可保存/读回会话、消息与 QUEUED run，空库可迁移、CLI 无数据库仍能运行。M0 仅持久化契约演示，没有 Agent worker，不宣称可执行产品。
+
+**Plans:** 2 plans（均已编写待审任务书；未执行）
+
+- [ ] [01-01-PLAN.md](phases/01-baseline-contracts/01-01-PLAN.md) — 核对继承基线、通用契约与 Runtime 取舍；依赖 无；wave 1
+- [ ] [01-02-PLAN.md](phases/01-baseline-contracts/01-02-PLAN.md) — PG 持久会话与排队任务的首个纵向切片；依赖 01-01；wave 2
+
+**边界 / 风险：** 版本、Docker/PG 可用性与 Runtime ADR 未验证；不可把建表/QUEUED 当诊断完成。
+
+### Phase 2: 自由对话与知识检索
+
+**Milestone:** M1
+**Goal:** 从 Vue 提交无故障码问题，由 Agent 检索知识、追问并在同一 run 接收补答后继续产出引用结果。
+**Depends on:** Phase 1
+**Requirements:** ENTRY-01, ENTRY-02, ENTRY-03, ENTRY-04, ENTRY-05, AGENT-01, AGENT-02, AGENT-03, AGENT-05, AGENT-08, STORE-03, KNOW-01, KNOW-02, KNOW-03, KNOW-04, KNOW-05, KNOW-06, KNOW-07, KNOW-08, TOOL-01, TOOL-02, TRUST-01, TRUST-05, WEB-01, WEB-04, EVAL-02
+**Success Criteria:**
+
+1. 知识 MD/TXT/PDF 导入、版本/章节/页码引用和权限过滤可闭环。
+2. 无资产、无故障码的充电问题可进入 Agent；低风险回答不依赖旧全量调查 Guard。
+3. Vue 以 runId/pendingQuestionId/questionVersion 补答；WAITING 释放线程，持久读回必要消息/引用后同 run 再检索或作答，至少两轮互动可重跑（E2E-07-basic）。M0 QUEUED 的正常调度交接与模型/队列失败状态可验证。
+4. 冻结 12 个中文/部件号/跨权/错引小样本；正向6例 Hit@5 至少5/6、部件号2/2命中，跨权泄漏和伪造引用接受均0；向量/精确/混合逐例比较。真实 embedding→PG→召回、真实 LLM→注册工具→引用结果、基本补证及 UI 分别留证；缺环境单列，不用 fake 替代。
+
+**Plans:** 3 plans（均已编写待审任务书；未执行）
+
+- [ ] [02-01-PLAN.md](phases/02-open-rag/02-01-PLAN.md) — 受权限约束的知识导入、向量检索与可定位引用；依赖 01-02；wave 1
+- [ ] [02-02-PLAN.md](phases/02-open-rag/02-02-PLAN.md) — 自由目标 Agent、同 run 最小补证与可构建 Vue；依赖 01-01, 02-01；wave 2
+- [ ] [02-03-PLAN.md](phases/02-open-rag/02-03-PLAN.md) — PDF/混合检索、固定小样本及真实模型/embedding 验收；依赖 02-01, 02-02；wave 3
+
+**边界 / 风险：** M1 交付单进程正常路径的最小补证，不交付崩溃恢复、租约/CAS、完整幂等/并发；后者仍属 M2。embedding/PDF/模型缺环境时保留未验收项，M4 完整质量与规模评测不缩减。
+
+### Phase 3: 设备事实与持久连续调查
+
+**Milestone:** M2
+**Goal:** 把同一任务的补证、资产时序查询、刷新/重启恢复、预算和取消贯通为完整调查。
+**Depends on:** Phase 2
+**Requirements:** AGENT-04, AGENT-06, AGENT-07, DATA-01, DATA-02, DATA-03, STORE-04, TOOL-03, TOOL-04, TRUST-02, TRUST-04, WEB-02, OPS-01, OPS-03
+**Success Criteria:**
+
+1. 查询具体资产配置/维修有来源和时点，缺现场核验不确诊；权限覆盖所有资源。
+2. 在 M1 补证协议上强化跨进程检查点、租约/CAS、证据重验；重启保留等待和已提交上下文，崩溃运行可恢复或明确失败（E2E-07-restart 与 E2E-08）。
+3. 有界调度、请求幂等、取消/总超时和用量审计可验证；Vue 能读历史并继续。
+
+**Plans:** 3 plans（均已编写待审任务书；未执行）
+
+- [ ] [03-01-PLAN.md](phases/03-durable-investigation/03-01-PLAN.md) — 带来源与时点的设备记录及全链路授权；依赖 02-03；wave 1
+- [ ] [03-02-PLAN.md](phases/03-durable-investigation/03-02-PLAN.md) — 补证可靠性强化、检查点恢复与历史会话闭环；依赖 03-01, 02-03；wave 2
+- [ ] [03-03-PLAN.md](phases/03-durable-investigation/03-03-PLAN.md) — 幂等、取消、总预算和故障可观测；依赖 03-02；wave 3
+
+**边界 / 风险：** 事务/异步调度边界、重复恢复、迟到响应及用户声明可信级别必须测试。
+
+### Phase 4: 标准 Skill 与双域验证
+
+**Milestone:** M3
+**Goal:** 通过标准指引与领域数据，在不复制 Runtime 的情况下处理汽车充电与工业 SC-0245-B。
+**Depends on:** Phase 3
+**Requirements:** DATA-04, DATA-05, DATA-06, SKILL-01, SKILL-02, SKILL-03, SKILL-04
+**Success Criteria:**
+
+1. 发现/读取两个领域 SKILL.md，并记录版本和服务器工具绑定。
+2. Skill/上传/知识里的恶意指令不能扩权，原文不等于系统指令。
+3. 同一 Runtime 处理双域，工厂 BOM/改造/旧模板/现场来源区分明确，真实模型双域验证另列。
+
+**Plans:** 2 plans（均已编写待审任务书；未执行）
+
+- [ ] [04-01-PLAN.md](phases/04-skills-dual-domain/04-01-PLAN.md) — 标准 Skill 发现、激活并接入唯一 Runtime/工具权限；依赖 03-03；wave 1
+- [ ] [04-02-PLAN.md](phases/04-skills-dual-domain/04-02-PLAN.md) — 汽车与工厂配置冲突双域产品验收；依赖 04-01, 03-03；wave 2
+
+**边界 / 风险：** 假工业域测试不算完整产品；来源等级和模板适用性不能偷换成当前现场事实。
+
+### Phase 5: 完整工作台、质量与交付
+
+**Milestone:** M4
+**Goal:** 在正确持久事件之上实现实时进度、可读报告与完整评测，再完成可恢复部署。
+**Depends on:** Phase 4
+**Requirements:** STORE-06, TRUST-03, WEB-03, WEB-05, OPS-02, OPS-04, EVAL-01, EVAL-03, EVAL-04
+**Success Criteria:**
+
+1. SSE白名单事件可实时展示/断线续传，历史以PG为准。
+2. 报告有事实/可能性/建议/人工核验与引用；14个E2E逐例留证并有检索/效率/质量指标。
+3. Compose启动产品，数据库/文件持久；备份恢复与迁移失败处理有实测，旧CLI可独立运行。
+
+**Plans:** 3 plans（均已编写待审任务书；未执行）
+
+- [ ] [05-01-PLAN.md](phases/05-workbench-quality/05-01-PLAN.md) — 持久事件驱动的实时 SSE 与安全历史；依赖 04-02；wave 1
+- [ ] [05-02-PLAN.md](phases/05-workbench-quality/05-02-PLAN.md) — 完整工作台、评测矩阵与检索质量验证；依赖 05-01；wave 2
+- [ ] [05-03-PLAN.md](phases/05-workbench-quality/05-03-PLAN.md) — 可启动交付、备份恢复与运维说明；依赖 05-02；wave 3
+
+**边界 / 风险：** 在线评测/多人授权/数据量性能不能用离线成功替代；不为MVP引入额外平台。
+
+## 开发顺序与阶段出口
+
+同阶段按依赖与 wave 串行推进；parallelization 当前关闭。跨阶段依赖是交付能力依赖，不要求机械读取所有前序 SUMMARY。Phase 2 的前提含 Phase 1 全部出口，不能只有数据库启动；Phase 3→4→5同理。
+
+机器依赖落实阶段出口：02-01→01-02，03-01→02-03，04-01→03-03，05-01→04-02；各阶段内部链串行到最后一个计划。单独启动 PLAN 仍须确认其前置实际完成及阶段出口证据，存在 PLAN 不代表完成。所有跨阶段边均向前，无循环。
+
+每一阶段：任务实现 → 针对性验证 → 离线/CLI回归及本阶段PG/UI/在线项 → 独立Review → 更新STATE/ROADMAP。在线受环境限制时单列，不能把缺失在线验收改写成通过或强行标产品完成。现有145项是保护旧行为的起点，V1.0不得靠删旧测试过关。
+
+从M0即考虑授权/数据归属/事务，从M1第一次检索即做过滤；M4是补全流式与质量评测，不是最后才补基础安全。Vue从M1存在；标准Skill在双域验证前实现，不先建Skill市场。
+
+## Progress
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|---|---|---|---|---|
+| 1. 基线与通用契约 | M0 | 0/2 | Not started（待审） | - |
+| 2. 自由对话与知识检索 | M1 | 0/3 | Not started（待审） | - |
+| 3. 设备事实与持久连续调查 | M2 | 0/3 | Not started（待审） | - |
+| 4. 标准 Skill 与双域验证 | M3 | 0/2 | Not started（待审） | - |
+| 5. 完整工作台、质量与交付 | M4 | 0/3 | Not started（待审） | - |
+
+未开始共13/13。本次差距审查与规划文件交付**不计作 M0 开发完成**。如用户要求调整顺序，先更新需求追踪、依赖与 STATE，再执行后续开发。
+

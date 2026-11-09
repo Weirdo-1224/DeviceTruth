@@ -1,0 +1,1083 @@
+{
+  "date": "2026-11-09",
+  "timezone": "Asia/Shanghai",
+  "requirements": 63,
+  "status_counts": {
+    "已实现": 4,
+    "与设计冲突": 6,
+    "部分实现": 28,
+    "未实现": 25
+  },
+  "plans": 13,
+  "tasks": 37,
+  "coverage_exactly_once": true,
+  "checks_passed": true,
+  "errors": [],
+  "gsd_consistency": {
+    "passed": true,
+    "errors": [],
+    "warnings": [],
+    "warning_count": 0
+  },
+  "plan_structures": [
+    {
+      "plan": "01-01",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 3,
+      "tasks": [
+        {
+          "name": "01-01-T1: 记录当前工作树及实际运行基线",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "01-01-T2: 冻结实现需要的最小通用契约",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "01-01-T3: 用同一小链路比较 Runtime 并记录 ADR",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    },
+    {
+      "plan": "01-02",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 3,
+      "tasks": [
+        {
+          "name": "01-02-T1: 引入最小数据库与可重复迁移",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "01-02-T2: 贯通创建会话、提交消息与读取任务",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "01-02-T3: 验证重启读取与继承入口",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    },
+    {
+      "plan": "02-01",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 3,
+      "tasks": [
+        {
+          "name": "02-01-T1: 导入首批可信演示语料与文档元数据",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "02-01-T2: 提供可装配的知识工具接口与强类型校验",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "02-01-T3: 验证引用登记与可重建读取",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    },
+    {
+      "plan": "02-02",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 3,
+      "tasks": [
+        {
+          "name": "02-02-T1: 按 ADR 演进唯一主循环与动作上下文",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "02-02-T2: 贯通风险检查与同一 run 最小补证续跑",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "02-02-T3: 接入最小 Vue3/TypeScript 产品页",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    },
+    {
+      "plan": "02-03",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 3,
+      "tasks": [
+        {
+          "name": "02-03-T1: 实现安全上传与 PDF 解析闭环",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "02-03-T2: 补混合召回与资料可靠性检查",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "02-03-T3: 验收真实模型、真实 embedding 和基本多轮链路",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    },
+    {
+      "plan": "03-01",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 3,
+      "tasks": [
+        {
+          "name": "03-01-T1: 导入结构化资产/组件与配置维修历史",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "03-01-T2: 注册设备查询工具并验证事实边界",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "03-01-T3: 统一身份与授权读取边界",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    },
+    {
+      "plan": "03-02",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 3,
+      "tasks": [
+        {
+          "name": "03-02-T1: 强化既有补证协议为跨进程稳定检查点",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "03-02-T2: 实现崩溃任务对账与有界重调度",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "03-02-T3: 完成Vue历史恢复与通用报告工具",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    },
+    {
+      "plan": "03-03",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 3,
+      "tasks": [
+        {
+          "name": "03-03-T1: 贯通幂等、容量、取消与总超时",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "03-03-T2: 记录运行耗时、用量与错误尝试",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "03-03-T3: 验收设备+补证+故障链与旧回归",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    },
+    {
+      "plan": "04-01",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 3,
+      "tasks": [
+        {
+          "name": "04-01-T1: 实现最小Skill目录协议与按需上下文",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "04-01-T2: 把工具绑定与不可信内容边界接入唯一Runtime",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "04-01-T3: 验证新增领域无需核心场景分支",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    },
+    {
+      "plan": "04-02",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 3,
+      "tasks": [
+        {
+          "name": "04-02-T1: 建立分离的双域资料与时序样本",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "04-02-T2: 接入第二批观测与领域指导协作",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "04-02-T3: 执行离线与真实模型双域对照",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    },
+    {
+      "plan": "05-01",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 2,
+      "tasks": [
+        {
+          "name": "05-01-T1: 从PG事件实现白名单SSE流与续传",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "05-01-T2: 统一公开事件映射及Vue时间线",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    },
+    {
+      "plan": "05-02",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 3,
+      "tasks": [
+        {
+          "name": "05-02-T1: 完善上传/会话/事实冲突与报告体验",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "05-02-T2: 冻结固定评测集、评分及检索实验",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "05-02-T3: 运行正式离线/PG/UI与真实模型验收",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    },
+    {
+      "plan": "05-03",
+      "valid": true,
+      "errors": [],
+      "warnings": [],
+      "task_count": 2,
+      "tasks": [
+        {
+          "name": "05-03-T1: 打包产品服务并验证持久部署",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        },
+        {
+          "name": "05-03-T2: 实际演练备份、恢复与迁移失败回退",
+          "type": "auto",
+          "hasFiles": true,
+          "hasAction": true,
+          "hasVerify": true,
+          "hasDone": true
+        }
+      ],
+      "frontmatter_fields": [
+        "phase",
+        "plan",
+        "type",
+        "wave",
+        "depends_on",
+        "files_modified",
+        "autonomous",
+        "requirements",
+        "review_status",
+        "approved_for_execution",
+        "must_haves"
+      ]
+    }
+  ],
+  "dependency_graph": {
+    "01-01": {
+      "dependencies": [],
+      "wave": 1,
+      "requirements": [
+        "BASE-01",
+        "BASE-02",
+        "TRUST-06"
+      ],
+      "task_count": 3
+    },
+    "01-02": {
+      "dependencies": [
+        "01-01"
+      ],
+      "wave": 2,
+      "requirements": [
+        "STORE-01",
+        "STORE-02",
+        "STORE-05",
+        "WEB-06"
+      ],
+      "task_count": 3
+    },
+    "02-01": {
+      "dependencies": [
+        "01-02"
+      ],
+      "wave": 1,
+      "requirements": [
+        "STORE-03",
+        "KNOW-03",
+        "KNOW-05",
+        "KNOW-06",
+        "TOOL-02"
+      ],
+      "task_count": 3
+    },
+    "02-02": {
+      "dependencies": [
+        "01-01",
+        "02-01"
+      ],
+      "wave": 2,
+      "requirements": [
+        "ENTRY-01",
+        "ENTRY-02",
+        "ENTRY-03",
+        "ENTRY-05",
+        "AGENT-01",
+        "AGENT-02",
+        "AGENT-03",
+        "AGENT-05",
+        "AGENT-08",
+        "TOOL-01",
+        "TRUST-01",
+        "TRUST-05",
+        "WEB-01"
+      ],
+      "task_count": 3
+    },
+    "02-03": {
+      "dependencies": [
+        "02-01",
+        "02-02"
+      ],
+      "wave": 3,
+      "requirements": [
+        "ENTRY-04",
+        "KNOW-01",
+        "KNOW-02",
+        "KNOW-04",
+        "KNOW-07",
+        "KNOW-08",
+        "WEB-04",
+        "EVAL-02"
+      ],
+      "task_count": 3
+    },
+    "03-01": {
+      "dependencies": [
+        "02-03"
+      ],
+      "wave": 1,
+      "requirements": [
+        "DATA-01",
+        "DATA-02",
+        "DATA-03",
+        "TOOL-03",
+        "TRUST-02",
+        "TRUST-04"
+      ],
+      "task_count": 3
+    },
+    "03-02": {
+      "dependencies": [
+        "03-01",
+        "02-03"
+      ],
+      "wave": 2,
+      "requirements": [
+        "AGENT-06",
+        "AGENT-07",
+        "STORE-04",
+        "TOOL-04",
+        "WEB-02"
+      ],
+      "task_count": 3
+    },
+    "03-03": {
+      "dependencies": [
+        "03-02"
+      ],
+      "wave": 3,
+      "requirements": [
+        "AGENT-04",
+        "OPS-01",
+        "OPS-03"
+      ],
+      "task_count": 3
+    },
+    "04-01": {
+      "dependencies": [
+        "03-03"
+      ],
+      "wave": 1,
+      "requirements": [
+        "SKILL-01",
+        "SKILL-02",
+        "SKILL-04"
+      ],
+      "task_count": 3
+    },
+    "04-02": {
+      "dependencies": [
+        "04-01",
+        "03-03"
+      ],
+      "wave": 2,
+      "requirements": [
+        "DATA-04",
+        "DATA-05",
+        "DATA-06",
+        "SKILL-03"
+      ],
+      "task_count": 3
+    },
+    "05-01": {
+      "dependencies": [
+        "04-02"
+      ],
+      "wave": 1,
+      "requirements": [
+        "TRUST-03",
+        "WEB-03"
+      ],
+      "task_count": 2
+    },
+    "05-02": {
+      "dependencies": [
+        "05-01"
+      ],
+      "wave": 2,
+      "requirements": [
+        "WEB-05",
+        "OPS-04",
+        "EVAL-01",
+        "EVAL-03",
+        "EVAL-04"
+      ],
+      "task_count": 3
+    },
+    "05-03": {
+      "dependencies": [
+        "05-02"
+      ],
+      "wave": 3,
+      "requirements": [
+        "STORE-06",
+        "OPS-02"
+      ],
+      "task_count": 2
+    }
+  },
+  "roadmap": {
+    "milestones": [
+      {
+        "heading": "Roadmap: DeviceTruth V1.0",
+        "version": "V1.0"
+      }
+    ],
+    "phases": [
+      {
+        "number": "1",
+        "name": "基线与通用契约",
+        "goal": "在保留旧回归的前提下，明确新契约和唯一主循环，再让自由消息/排队任务进入 PostgreSQL。",
+        "mode": null,
+        "depends_on": "无；实施前须用户审查通过本规划",
+        "plan_count": 2,
+        "summary_count": 0,
+        "has_context": false,
+        "has_research": false,
+        "disk_status": "planned",
+        "roadmap_complete": false,
+        "context_read_error": null,
+        "context_scope": "complete"
+      },
+      {
+        "number": "2",
+        "name": "自由对话与知识检索",
+        "goal": "从 Vue 提交无故障码问题，由 Agent 检索知识、追问并在同一 run 接收补答后继续产出引用结果。",
+        "mode": null,
+        "depends_on": "Phase 1",
+        "plan_count": 3,
+        "summary_count": 0,
+        "has_context": false,
+        "has_research": false,
+        "disk_status": "planned",
+        "roadmap_complete": false,
+        "context_read_error": null,
+        "context_scope": "complete"
+      },
+      {
+        "number": "3",
+        "name": "设备事实与持久连续调查",
+        "goal": "把同一任务的补证、资产时序查询、刷新/重启恢复、预算和取消贯通为完整调查。",
+        "mode": null,
+        "depends_on": "Phase 2",
+        "plan_count": 3,
+        "summary_count": 0,
+        "has_context": false,
+        "has_research": false,
+        "disk_status": "planned",
+        "roadmap_complete": false,
+        "context_read_error": null,
+        "context_scope": "complete"
+      },
+      {
+        "number": "4",
+        "name": "标准 Skill 与双域验证",
+        "goal": "通过标准指引与领域数据，在不复制 Runtime 的情况下处理汽车充电与工业 SC-0245-B。",
+        "mode": null,
+        "depends_on": "Phase 3",
+        "plan_count": 2,
+        "summary_count": 0,
+        "has_context": false,
+        "has_research": false,
+        "disk_status": "planned",
+        "roadmap_complete": false,
+        "context_read_error": null,
+        "context_scope": "complete"
+      },
+      {
+        "number": "5",
+        "name": "完整工作台、质量与交付",
+        "goal": "在正确持久事件之上实现实时进度、可读报告与完整评测，再完成可恢复部署。",
+        "mode": null,
+        "depends_on": "Phase 4",
+        "plan_count": 3,
+        "summary_count": 0,
+        "has_context": false,
+        "has_research": false,
+        "disk_status": "planned",
+        "roadmap_complete": false,
+        "context_read_error": null,
+        "context_scope": "complete"
+      }
+    ],
+    "phase_count": 5,
+    "completed_phases": 0,
+    "total_plans": 13,
+    "total_summaries": 0,
+    "progress_percent": 0,
+    "progress_scope": "complete",
+    "current_phase": "1",
+    "next_phase": null,
+    "checkbox_conflict": [],
+    "roadmap_record": {
+      "1": false,
+      "2": false,
+      "3": false,
+      "4": false,
+      "5": false
+    },
+    "missing_phase_details": null,
+    "scope": "complete"
+  },
+  "state": {
+    "current_phase": "1",
+    "current_phase_name": "基线与通用契约",
+    "total_phases": 5,
+    "current_plan": "1",
+    "total_plans_in_phase": 2,
+    "status": "planning",
+    "progress_percent": 0,
+    "last_activity": "2026-11-09",
+    "last_activity_desc": "完成针对性规划修订；M1最小补证、集成文件/测试、原型复现与真实RAG验证待审",
+    "decisions": [],
+    "blockers": [],
+    "paused_at": null,
+    "session": {
+      "last_date": "2026-11-09 (Asia/Shanghai；分析自11-08开始)",
+      "stopped_at": "针对性修订与规划校验已交待审，未开始实现",
+      "resume_file": ".planning/NEXT_SESSION.md"
+    }
+  },
+  "commands": [
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/01-baseline-contracts/01-01-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/01-baseline-contracts/01-02-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/02-open-rag/02-01-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/02-open-rag/02-02-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/02-open-rag/02-03-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/03-durable-investigation/03-01-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/03-durable-investigation/03-02-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/03-durable-investigation/03-03-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/04-skills-dual-domain/04-01-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/04-skills-dual-domain/04-02-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/05-workbench-quality/05-01-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/05-workbench-quality/05-02-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "verify",
+        "plan-structure",
+        ".planning/phases/05-workbench-quality/05-03-PLAN.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "validate",
+        "consistency"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "roadmap",
+        "analyze"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "C:\\Users\\11929\\.codex\\gsd-core\\bin\\gsd-tools.cjs",
+        "state-snapshot"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "semantic_independent_review": false,
+  "user_review": "pending",
+  "execution_authorized": false,
+  "revision_scope_check": {
+    "method": "Recorded baseline SHA256 plus git tracked/untracked business paths",
+    "protected_baseline_files": 95,
+    "changed_hashes": [],
+    "tracked_changes": [],
+    "new_business_files": [],
+    "design_hash_unchanged": true,
+    "passed": true
+  },
+  "business_sources_unchanged": true
+}
