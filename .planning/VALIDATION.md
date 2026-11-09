@@ -1,5 +1,19 @@
 # 验证记录与后续验收策略
 
+## 01-01 已授权实施验证（2026-11-09）
+
+用户明确要求执行01-01，覆盖下文历史“仅规划”边界。当前实施证据见 [01-01-SUMMARY](phases/01-baseline-contracts/01-01-SUMMARY.md)、[BASELINE](phases/01-baseline-contracts/BASELINE.md) 和 [RUNTIME-SPIKE](phases/01-baseline-contracts/RUNTIME-SPIKE.md)。下文初始规划记录保留为历史，不用其0进度/未实施断言覆盖本轮结果。
+
+- HEAD起点a9607cf，工作树开始干净；指定产品设计hash未变，生产源码/pom/脚本/fixture未改。
+- 实际JDK21.0.13.0.2/Maven3.9.9。起点test145/0/0/0；新增1个比较测试后，最终 `mvn -q test` 和 `mvn -q package` 均退出0，146/0/0/0，29 suites。
+- 原型首次clean及两次诊断失败如实保留；修正SDK fake工具块raw content后，连续两次 `mvn -q '-Dtest=RuntimeComparisonTest' clean test` 退出0，12次内部样例执行/轮，输出字节相同。
+- 最新JAR的 `python scripts/verify_cli.py` 退出0，A/B正确规则、C冲突、D缺证、缺Key无降级、本机假Key私有文件合同通过；E由继承测试覆盖。
+- 打包JAR经PropertiesLauncher启动独立HTTP Main，真实GET /api/health=UP/SIMULATED、/actuator/health=UP、index=200；未提交模型诊断，进程已关闭。包内默认offline/openai、CLI Start-Class和私有配置不进JAR已核验。
+- 本计划只做现有安全回归与离线原型，没有外部模型/embedding、PG、真实RAG、Vue、生产暂停恢复或独立Review；后续计划12份均未执行。
+- 收尾GSD结构/一致性无错误或警告，roadmap识别1/13计划、0/5阶段、8%；单独Python核对63需求唯一映射、所有本地Markdown链接/UTF-8、原95份源码hash及设计hash未变；`git diff --check`通过。机器摘要在忽略目录outputs/validation/01-01-closeout.json。
+
+历史 `validate_planning.py` 包含“所有计划未授权/0SUMMARY/业务目录无新增”的保护断言，实施后不适用。本轮使用GSD `verify plan-structure`、`validate consistency`、`roadmap analyze` 以及单独需求/链接/源码范围检查；不覆盖历史planning-validation.json来冒充新运行结果。
+
 ## 前轮初始规划实际执行（历史记录）
 
 | 项目 | 命令/方法 | 结果 |

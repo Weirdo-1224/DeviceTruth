@@ -10,19 +10,19 @@
 
 ## Current State
 
-- Java 主源码 52 个文件、测试源码 28 个文件；Java 21、Spring Boot 3.5.16、AgentScope Java 2.0.4、Maven 单模块。
+- Java 主源码 52 个文件、测试源码 29 个文件（含 01-01 比较原型）；Java 21、Spring Boot 3.5.16、AgentScope Java 2.0.4、Maven 单模块。
 - CLI 和独立 HTTP Main 已有；4 个汽车 JSON fixture、2 条模拟规则；原生 HTML 演示页。
-- 前轮规划记录的 JDK 21 离线测试为 145/0/0/0；本轮修订未重跑业务测试。当前无 PostgreSQL、RAG、标准 Skill、Vue、暂停恢复实现。
+- 01-01 本轮继承基线 145/0/0/0，新增原型后全量 146/0/0/0；CLI A–D 及 E 安全负例通过。当前无生产 PostgreSQL、RAG、标准 Skill、Vue、暂停恢复实现。
 - 能力矩阵：已实现 4、部分实现 28、未实现 25、与设计冲突 6。这是需求条目分布，不是完成率。
-- V1.0 开发进度为 0/13 个计划；本轮仅规划，待用户审查。
+- V1.0 的 01-01 已执行（1/13）；01-02 及其后均未执行/未授权。独立 Review 未进行，不能宣称整个 M0 完成。
 
 ## Source of Truth
 
-1. 本次用户指令：按 [GSD 规划审查报告](../docs/DeviceTruth_GSD_规划审查报告.md) 针对性修订；仅改规划，保持五阶段和 63 项需求，最终交修订摘要审查，不进入实现。
+1. 用户最新指令（2026-11-09）：执行 `.planning/phases/01-baseline-contracts/01-01-PLAN.md`，范围仅该计划；此前按 [GSD 规划审查报告](../docs/DeviceTruth_GSD_规划审查报告.md) 修订的五阶段/63需求保持。没有后续实施、提交或部署授权。
 2. [V1.0-Draft.1 PostgreSQL 产品设计](../docs/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md)，SHA256 `C80A4C9292787B181DDB2406CAE4746B83F602993B22EAAA8C2C42AF5D698120`。
 3. 本规划为从设计与源码推导的**待审开发方案**。实现现状以源码及实际测试为准；规划建议不冒称源码事实。
 4. V0.1、V0.2 spec/task/state、CURRENT_PROJECT_STATUS 仅作历史与 legacy 行为资料。它们的“唯一基线”“先补 Hypothesis”“UI 后置”等旧阶段约束不覆盖新版主路径。
-5. `AGENTS.md` 继续规定编码风格、只读设备边界、测试真实性与中文链路解释。密钥配置文档漂移见冲突报告，本轮不修改配置。
+5. `AGENTS.md` 继续规定编码风格、只读设备边界、测试真实性与中文链路解释。01-01 已冻结配置策略（CONTRACTS §8）：旧模型私有文件兼容保留，新 PG/embedding 仅服务端环境注入；没有读取私密值或修改配置实现。
 
 ## Scope
 
@@ -43,7 +43,7 @@
 | D-06 | 优先复用网关、模型连接、证据校验、事件白名单 | 新版锁定；必要时改造旧协议 |
 | D-07 | 风险分级结束策略；设备控制默认不可执行 | 新版锁定；旧 Guard 保留为 legacy 策略 |
 | D-08 | M1 接入 Vue，M4 再完善工作台 | 新版锁定；不是到最后才做前端 |
-| P-01 | 倾向演进现有 TaskOrchestrator，禁止先长期并建框架栈 | 待 01-01 同链路小原型比较后 ADR；本轮未做原型 |
+| P-01 | 选择演进现有 TaskOrchestrator，唯一产品调度循环 | 01-01 两候选六样例、两次 clean 重跑一致；见 [ADR](phases/01-baseline-contracts/ADR-runtime.md)；生产改造在 02-02 |
 | P-02 | 倾向 Spring JDBC + Flyway，统一一种 DB 访问方案 | 源于新版 §8；具体依赖与 SQL 在开发前核对官方资料 |
 | P-03 | M0 建 owner/project 上下文与约束，首次检索即做权限过滤 | 拆解建议；本地 Demo 可固定服务器身份，多人部署前接真实认证 |
 | P-04 | M1 交付同一 run 最小两轮补证；M2 强化完整恢复与可靠性 | 02-02 主交付 AGENT-03；runId/pendingQuestionId/questionVersion 关联与持久消息/引用读取先行；03-02/03-03 复用协议补跨进程检查点、租约/CAS、幂等/并发 |
@@ -64,5 +64,5 @@
 
 ## Workflow
 
-当前 `REVIEW_PENDING`。审查通过并得到明确实施指令后，先细化/核验 Phase 1，再按计划逐项执行、验证、独立 Review、更新 STATE。未执行不得生成伪 SUMMARY 或勾完成；历史在线模型通过不等于新产品通过。
+用户已授权并完成 01-01，交付见 [SUMMARY](phases/01-baseline-contracts/01-01-SUMMARY.md)。其他计划仍需用户明确授权；独立 Review 仍待进行。后续按计划逐项执行、验证、Review、更新 STATE；未执行不勾完成，历史在线模型通过不等于新产品通过。
 

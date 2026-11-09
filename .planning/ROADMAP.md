@@ -1,6 +1,6 @@
 # Roadmap: DeviceTruth V1.0
 
-> **REVIEW_PENDING — 本轮只规划。** 5 个阶段对应指定设计 M0→M4，共 13 个计划、37 项任务；全部未开始。
+> **01-01 已按用户授权执行；其余计划未执行、未授权。** 5 个阶段对应指定设计 M0→M4，共 13 个计划、37 项任务；当前完成 1 个计划/3 项任务。独立 Review 未进行。
 > GSD phase 从 1 编号，产品 milestone 从 M0 命名，避免与旧 V0.2 的 M0–M3 混用。
 > 这是 brownfield 演进，复用现有单体/网关/模型/证据/测试；阶段成功以可演示行为与证据判断。
 
@@ -24,12 +24,12 @@
 2. 通用输入、引用、风险、状态和权限契约明确；Runtime 比较保留测试代码/固定输入/复现命令/对比表，清理 target 后仍可重跑，仅选一套主循环；不冒称 PG 恢复已验证。
 3. 新 API 可保存/读回会话、消息与 QUEUED run，空库可迁移、CLI 无数据库仍能运行。M0 仅持久化契约演示，没有 Agent worker，不宣称可执行产品。
 
-**Plans:** 2 plans（均已编写待审任务书；未执行）
+**Plans:** 2 plans（01-01 已完成，01-02 待授权）
 
-- [ ] [01-01-PLAN.md](phases/01-baseline-contracts/01-01-PLAN.md) — 核对继承基线、通用契约与 Runtime 取舍；依赖 无；wave 1
+- [x] [01-01-PLAN.md](phases/01-baseline-contracts/01-01-PLAN.md) — 核对继承基线、通用契约与 Runtime 取舍；依赖 无；wave 1；[完成证据](phases/01-baseline-contracts/01-01-SUMMARY.md)
 - [ ] [01-02-PLAN.md](phases/01-baseline-contracts/01-02-PLAN.md) — PG 持久会话与排队任务的首个纵向切片；依赖 01-01；wave 2
 
-**边界 / 风险：** 版本、Docker/PG 可用性与 Runtime ADR 未验证；不可把建表/QUEUED 当诊断完成。
+**边界 / 风险：** 01-01 已冻结通用契约并实测选择演进现有循环；Docker/PG 可用性与数据库版本尚未验证。01-02 未执行，不可把原型/契约当持久化或可执行产品。M0 阶段出口/独立 Review 未完成。
 
 ### Phase 2: 自由对话与知识检索
 
@@ -125,11 +125,11 @@
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |---|---|---|---|---|
-| 1. 基线与通用契约 | M0 | 0/2 | Not started（待审） | - |
+| 1. 基线与通用契约 | M0 | 1/2 | In progress（01-01 完成；01-02 待授权） | - |
 | 2. 自由对话与知识检索 | M1 | 0/3 | Not started（待审） | - |
 | 3. 设备事实与持久连续调查 | M2 | 0/3 | Not started（待审） | - |
 | 4. 标准 Skill 与双域验证 | M3 | 0/2 | Not started（待审） | - |
 | 5. 完整工作台、质量与交付 | M4 | 0/3 | Not started（待审） | - |
 
-未开始共13/13。本次差距审查与规划文件交付**不计作 M0 开发完成**。如用户要求调整顺序，先更新需求追踪、依赖与 STATE，再执行后续开发。
+完成计划 1/13（约8%），未执行12/13，完成阶段0/5。01-01 实施不代表整个 M0 完成，旧差距审查不计开发进度。后续实施范围由用户授权及前置/阶段出口判断。
 

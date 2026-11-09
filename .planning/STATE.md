@@ -1,22 +1,23 @@
 ---
 gsd_state_version: '1.0'
-status: planning
+status: ready
 milestone: v1.0
 milestone_name: 通用设备检修 Agent
 current_phase: 1
 current_phase_name: 基线与通用契约
-current_plan: 1
+current_plan: 2
 total_phases: 5
 total_plans_in_phase: 2
-review_status: review_pending
+review_status: independent_review_pending
 execution_authorized: false
+last_execution_authorization: '2026-11-09: 01-01 only; completed; no commit/deploy'
 last_updated: '2026-11-09'
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 13
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 8
 ---
 
 # Project State
@@ -26,57 +27,60 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-09)
 
 **Core value:** 自由设备问题能开启有来源、可补证、可恢复的可信调查。
-**Current focus:** 完成审查报告驱动的定点规划修订，等待用户审查。
+**Current focus:** 01-01 已按用户授权完成；下一计划01-02待授权，不自动推进。
 
 ## Current Position
 
 Phase: 1 of 5 (基线与通用契约 / M0)
-Plan: 1 of 2 in current phase（01-01，仅计划存在）
-Status: Planning — REVIEW_PENDING；不得执行开发
-Last activity: 2026-11-09 — 完成规划内容修订与13份PLAN阅读整理；37任务待审，开发未开始
+Plan: 2 of 2 in current phase（01-02，未执行）
+Status: Ready — 01-01 completed；01-02 awaits authorization；独立Review未进行
+Last activity: 2026-11-09 — 完成基线/通用契约/Runtime比较与ADR；全量146项和最终打包CLI通过
 
-Progress: 0% [░░░░░░░░░░]
+Progress: 8% [█░░░░░░░░░]
 
 ## Performance Metrics
 
-- Total plans completed: 0
-- Execution time: 0（未启动开发；本轮分析/测试不是计划完成）
-- M0–M4: 全部 Not started
+- Total plans completed: 1/13（3/37任务）；完成阶段0/5。
+- M0: 01-01完成，01-02未开始；M1–M4未开始。
+- 实施起点HEAD a9607cf7b1631c221a9f9865036751642772e352；本轮无Git提交，变更在工作树。
 
 ## Accumulated Context
 
 ### Decisions
 
-- 当前需求是指定 V1.0-Draft.1 PostgreSQL 设计；旧 V0.1/V0.2 仅作历史及legacy回归。
-- 保留单体、单 Agent、只读设备边界；PG与pgvector同实例；Vue从M1接入。
-- 旧Hypothesis完整状态机不作前置；先自由目标→RAG→同run最小补证/回答（M1）→跨进程持久恢复（M2）。
-- Runtime倾向演进旧循环，01-01小原型后ADR选择；未实际做原型。
-- 新规划代码基线 b7befa08f702675d05dcc9560cf7eb87e4b778c2，不是旧交接 e98b431。
-- 本次用户仅授权规划；未授权开发、部署或Git提交。config不会自动强制权限，须读取本状态。
+- 需求基准为指定V1.0-Draft.1 PostgreSQL设计；旧V0.1/V0.2仅作legacy回归，不续跑旧S2。
+- 本次用户明确要求执行01-01，覆盖此前仅规划限制；授权仅该计划，不含后续实施、部署或Git提交。
+- 选择演进TaskOrchestrator为唯一产品循环，保留AgentScope Model API；见01-01 ADR-runtime。
+- 原型两候选均通过6样例，连续两次clean输出相同；这是测试原型，生产通用循环未改造。
+- 通用原文必填、资产可空，CALL_TOOL/ASK_USER/ANSWER、owner/project由服务器确定；见CONTRACTS。
+- M1同run正常补答；M2才验收跨进程检查点、租约/CAS、幂等并发、累计预算可靠性。
+- 保留旧模型私有文件兼容：文件非空值优先、环境补缺；新PG/embedding只服务端环境注入。
+- 单体/单Agent/只读设备，PG与pgvector同实例，Vue从M1接入；未添加生产双栈。
 
 ### Pending Todos
 
-- 等用户审查规划；意见先更新PROJECT/REQUIREMENTS/ROADMAP/PLAN追踪。
-- 明确批准实施后，重核01-01并开始M0；禁止接着旧state自动执行S2。
+- 先阅读01-01-SUMMARY、BASELINE、CONTRACTS、ADR-runtime、RUNTIME-SPIKE。
+- 下一计划01-02须用户明确授权后实施；M0阶段出口及独立Review均未完成。
+- 后续01-02验证真实PG/迁移/事务/重启读取，并确保legacy CLI无需数据库。
 
 ### Blockers/Concerns
 
-- 当前无阻止规划交付的阻塞；等待用户审查是本轮终点。
-- 默认终端Java17；必须设置进程JDK21。dot-source .ps1被执行策略拒绝，见VALIDATION。
-- PG/pgvector运行、embedding、PDF/Vue依赖与新模型链未验证；不能宣称已有能力。
-- owner/project权限从首次持久化建模；多人共享前须真实认证，不以session UUID当凭据。
-- 密钥私有文件/环境配置与旧说明漂移已登记，不读取私密值；01-01明确新策略。
+- 无阻塞01-01交付的问题；独立Review尚未进行，不虚构PASS。
+- 默认终端Java17，当前进程需显式设JDK21；不改全局执行策略。
+- PG/pgvector、真实embedding/RAG、新自由目标API、Vue/SSE与跨进程恢复均未验收。
+- 本地固定身份仅可证明服务层授权合同；共享部署前需真实认证。
 
 ## Verification Snapshot
 
-前轮规划实测 mvn -o -q test：JDK21下145 tests / 0 failures / 0 errors / 0 skipped，28 suite。本轮仅重跑规划校验，未重跑业务测试。
-第一次Java17运行失败已保留。未跑package/CLI脚本/在线模型/PG/前端。
-历史DeepSeek CAR-B通过不代表新版E2E通过。
+本轮起点145/0/0/0（28 suites）；新增原型后test及package均146/0/0/0（29 suites）。
+RuntimeComparisonTest首轮及两次诊断失败已记录，修正后两次clean通过、输出字节一致。
+最终verify_cli退出0：A/B对应规则、C冲突、D缺证；E安全负例由继承测试覆盖。
+打包HTTP Main实测/api/health与/actuator/health UP、index200，进程已关闭。
+未调用外部真实模型；未验证PG/真实RAG/前端/可靠恢复。详见01-01-SUMMARY。
 
 ## Session Continuity
 
-Last session: 2026-11-09 (Asia/Shanghai；分析自11-08开始)
-Stopped at: 针对性修订与规划校验已交待审，未开始实现
+Last session: 2026-11-09 (Asia/Shanghai)
+Stopped at: 01-01完成；01-02待新授权；生产源码未变
 Resume file: .planning/NEXT_SESSION.md
-Read first: AGENTS.md → 本文件 → PROJECT.md → 指定V1.0设计 → GAP-ANALYSIS/ROADMAP
-
+Read first: AGENTS.md → STATE → PROJECT → 01-01-SUMMARY → 01-02-PLAN（仅授权后实施）

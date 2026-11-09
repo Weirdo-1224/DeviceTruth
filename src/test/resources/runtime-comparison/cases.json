@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "runId": "spike-run-01",
+  "userMessage": "新能源汽车充电经常中断，没有故障码，先看哪些资料？",
+  "reply": "直流快充，换一个充电桩也会中断。",
+  "questionId": "question-01",
+  "questionVersion": 1,
+  "question": "是交流慢充还是直流快充？",
+  "answer": "模拟资料提示先记录充电方式及中断条件；尚未读取现场数据，不能确认故障原因。",
+  "references": ["MANUAL-V1-SECTION-2", "MANUAL-V1-SECTION-3"],
+  "cases": [
+    {"id": "charging-resume", "failure": null, "expectedReads": 2},
+    {"id": "unknown-tool", "failure": "UNKNOWN_CAPABILITY", "expectedReads": 0},
+    {"id": "write-tool", "failure": "NOT_READ_ONLY", "expectedReads": 0},
+    {"id": "cross-asset", "failure": "ASSET_DENIED", "expectedReads": 0},
+    {"id": "invalid-arguments", "failure": "INVALID_ARGUMENTS", "expectedReads": 0},
+    {"id": "forged-citation", "failure": "INVALID_CITATION", "expectedReads": 2}
+  ],
+  "expectedEvents": [
+    "RUNNING", "PROPOSED:CALL_TOOL", "TOOL:OK", "REFERENCE:MANUAL-V1-SECTION-2",
+    "PROPOSED:ASK_USER", "WAITING_FOR_USER", "EXECUTION_RELEASED", "CONTEXT_REBUILT",
+    "REPLY_ACCEPTED", "QUEUED", "RUNNING", "PROPOSED:CALL_TOOL", "TOOL:OK",
+    "REFERENCE:MANUAL-V1-SECTION-3", "PROPOSED:ANSWER", "COMPLETED"
+  ]
+}

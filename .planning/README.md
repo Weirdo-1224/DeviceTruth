@@ -1,7 +1,9 @@
 # DeviceTruth V1.0 规划审查入口
 
-> 分析起始：2026-11-08；交付：2026-11-09（Asia/Shanghai）｜状态：**REVIEW_PENDING，仅规划，未获实施授权**
-> 代码基线：`b7befa08f702675d05dcc9560cf7eb87e4b778c2`。本轮不修改业务源码、测试、依赖或数据库。
+> 分析起始：2026-11-08；最新实施：2026-11-09（Asia/Shanghai）｜状态：**用户授权的 01-01 已完成，其余计划未授权**
+> 本次执行 HEAD：`a9607cf7b1631c221a9f9865036751642772e352`。01-01 仅新增测试原型/夹具与契约、基线、ADR；业务源码、依赖和数据库未改动。
+
+最新交付见 [01-01-SUMMARY](phases/01-baseline-contracts/01-01-SUMMARY.md)，测试复现与局限见 [RUNTIME-SPIKE](phases/01-baseline-contracts/RUNTIME-SPIKE.md)。01-02 尚未开始，M0/独立 Review 尚未完成。下方初始规划审查记录保留为历史背景。
 
 本次针对性修订摘要见 [规划自检与修订对照](PLAN-REVIEW.md)。建议先读 [差距审查](GAP-ANALYSIS.md)，再看 [路线图](ROADMAP.md) 和 [逐项需求](REQUIREMENTS.md)。详细开发任务从 [阶段阅读目录](phases/README.md) 进入。当前进度与交接分别在 [STATE.md](STATE.md)、[NEXT_SESSION.md](NEXT_SESSION.md)。
 
@@ -26,5 +28,5 @@
 
 本轮按用户已指定的需求文档、优先级、路线图与持久状态目标，采用这些能力的**当前会话内分析与规划适配**：显式来源清单 → 文档归并/冲突 → 七类地图 → 需求追踪 → 阶段与任务 → 目标反向检查。未声称完整执行 ingest 自动审批/提交工作流，未启动执行器、未派发子代理、未通过独立 planner/checker 审查。用户要求“先交文档审查”优先于技能的自动提交或后续执行建议。
 
-`config.json` 保持 interactive、关闭 auto_advance 和并行执行；**配置不是权限系统**。真正的本轮边界由用户指令和 STATE/NEXT_SESSION 共同记录：审查前只可继续分析、修订规划。
+`config.json` 保持 interactive、关闭 auto_advance 和并行执行；**配置不是权限系统**。最新用户只授权 01-01，STATE/NEXT_SESSION 记录已完成范围与下一计划的授权边界，不自动推进。
 

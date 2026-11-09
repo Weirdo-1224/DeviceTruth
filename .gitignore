@@ -1,6 +1,7 @@
 target/
 outputs/runs/
 outputs/baselines/
+outputs/validation/
 .tools/
 .m2/
 .env

@@ -1,5 +1,13 @@
 # DeviceTruth Agent Core V0.1
 
+V1.0 当前入口为 [.planning/README.md](.planning/README.md)。2026-11-09 已按用户授权执行 01-01（基线、通用契约与 Runtime 测试原型）；其后计划仍未执行。当前产品源码仍是 legacy CLI/HTTP，尚未实现 PG/RAG/自由目标 Agent。下文 V0.1 的 DONE 和在线记录只描述历史版本，不能作为 V1.0 验收结果。
+
+01-01 的当前验证、配置策略与局限见 [BASELINE](.planning/phases/01-baseline-contracts/BASELINE.md)，新输入/追问/引用/风险约定见 [CONTRACTS](.planning/phases/01-baseline-contracts/CONTRACTS.md)，主循环取舍见 [Runtime ADR](.planning/phases/01-baseline-contracts/ADR-runtime.md)。测试原型的复现命令为 `mvn -q '-Dtest=RuntimeComparisonTest' clean test`，不需要密钥或数据库。
+
+HTTP 默认 `devicetruth.router.mode=offline`、`devicetruth.core.reasoner=openai`，两者含义分别是离线路由与模型诊断供应商；离线路由不意味着诊断不访问模型。独立服务入口为 `io.devicetruth.server.DeviceTruthServerApplication`，可运行 JAR 默认入口仍是 CLI。已有 Actuator 与 `/api/health`；这不代表数据库或模型可用。
+
+新 PG/embedding 凭据只通过服务端环境注入，不扩展本地模型私有文件的适用范围。现有模型私有文件兼容和“文件非空值优先、环境补缺”行为继续保留，详细约定见 CONTRACTS §8；本轮没有读取真实私密值。
+
 DeviceTruth 是可运行的 Java 单 Agent Core。每步读取独立的结构化状态，由 Reasoner 提出一个动作；Gateway 执行至多一个只读能力；Evidence Manager 重建事实并使旧依赖失效；State Manager 提交新版本；Decision Guard 决定是否允许结论。模型不能修改事实、写证据或自行执行工具。
 
 **资料与规则均为 `SIMULATED`，仅用于工程验收，不能指导实际车辆或工业设备维护。** 离线验收及 OpenAI 兼容接口的真实场景 B 已通过（6 步、DEMO-D-120B，共 2 次独立运行）；全部 MUST 任务已完成，整体 DONE。千问 DashScope 适配路径尚未被真实执行过，属已知残留风险，记录在 state.md 的设计决定 16，不是阻塞项。最新命令、报告路径与进度见 [state.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/state.md)。
@@ -260,6 +268,6 @@ python3 scripts/verify_online.py --reasoner=openai
 - `NEED_EVIDENCE`：查缺口和 stopReason；预算/重复动作耗尽会保留原因。工具持续失败且无进展时可 `ESCALATE`。
 - `CONFLICT`：需补充能够裁决的证据，版本专属规则不能绕过同级冲突。
 
-下一会话先完整读 [spec.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/spec.md)、[task.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/task.md)、[state.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/state.md)。三份文件统一保存在 `docs/DeviceTruth_Core_V0.1_Spec_Pack/`，仅维护这一套；构建与运行仍在项目根目录执行。待办是在线真实模型验收：配置所选服务环境后运行 `verify_online.py --reasoner=qwen` 或 `--reasoner=openai`，核验轨迹并分别记录 T07/T12、DoD 和 state；没有该证据不能宣告整体 DONE。
+下一会话先读 [.planning/STATE.md](.planning/STATE.md)、[PROJECT.md](.planning/PROJECT.md) 和 [NEXT_SESSION.md](.planning/NEXT_SESSION.md)。旧 [spec.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/spec.md)、[task.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/task.md)、[state.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/state.md) 用于理解 legacy 回归，不自动续跑旧任务。真实模型验收与离线结果分开记录；历史 DeepSeek 成功不代表新产品全链路通过。
 
 后续可选方向为数据库/API Repository、更多领域适配和任务恢复；V0.1 没有实现 UI、多 Agent、知识库、MCP 平台或设备控制。
