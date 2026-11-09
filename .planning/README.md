@@ -3,7 +3,7 @@
 > 分析起始：2026-11-08；交付：2026-11-09（Asia/Shanghai）｜状态：**REVIEW_PENDING，仅规划，未获实施授权**
 > 代码基线：`b7befa08f702675d05dcc9560cf7eb87e4b778c2`。本轮不修改业务源码、测试、依赖或数据库。
 
-本次针对性修订摘要见 [规划自检与修订对照](PLAN-REVIEW.md)。建议先读 [差距审查](GAP-ANALYSIS.md)，再看 [路线图](ROADMAP.md) 和 [逐项需求](REQUIREMENTS.md)。详细开发任务在 [phases](phases/)；当前进度与交接分别在 [STATE.md](STATE.md)、[NEXT_SESSION.md](NEXT_SESSION.md)。
+本次针对性修订摘要见 [规划自检与修订对照](PLAN-REVIEW.md)。建议先读 [差距审查](GAP-ANALYSIS.md)，再看 [路线图](ROADMAP.md) 和 [逐项需求](REQUIREMENTS.md)。详细开发任务从 [阶段阅读目录](phases/README.md) 进入。当前进度与交接分别在 [STATE.md](STATE.md)、[NEXT_SESSION.md](NEXT_SESSION.md)。
 
 ## 文档导航
 

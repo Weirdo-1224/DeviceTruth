@@ -32,3 +32,9 @@ M1：02-01先把MD/TXT→切片→embedding→PG→授权知识接口打通；02
 实际执行 `python .planning/validate_planning.py`，调用已安装 @opengsd/gsd-core 1.20.1 的13次 `verify plan-structure`、`validate consistency`、`roadmap analyze`、`state-snapshot`。需求唯一主映射、阶段/PLAN一致、依赖无环、wave、阶段出口、任务文件并集、key_links起点、文档链接与UTF-8、未授权/0进度检查均通过。完整命令/退出码在 evidence/planning-validation.json。
 
 未执行任何开发PLAN、Runtime原型、业务测试/打包、依赖安装、PG迁移/容器、前端构建、真实LLM或embedding请求。前轮145项离线基线仅作历史实测，本轮不重新宣称通过。结构检查不替代语义独立Review和实际效果验收；待用户审查修订，不直接进入M0。
+
+## 计划阅读整理
+
+根据用户对可读性的反馈，13份PLAN改为多行元数据、中文标题、逐行文件清单和分步任务。任务正文分别列出阅读入口、步骤、验证与验收，执行规则集中在phases/README.md，保留GSD读取所需标签。
+
+整理过程中逐任务核对动作、验证和验收文本，除排版及标点外内容一致。37项任务的编号和执行含义保留。新增阶段阅读目录链接到全部13份计划。Markdown渲染检查中，所有任务标题和步骤列表均正确生成。

@@ -31,7 +31,7 @@ def gsd(*parts):
 
 
 def field(text, name):
-    return re.search(r'^' + re.escape(name) + r': (.+)$', text, re.M)[1]
+    return re.search(r'^' + re.escape(name) + r': (\[[\s\S]*?\]|[^\n]+)', text, re.M)[1]
 
 
 rows = {}
@@ -53,7 +53,8 @@ for path in sorted(planning.glob('phases/*/*-PLAN.md')):
     tasks = re.findall(r'<task .*?</task>', text, re.S)
     used = set()
     for task in tasks:
-        used.update(part.strip() for part in re.search(r'<files>(.*?)</files>', task, re.S)[1].split(','))
+        files_text = re.search(r'<files>(.*?)</files>', task, re.S)[1]
+        used.update(re.findall(r'^- (.+)$', files_text, re.M))
     check(set(files) == used, key + ' task files mismatch: ' + str(sorted(set(files) ^ used)))
     for source in re.findall(r'    - from: "([^"]+)"', text):
         check(source in files, key + ' key_link source absent from files: ' + source)

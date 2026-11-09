@@ -32,6 +32,8 @@
 - 跨阶段入口显式依赖前阶段末计划；禁止跳过阶段出口。
 - 本轮仅运行规划结构/一致性校验；详细命令及结果见 VALIDATION 和 evidence/planning-validation.json。
 
+计划阅读先从 `.planning/phases/README.md` 进入，再按任务标题阅读目标计划。PLAN 已整理为分步正文，保留 GSD 元数据及任务标签。
+
 ## 后续更新纪律
 
 - 每项计划真实完成才写SUMMARY，记录变更、执行命令/退出码、结果、未验证项；更新STATE/ROADMAP及需求追踪。
