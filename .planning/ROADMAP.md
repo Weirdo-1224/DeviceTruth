@@ -1,12 +1,12 @@
 # Roadmap: DeviceTruth V1.0
 
-> **01-01 已按用户授权执行；其余计划未执行、未授权。** 5 个阶段对应指定设计 M0→M4，共 13 个计划、37 项任务；当前完成 1 个计划/3 项任务。独立 Review 未进行。
+> **Phase1已完成并于2026-11-10原生关闭；独立Review/安全/阶段验证及集中产品确认全部通过。** 5个阶段对应M0→M4，共13个计划、37项任务；当前完成2个计划/6项任务、1个阶段。先提交当前Git再仅执行02-01，02-02/02-03暂不执行。
 > GSD phase 从 1 编号，产品 milestone 从 M0 命名，避免与旧 V0.2 的 M0–M3 混用。
 > 这是 brownfield 演进，复用现有单体/网关/模型/证据/测试；阶段成功以可演示行为与证据判断。
 
 ## Phases
 
-- [ ] **Phase 1: 基线与通用契约（M0）** — 在保留旧回归的前提下，明确新契约和唯一主循环，再让自由消息/排队任务进入 PostgreSQL。
+- [x] **Phase 1: 基线与通用契约（M0）** — 在保留旧回归的前提下，明确新契约和唯一主循环，再让自由消息/排队任务进入 PostgreSQL。 (completed 2026-11-10)
 - [ ] **Phase 2: 自由对话与知识检索（M1）** — 从 Vue 提交无故障码问题，由 Agent 检索知识、追问并在同一 run 接收补答后继续产出引用结果。
 - [ ] **Phase 3: 设备事实与持久连续调查（M2）** — 把同一任务的补证、资产时序查询、刷新/重启恢复、预算和取消贯通为完整调查。
 - [ ] **Phase 4: 标准 Skill 与双域验证（M3）** — 通过标准指引与领域数据，在不复制 Runtime 的情况下处理汽车充电与工业 SC-0245-B。
@@ -24,12 +24,18 @@
 2. 通用输入、引用、风险、状态和权限契约明确；Runtime 比较保留测试代码/固定输入/复现命令/对比表，清理 target 后仍可重跑，仅选一套主循环；不冒称 PG 恢复已验证。
 3. 新 API 可保存/读回会话、消息与 QUEUED run，空库可迁移、CLI 无数据库仍能运行。M0 仅持久化契约演示，没有 Agent worker，不宣称可执行产品。
 
-**Plans:** 2 plans（01-01 已完成，01-02 待授权）
+**Plans:** 2/2 plans complete（独立Review、自动验收及集中产品确认通过；阶段已关闭）
 
 - [x] [01-01-PLAN.md](phases/01-baseline-contracts/01-01-PLAN.md) — 核对继承基线、通用契约与 Runtime 取舍；依赖 无；wave 1；[完成证据](phases/01-baseline-contracts/01-01-SUMMARY.md)
-- [ ] [01-02-PLAN.md](phases/01-baseline-contracts/01-02-PLAN.md) — PG 持久会话与排队任务的首个纵向切片；依赖 01-01；wave 2
+- [x] [01-02-PLAN.md](phases/01-baseline-contracts/01-02-PLAN.md) — PG持久会话与排队任务切片；依赖01-01；wave 2；[完成证据](phases/01-baseline-contracts/01-02-SUMMARY.md)
 
-**边界 / 风险：** 01-01 已冻结通用契约并实测选择演进现有循环；Docker/PG 可用性与数据库版本尚未验证。01-02 未执行，不可把原型/契约当持久化或可执行产品。M0 阶段出口/独立 Review 未完成。
+**用户验收前置（2026-11-10）：** [COVERAGE](phases/01-baseline-contracts/COVERAGE.md)已补齐并通过覆盖／链接／源码证据检查，本次针对性回归51/0/0/0；逐项用户验收尚未进行。该检查不代替独立Review，不更改阶段完成状态。
+
+**本轮验收进度（2026-11-10）：** 独立[Review](phases/01-baseline-contracts/01-REVIEW.md)初审1个BLOCKER，真实HTTP/PG复现后修复并独立复审clean。全量clean test/package均154/0/0/0，打包CLI与新JAR跨进程原文/QUEUED读回通过，见[验证证据](phases/01-baseline-contracts/01-VALIDATION.md)。[01-UAT](phases/01-baseline-contracts/01-UAT.md)为逐项用户确认记录，尚未完成，不关闭阶段。
+
+**验收策略调整（2026-11-10）：** 按[ACCEPTANCE](ACCEPTANCE.md)及GSD原生coverage将技术项转为代理自动执行/断言并留证；用户已通过的CLI B保留。策略调整后package再次154/0/0/0、打包PG重启再次通过；UAT仅保留一次产品/设计集中确认，见[简洁验收报告](phases/01-baseline-contracts/01-ACCEPTANCE.md)。未确认前不关闭阶段，02-01不提前执行。
+
+**最终出口 / 边界：** 最新154项/打包/CLI/PG重启全部通过；独立Review clean、安全6/6关闭、VERIFICATION passed（6/6），用户集中确认已收到，原生phase uat-passed --require-verification通过并关闭Phase1。没有Agent worker、真实RAG或WAITING执行恢复。下一步按已有授权提交Git并仅执行02-01；上方逐项提示等为此前验收过程历史。
 
 ### Phase 2: 自由对话与知识检索
 
@@ -125,11 +131,10 @@
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |---|---|---|---|---|
-| 1. 基线与通用契约 | M0 | 1/2 | In progress（01-01 完成；01-02 待授权） | - |
+| 1. 基线与通用契约 | M0 | 2/2 | Complete    | 2026-11-10 |
 | 2. 自由对话与知识检索 | M1 | 0/3 | Not started（待审） | - |
 | 3. 设备事实与持久连续调查 | M2 | 0/3 | Not started（待审） | - |
 | 4. 标准 Skill 与双域验证 | M3 | 0/2 | Not started（待审） | - |
 | 5. 完整工作台、质量与交付 | M4 | 0/3 | Not started（待审） | - |
 
-完成计划 1/13（约8%），未执行12/13，完成阶段0/5。01-01 实施不代表整个 M0 完成，旧差距审查不计开发进度。后续实施范围由用户授权及前置/阶段出口判断。
-
+完成计划2/13（约15%），未执行11/13，完成阶段1/5。M0已按真实回归、独立Review与用户集中确认关闭；02-01已授权，02-02/02-03暂不执行。

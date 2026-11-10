@@ -18,7 +18,8 @@ import io.devicetruth.core.reasoning.ScriptedReasoner;
 import java.nio.file.Path;
 
 /** DeviceTruth Core CLI 入口：解析参数后执行一次（全模拟数据的）诊断运行，并把报告写入 outputs/runs。 */
-@SpringBootApplication
+@SpringBootApplication(exclude = {org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration.class,
+        org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration.class})
 public class DeviceTruthApplication {
     private static final Logger LOG = LoggerFactory.getLogger(DeviceTruthApplication.class);
 

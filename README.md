@@ -1,12 +1,12 @@
 # DeviceTruth Agent Core V0.1
 
-V1.0 当前入口为 [.planning/README.md](.planning/README.md)。2026-11-09 已按用户授权执行 01-01（基线、通用契约与 Runtime 测试原型）；其后计划仍未执行。当前产品源码仍是 legacy CLI/HTTP，尚未实现 PG/RAG/自由目标 Agent。下文 V0.1 的 DONE 和在线记录只描述历史版本，不能作为 V1.0 验收结果。
+V1.0当前入口为[.planning/README.md](.planning/README.md)。01-01与01-02已完成：基线/契约/Runtime原型，以及使用interview-postgres的PG会话/消息/QUEUED切片。2026-11-10独立Review发现HTTP JSON类型转换问题，修复后独立复审clean，全量154项及打包CLI/进程重启复验通过，见[本轮验证](.planning/phases/01-baseline-contracts/01-VALIDATION.md)。M0逐项用户验收进行中；出口满足后提交Git并执行02-01已获授权，02-02/02-03暂不执行。RAG和自由目标Agent尚未实现。下文V0.1的DONE和在线记录只描述历史版本，不能作为V1.0验收结果。
 
 01-01 的当前验证、配置策略与局限见 [BASELINE](.planning/phases/01-baseline-contracts/BASELINE.md)，新输入/追问/引用/风险约定见 [CONTRACTS](.planning/phases/01-baseline-contracts/CONTRACTS.md)，主循环取舍见 [Runtime ADR](.planning/phases/01-baseline-contracts/ADR-runtime.md)。测试原型的复现命令为 `mvn -q '-Dtest=RuntimeComparisonTest' clean test`，不需要密钥或数据库。
 
 HTTP 默认 `devicetruth.router.mode=offline`、`devicetruth.core.reasoner=openai`，两者含义分别是离线路由与模型诊断供应商；离线路由不意味着诊断不访问模型。独立服务入口为 `io.devicetruth.server.DeviceTruthServerApplication`，可运行 JAR 默认入口仍是 CLI。已有 Actuator 与 `/api/health`；这不代表数据库或模型可用。
 
-新 PG/embedding 凭据只通过服务端环境注入，不扩展本地模型私有文件的适用范围。现有模型私有文件兼容和“文件非空值优先、环境补缺”行为继续保留，详细约定见 CONTRACTS §8；本轮没有读取真实私密值。
+新 PG/embedding 凭据只通过服务端环境注入，不扩展本地模型私有文件的适用范围。现有模型私有文件兼容和“文件非空值优先、环境补缺”行为继续保留，详细约定见 CONTRACTS §8；不读取真实模型私有文件。复用既有PG时，连接凭据只在内存及服务进程环境使用，不打印或写入报告。
 
 DeviceTruth 是可运行的 Java 单 Agent Core。每步读取独立的结构化状态，由 Reasoner 提出一个动作；Gateway 执行至多一个只读能力；Evidence Manager 重建事实并使旧依赖失效；State Manager 提交新版本；Decision Guard 决定是否允许结论。模型不能修改事实、写证据或自行执行工具。
 
@@ -15,6 +15,65 @@ DeviceTruth 是可运行的 Java 单 Agent Core。每步读取独立的结构化
 技术版本锁定为 Java 21、Maven 3.9+、Spring Boot 3.5.16、AgentScope Java 2.0.4。AgentScope 使用 `agentscope-core`、DashScope 和 OpenAI 模型扩展，不引入 harness 或另一个编排框架。版本依据 Maven Central 元数据与官方源码验证，见 [API Spike](docs/research/agentscope-spike.md)。新增扩展首次构建需要下载依赖。
 
 ## 启动与构建
+
+### V1.0 M0 持久化接口
+
+新接口仅在独立HTTP服务启用`product`配置时提供。它保存用户原文、会话、任务与初始事件；**当前没有Agent worker，任务保持QUEUED，不会生成诊断答案**。正常任务调度/基本补答由02-02接手，崩溃遗留队列与可靠恢复由M2实现。legacy CLI和默认HTTP服务无需数据库，旧sessions/diagnoses接口继续保留。
+
+本机按用户指定复用`interview-postgres`，实测PostgreSQL 16.15 + pgvector 0.8.7，端口5432；DeviceTruth使用独立`devicetruth`数据库，不修改`interview_guide`。Flyway执行`V1__agent_conversations.sql`，重复启动只校验已有迁移，不重建业务表。JDBC/Flyway/Hikari版本由Spring Boot 3.5.16管理，分别为42.7.11/11.7.2/6.3.3。实现按[Spring Boot 3.5迁移文档](https://docs.spring.io/spring-boot/3.5/how-to/data-initialization.html)使用Flyway PostgreSQL模块；扩展参考[pgvector官方文档](https://github.com/pgvector/pgvector)。
+
+在项目根目录使用既有容器（以下只创建独立库，不清空原库；密码仅在当前进程内存中使用）：
+
+```powershell
+$env:DOCKER_HOST = 'npipe:////./pipe/dockerDesktopLinuxEngine'
+docker start interview-postgres
+$taskDbExists = docker exec interview-postgres psql -U postgres -d postgres -Atc "SELECT 1 FROM pg_database WHERE datname='devicetruth'"
+if ($taskDbExists -ne '1') { docker exec interview-postgres psql -U postgres -d postgres -c 'CREATE DATABASE devicetruth' }
+$taskPgEnvironment = docker inspect interview-postgres --format '{{json .Config.Env}}' | ConvertFrom-Json
+$env:SPRING_DATASOURCE_URL = 'jdbc:postgresql://127.0.0.1:5432/devicetruth'
+$env:SPRING_DATASOURCE_USERNAME = ($taskPgEnvironment | Where-Object { $_.StartsWith('POSTGRES_USER=') }).Substring(14)
+$env:SPRING_DATASOURCE_PASSWORD = ($taskPgEnvironment | Where-Object { $_.StartsWith('POSTGRES_PASSWORD=') }).Substring(18)
+mvn -q -DskipTests package
+java '-Dloader.main=io.devicetruth.server.DeviceTruthServerApplication' -cp target/devicetruth-core-0.1.0.jar org.springframework.boot.loader.launch.PropertiesLauncher --spring.profiles.active=product --debug=false
+```
+
+Spring进程只使用三个`SPRING_DATASOURCE_*`环境变量，不读取模型私有配置文件中的数据库凭据。`compose.yaml`保留给需要独立部署的环境：只有显式指定`--profile standalone-db`才启动数据库，锁定本机已有PG16镜像摘要并设置`pull_policy: never`，不会自动下载。可按`.env.example`配置独立实例密码及54329端口；复用interview时不需要运行Compose，也不复用其数据卷。
+
+`product`默认采用服务器固定身份`local-owner/local-project`，可通过`DEVICETRUTH_OWNER_ID/DEVICETRUTH_PROJECT_ID`设置本地测试身份。客户端body中的owner/project/permissions/requestedAt会被拒绝。此模式仅供单用户本地演示，共享部署须在05-03接入真实认证。
+
+| 方法 | 路径 | 当前行为 |
+|---|---|---|
+| POST | `/api/conversations` | 空body或`{}`，201并返回conversationId |
+| GET | `/api/conversations` | 当前身份最近100个会话 |
+| GET | `/api/conversations/{id}` | 持久会话、按序消息和任务摘要 |
+| GET | `/api/conversations/{id}/messages` | 持久消息列表 |
+| POST | `/api/conversations/{id}/messages` | `Idempotency-Key: UUID`必填，202并返回同事务登记的QUEUED任务和Location |
+| GET | `/api/runs/{id}` | 持久任务状态；当前不会自动变成RUNNING |
+
+提交示例（会话ID由URL提供）：
+
+```powershell
+$conversation = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8080/api/conversations
+$payload = @{schemaVersion=1; userMessage="充电经常中断，没有故障码，先看哪些资料？"} | ConvertTo-Json
+$queued = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/conversations/$($conversation.conversationId)/messages" -Headers @{'Idempotency-Key'=[Guid]::NewGuid().ToString()} -ContentType 'application/json; charset=UTF-8' -Body ([Text.Encoding]::UTF8.GetBytes($payload))
+Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/runs/$($queued.runId)"
+```
+
+`userMessage`原样保存，必填、非空白、最多8000个Unicode码点；`selectedAssetId/asOf`可选，不要求故障码或Catalog准入。未给asOf时采用服务器requestedAt。当前只保存资产线索，不读取或确认资产现状。非空attachments/contextRefs以及replyTo会整体拒绝，不会静默丢弃。重用会话内的请求键返回409 `DUPLICATE_REQUEST`，不增加消息/任务；M2才提供完整幂等重放。无权和不存在均返回404 `NOT_FOUND_OR_DENIED`，其他新接口错误使用固定message、code、retryable、traceId，不透传SQL或配置内容。
+
+真实PG测试复用该实例，每次生成独立`devicetruth_test_<随机UUID>`空库，结束后仅删除自己生成的测试库，不拉取镜像：
+
+```powershell
+$env:DEVICETRUTH_TEST_PG_BASE_URL = 'jdbc:postgresql://127.0.0.1:5432/'
+$env:DEVICETRUTH_TEST_PG_USERNAME = $env:SPRING_DATASOURCE_USERNAME
+$env:DEVICETRUTH_TEST_PG_PASSWORD = $env:SPRING_DATASOURCE_PASSWORD
+mvn -q '-Dtest=PersistentConversationTest' test
+mvn -q test
+mvn -q package
+python scripts/verify_cli.py
+```
+
+`PersistentConversationTest`覆盖空库迁移、服务关闭重开、原文/Unicode、事务回滚、重复/并发提交及双身份/项目隔离。测试账号须能创建和删除专用测试库；缺少测试环境或真实PG不可连接时失败，不跳过冒充通过。仅验证旧离线链路时可执行`mvn -q '-Dtest=!PersistentConversationTest' test`，结果应单列为legacy回归。数据库可以是Docker内的既有实例，也可以是明确授权的独立真实测试服务器；无需Testcontainers依赖。
 
 在已有 `DeviceTruth` 根目录运行，不要创建第二层同名目录。需要 JDK 21 和 Maven 3.9+；首次 Maven 构建需要下载依赖，以后可用已缓存依赖离线运行。`.mvn/maven.config` 将依赖缓存限制到本项目 `.m2/repository`，不改用户全局 Maven 设置。运行 JAR 不需要 Python；两个验收辅助脚本需要 Python 3。
 

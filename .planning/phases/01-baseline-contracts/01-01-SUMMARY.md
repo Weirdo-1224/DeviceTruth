@@ -30,10 +30,37 @@ key-decisions:
 requirements-completed: [BASE-01, BASE-02]
 requirements-partial: [TRUST-06]
 completed: "2026-11-09"
-review_status: independent_review_not_run
+review_status: independent_review_passed
+coverage:
+  - id: P1-LEGACY
+    description: "旧CLI A-D及E安全负例、来源/状态/事件断言通过"
+    requirement: BASE-02
+    verification:
+      - kind: unit
+        ref: "src/test/java/io/devicetruth/core/AcceptanceTest.java#casesABCDProduceEvidenceConstrainedOutcomes / caseEUnknownToolAndForgedEvidenceNeverResolve（2026-11-10 phase1-policy-package再次实际执行154/0/0/0）"
+        status: pass
+      - kind: e2e
+        ref: "python scripts/verify_cli.py（2026-11-10本轮实际执行，target/cli-verification.json）"
+        status: pass
+    human_judgment: false
+  - id: P1-RUNTIME
+    description: "两候选Runtime六样例在clean后重跑，固定输入和输出摘要一致"
+    requirement: BASE-01
+    verification:
+      - kind: integration
+        ref: "src/test/java/io/devicetruth/spike/RuntimeComparisonTest.java（2026-11-10 clean test/package，输出SHA256 830d11a9aa9a24cd002ca67e881a90c3928361d45ed8ff9752772d399c773aeb）"
+        status: pass
+    human_judgment: false
+  - id: P1-PRODUCT
+    description: "Phase 1交付边界、唯一Runtime及下一步范围集中确认"
+    verification: []
+    human_judgment: true
+    rationale: "需确认本阶段仅交付QUEUED持久化、以TaskOrchestrator演进为唯一循环；出口后仅执行02-01知识接口，不包含02-02/02-03。这是产品与设计认可，不要求用户重复技术测试。"
 ---
 
 # 01-01 完成记录
+
+> 2026-11-10阶段验收更新：已由独立代理审阅本计划与01-02交付；CR-01在HTTP装配修复后独立复审clean。当前clean test/package均154/0/0/0，Runtime输出摘要仍一致；用户验收待确认。见[01-REVIEW](01-REVIEW.md)、[01-VALIDATION](01-VALIDATION.md)、[01-UAT](01-UAT.md)。下文为2026-11-09实施历史，旧“独立Review未运行/未授权后续”不覆盖新授权与本轮状态。
 
 **本计划三项任务已执行并完成：复核当前基线、冻结通用契约、实测两种 Runtime 后记录唯一方向。** 用户只授权这一份计划；01-02 及后续12份未执行，M0 阶段出口未完成。起点 HEAD `a9607cf7b1631c221a9f9865036751642772e352`，开始工作树干净；未提交 Git、未部署。
 

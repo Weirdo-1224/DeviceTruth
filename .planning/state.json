@@ -1,0 +1,38 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": "v1.0",
+  "phases": [
+    {
+      "number": "1",
+      "name": "基线与通用契约",
+      "status": "complete"
+    },
+    {
+      "number": "2",
+      "name": "自由对话与知识检索",
+      "status": "pending"
+    },
+    {
+      "number": "3",
+      "name": "设备事实与持久连续调查",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "标准 Skill 与双域验证",
+      "status": "pending"
+    },
+    {
+      "number": "5",
+      "name": "完整工作台、质量与交付",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "$gsd-progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 2 of 5 · 15% · executing"
+  },
+  "updated_at": "2026-11-10T15:04:48.553Z"
+}

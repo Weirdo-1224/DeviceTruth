@@ -14,7 +14,8 @@ import org.springframework.http.ResponseEntity;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(classes = DeviceTruthServerApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "devicetruth.core.reasoner=scripted")
 class ServerHttpTest {
     @Autowired TestRestTemplate rest;
 

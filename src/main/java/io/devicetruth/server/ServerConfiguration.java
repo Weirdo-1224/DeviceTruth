@@ -1,6 +1,8 @@
 package io.devicetruth.server;
 
 import io.devicetruth.adapter.JsonRepositories;
+import io.devicetruth.adapter.Json;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.devicetruth.adapter.OpenAiReasoner;
 import io.devicetruth.adapter.QwenReasoner;
 import io.devicetruth.adapter.RunReportWriter;
@@ -26,11 +28,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 
 /** Server 侧集中装配：只扫描新增 api 包，core/adapter/app 不新增 Spring 组件。 */
 @Configuration
+@Import(ProductConfiguration.class)
 @ComponentScan(basePackages = "io.devicetruth.api")
 public class ServerConfiguration {
+    /** HTTP 与模型协议共用严格 JSON 边界，避免转换或覆盖用户原文。 */
+    @Bean ObjectMapper httpObjectMapper() { return Json.MAPPER.copy(); }
+
     @Bean JsonRepositories jsonRepositories() throws IOException { return JsonRepositories.fromClasspath(); }
 
     @Bean SupportedScenarioCatalog supportedScenarioCatalog() throws IOException {

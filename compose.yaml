@@ -1,0 +1,21 @@
+name: devicetruth
+services:
+  postgres:
+    profiles: [standalone-db]
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    pull_policy: never
+    environment:
+      POSTGRES_DB: devicetruth
+      POSTGRES_USER: devicetruth
+      POSTGRES_PASSWORD: ${DEVICETRUTH_DB_PASSWORD:?Set DEVICETRUTH_DB_PASSWORD in your environment or ignored .env}
+    ports:
+      - "127.0.0.1:${DEVICETRUTH_DB_PORT:-54329}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devicetruth -d devicetruth"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+volumes:
+  postgres-data:

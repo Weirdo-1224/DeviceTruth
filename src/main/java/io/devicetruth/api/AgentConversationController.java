@@ -1,0 +1,67 @@
+package io.devicetruth.api;
+
+import io.devicetruth.application.agent.GeneralAgentService;
+import io.devicetruth.application.agent.GeneralAgentService.*;
+import java.net.URI;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.springframework.context.annotation.Profile;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+/** product专用API；身份取服务器Bean，请求体不能提供owner/project/permissions。 */
+@RestController
+@Profile("product")
+public class AgentConversationController {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(AgentConversationController.class);
+    private final GeneralAgentService service;
+    public AgentConversationController(GeneralAgentService service) { this.service = service; }
+
+    @PostMapping("/api/conversations")
+    ResponseEntity<ConversationView> create(@RequestBody(required = false) Map<String, Object> body) {
+        if (body != null && !body.isEmpty()) throw new IllegalArgumentException("Empty body required");
+        var conversation = service.create();
+        return ResponseEntity.created(URI.create("/api/conversations/" + conversation.conversationId())).body(conversation);
+    }
+
+    @GetMapping("/api/conversations")
+    List<ConversationView> list() { return service.list(); }
+
+    @GetMapping("/api/conversations/{id}")
+    ConversationDetail read(@PathVariable UUID id) { return service.read(id); }
+
+    @GetMapping("/api/conversations/{id}/messages")
+    List<MessageView> messages(@PathVariable UUID id) { return service.read(id).messages(); }
+
+    @PostMapping("/api/conversations/{id}/messages")
+    ResponseEntity<RunView> submit(@PathVariable UUID id, @RequestHeader("Idempotency-Key") UUID requestKey,
+                                   @RequestBody AgentTaskInput input) {
+        var run = service.submit(id, requestKey, input);
+        return ResponseEntity.accepted().location(URI.create("/api/runs/" + run.runId())).body(run);
+    }
+
+    @GetMapping("/api/runs/{id}")
+    RunView run(@PathVariable UUID id) { return service.run(id); }
+
+    @ExceptionHandler(RequestFailure.class)
+    ResponseEntity<Map<String, Object>> requestFailure(RequestFailure failure) {
+        return error(failure.status(), failure.code());
+    }
+
+    @ExceptionHandler({org.springframework.http.converter.HttpMessageNotReadableException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class,
+            org.springframework.web.bind.MissingRequestHeaderException.class, IllegalArgumentException.class})
+    ResponseEntity<Map<String, Object>> invalidRequest() { return error(400, "INVALID_REQUEST"); }
+
+    @ExceptionHandler(Exception.class)
+    ResponseEntity<Map<String, Object>> internalError(Exception exception) {
+        LOG.error("Product API failed: {}", exception.getClass().getSimpleName());
+        return error(500, "INTERNAL_ERROR");
+    }
+
+    private ResponseEntity<Map<String, Object>> error(int status, String code) {
+        return ResponseEntity.status(status).body(Map.of("code", code, "message", "请求无法处理。",
+                "retryable", false, "traceId", UUID.randomUUID().toString()));
+    }
+}

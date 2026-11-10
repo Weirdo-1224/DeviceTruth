@@ -58,3 +58,9 @@ DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI
 当前产品需求基准为 `docs/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md`；V0.1/V0.2 的 spec/task/state 用于理解历史与 legacy 回归，不自动覆盖新版决策，也不自动续跑旧 S2 队列。
 当 STATE 为 `planning / review_pending` 且未获用户明确实施授权时，只分析和修订规划，不执行 PLAN、不修改业务代码；存在任务文件不代表已授权开发。
 按实际验证维护当前 STATE/ROADMAP；没有执行的计划不得勾完成或生成完成报告。其余仓库编码、安全、测试与通俗中文解释要求继续适用。
+
+## 项目验收策略（2026-11-10 起）
+
+按 `.planning/ACCEPTANCE.md` 执行项目级验收补充流程，并使用 GSD 原生 SUMMARY `coverage` 分类。单元/集成/CLI/状态/安全规则及 A–E 等有明确断言的场景由代理实际运行、核对证据并记录，不要求用户逐项操作。仅产品行为、业务预期、设计取舍或确实无法自动判断的事项需要用户确认；每阶段尽量集中一次。技术失败或缺环境不能靠用户确认改成通过。
+
+每阶段保留 SUMMARY、UAT、Review、VERIFICATION、VALIDATION 等必要记录，并提供简洁的 `<phase>-ACCEPTANCE.md`，列明实际测试总数、通过/失败/错误/跳过数、未验证项和关键问题。原有人工确认与失败/修复历史必须保留；模拟数据、协议替身、真实数据库、外部真实模型和真实现场分别表述。不要修改全局 GSD 文件或用 `auto_advance` / 跳过检查点代替实际验收。
