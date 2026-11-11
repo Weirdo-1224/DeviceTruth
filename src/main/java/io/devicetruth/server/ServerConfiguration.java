@@ -1,5 +1,6 @@
 package io.devicetruth.server;
 
+import com.zaxxer.hikari.HikariDataSource;
 import io.devicetruth.adapter.JsonRepositories;
 import io.devicetruth.adapter.Json;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,6 +22,13 @@ import io.devicetruth.core.capability.CapabilityGateway;
 import io.devicetruth.core.contract.Models.Budget;
 import io.devicetruth.core.reasoning.Reasoner;
 import io.devicetruth.core.reasoning.ScriptedReasoner;
+import io.devicetruth.knowledge.DeterministicEmbeddingClient;
+import io.devicetruth.knowledge.EmbeddingClient;
+import io.devicetruth.knowledge.EmbeddingProfile;
+import io.devicetruth.knowledge.KnowledgeImportService;
+import io.devicetruth.knowledge.KnowledgeSearchService;
+import io.devicetruth.knowledge.KnowledgeTools;
+import io.devicetruth.knowledge.OpenAiCompatibleEmbeddingClient;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.function.Supplier;
@@ -29,6 +37,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Profile;
+import org.springframework.core.env.Environment;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** Server 侧集中装配：只扫描新增 api 包，core/adapter/app 不新增 Spring 组件。 */
 @Configuration
@@ -115,5 +128,73 @@ public class ServerConfiguration {
             SupportedScenarioCatalog catalog, QueryService queries, DiagnosisApplicationService diagnoses,
             DiagnosisRunService runs) {
         return new ConversationFlowService(conversations, router, catalog, queries, diagnoses, runs);
+    }
+
+    /**
+     * embedding 档案只来自服务端环境：模型、维度与 profile 版本共同决定索引能否复用；
+     * 换模型必须新增迁移独立重建，不能与旧 profile 的向量混查。
+     */
+    @Bean
+    @Profile("product")
+    EmbeddingProfile productEmbeddingProfile(Environment environment) {
+        String provider = environment.getProperty("devicetruth.embedding.provider", EmbeddingProfile.PROVIDER_OPENAI);
+        String model = environment.getProperty("devicetruth.embedding.model", "text-embedding-v4");
+        // 离线确定性向量必须使用自己的模型名：即便配置误设真实模型，也不能与真实供应商共用档案标签。
+        if (EmbeddingProfile.PROVIDER_DETERMINISTIC.equalsIgnoreCase(provider)) model = "deterministic-char2";
+        int dimension = Integer.parseInt(environment.getProperty("devicetruth.embedding.dimension", "1024"));
+        String revision = environment.getProperty("devicetruth.embedding.profile-revision",
+                EmbeddingProfile.DEFAULT_REVISION);
+        // 专用变量优先；为空时复用千问 DashScope 的既有服务端密钥，避免为同一供应商维护两份凭据。
+        String apiKey = environment.getProperty("devicetruth.embedding.api-key", "");
+        if (apiKey.isBlank()) apiKey = environment.getProperty("DASHSCOPE_API_KEY", "");
+        return EmbeddingProfile.of(provider, environment.getProperty("devicetruth.embedding.base-url",
+                        "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+                apiKey, model, dimension, revision,
+                Long.parseLong(environment.getProperty("devicetruth.embedding.timeout-ms", "15000")),
+                Boolean.parseBoolean(environment.getProperty("devicetruth.embedding.send-dimensions", "true")));
+    }
+
+    /** deterministic 仅供离线合同测试；真实供应商验收由 02-03 单独执行。 */
+    @Bean
+    @Profile("product")
+    EmbeddingClient productEmbeddingClient(EmbeddingProfile profile) {
+        return profile.deterministic()
+                ? new DeterministicEmbeddingClient(profile) : new OpenAiCompatibleEmbeddingClient(profile);
+    }
+
+    @Bean
+    @Profile("product")
+    JdbcTemplate knowledgeJdbc(HikariDataSource source) { return new JdbcTemplate(source); }
+
+    @Bean
+    @Profile("product")
+    TransactionTemplate knowledgeTransactions(HikariDataSource source) {
+        return new TransactionTemplate(new DataSourceTransactionManager(source));
+    }
+
+    @Bean
+    @Profile("product")
+    KnowledgeImportService knowledgeImportService(JdbcTemplate knowledgeJdbc,
+            TransactionTemplate knowledgeTransactions, EmbeddingClient productEmbeddingClient,
+            Environment environment) {
+        return new KnowledgeImportService(knowledgeJdbc, knowledgeTransactions, productEmbeddingClient,
+                Integer.parseInt(environment.getProperty("devicetruth.knowledge.max-chunk-chars", "480")));
+    }
+
+    @Bean
+    @Profile("product")
+    KnowledgeSearchService knowledgeSearchService(JdbcTemplate knowledgeJdbc,
+            TransactionTemplate knowledgeTransactions, EmbeddingClient productEmbeddingClient,
+            Environment environment) {
+        return new KnowledgeSearchService(knowledgeJdbc, knowledgeTransactions, productEmbeddingClient,
+                Integer.parseInt(environment.getProperty("devicetruth.knowledge.max-chunks", "5")),
+                Double.parseDouble(environment.getProperty("devicetruth.knowledge.min-similarity", "0.15")));
+    }
+
+    /** 服务端知识工具合同；Runtime/Gateway 注册由 02-02 交付。 */
+    @Bean
+    @Profile("product")
+    KnowledgeTools knowledgeTools(KnowledgeSearchService knowledgeSearchService) {
+        return new KnowledgeTools(knowledgeSearchService);
     }
 }

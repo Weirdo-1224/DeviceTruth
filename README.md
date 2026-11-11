@@ -1,6 +1,6 @@
 # DeviceTruth Agent Core V0.1
 
-V1.0当前入口为[.planning/README.md](.planning/README.md)。01-01与01-02已完成：基线/契约/Runtime原型，以及使用interview-postgres的PG会话/消息/QUEUED切片。2026-11-10独立Review发现HTTP JSON类型转换问题，修复后独立复审clean，全量154项及打包CLI/进程重启复验通过，见[本轮验证](.planning/phases/01-baseline-contracts/01-VALIDATION.md)。M0逐项用户验收进行中；出口满足后提交Git并执行02-01已获授权，02-02/02-03暂不执行。RAG和自由目标Agent尚未实现。下文V0.1的DONE和在线记录只描述历史版本，不能作为V1.0验收结果。
+V1.0当前入口为[.planning/README.md](.planning/README.md)。01-01与01-02已完成：基线/契约/Runtime原型，以及使用interview-postgres的PG会话/消息/QUEUED切片。2026-11-10独立Review发现HTTP JSON类型转换问题，修复后独立复审clean，全量154项及打包CLI/进程重启复验通过，见[本轮验证](.planning/phases/01-baseline-contracts/01-VALIDATION.md)。02-01（受权限约束的知识导入、向量检索与可定位引用）已按授权实施并自测，处于待独立Review状态；02-02/02-03未执行。**知识检索尚未接入Agent或Vue，真实embedding供应商、PDF与混合检索仍未验收。**下文V0.1的DONE和在线记录只描述历史版本，不能作为V1.0验收结果。
 
 01-01 的当前验证、配置策略与局限见 [BASELINE](.planning/phases/01-baseline-contracts/BASELINE.md)，新输入/追问/引用/风险约定见 [CONTRACTS](.planning/phases/01-baseline-contracts/CONTRACTS.md)，主循环取舍见 [Runtime ADR](.planning/phases/01-baseline-contracts/ADR-runtime.md)。测试原型的复现命令为 `mvn -q '-Dtest=RuntimeComparisonTest' clean test`，不需要密钥或数据库。
 
@@ -75,6 +75,32 @@ python scripts/verify_cli.py
 
 `PersistentConversationTest`覆盖空库迁移、服务关闭重开、原文/Unicode、事务回滚、重复/并发提交及双身份/项目隔离。测试账号须能创建和删除专用测试库；缺少测试环境或真实PG不可连接时失败，不跳过冒充通过。仅验证旧离线链路时可执行`mvn -q '-Dtest=!PersistentConversationTest' test`，结果应单列为legacy回归。数据库可以是Docker内的既有实例，也可以是明确授权的独立真实测试服务器；无需Testcontainers依赖。
 
+### V1.0 M1 知识导入与检索（02-01，待独立Review）
+
+`V2__knowledge_sources.sql`在既有库上**追加**`dt_uploaded_file`、`dt_knowledge_document`、`dt_knowledge_chunk`、`dt_evidence_reference`四张表，并创建pgvector余弦距离的HNSW索引。`V3__knowledge_embedding_identity.sql`曾按模型名推断供应商，无法证明旧向量来源；`V4__knowledge_legacy_quarantine.sql`因此把所有修复前写入的知识向量统一标记为`NEEDS_REBUILD`、档案改为`legacy-unverified:@<dim>-cosine-r0`，**不删除正文/切片/历史引用，也不重算向量**。三张迁移都不改动V1会话/消息/任务/事件表，重复启动只校验已执行迁移。
+
+| 方法 | 路径 | 当前行为 |
+|---|---|---|
+| POST | `/api/knowledge/documents` | 导入MD/TXT：校验→按章节切片→固定profile向量化→一个事务写文件元数据、文档与切片；相同内容+版本且档案一致返回`reused=true`；被隔离的旧文档返回`409 DOCUMENT_NEEDS_REBUILD`（需用新版本重建） |
+| GET | `/api/knowledge/documents/{id}` | 当前身份可见的文档元数据（版本、profile、维度、切片数） |
+| GET | `/api/knowledge/tools` | 服务端知识工具合同（`search_knowledge`、`get_document_excerpt`）与JSON Schema |
+| POST | `/api/knowledge/search` | `{runId,query,filters?,limit?}`：按owner/project（及领域/型号/文档）先过滤候选再向量召回，命中片段登记为本run引用 |
+| GET | `/api/knowledge/references/{referenceId}?runId=` | 打开本run已取回引用的原文与章节/页码/文档版本；未取回409 `INVALID_CITATION`，越权404 |
+
+`query`允许中文、空格与标点（上限2000码点）；`filters`只接受`domain/deviceModel/documentId`，其他键与伪造documentId均被拒绝。embedding档案标签由`provider:model@dimension-cosine-r<revision>`推导（默认`openai:text-embedding-v4@1024-cosine-r1`），供应商/模型/维度/修订任一变化都产生新档案，不能复用旧文档或交叉召回；配置维度与数据库列（`vector(1024)`）不符时导入与检索都返回409 `EMBEDDING_DIMENSION_MISMATCH`。修复前写入的旧向量按`NEEDS_REBUILD`隔离，既不参与召回也不能被当前档案复用；用新的文档版本重新导入同一内容即可重建，旧正文与历史引用仍可通过引用ID读取。原始文件字节不写入数据库，`path_key`由服务器生成；真实文件存储、PDF与混合检索属于02-03。
+
+embedding配置只来自服务端环境（`DEVICETRUTH_EMBEDDING_*`，见`.env.example`）。默认是**千问 `text-embedding-v4`**（DashScope compatible-mode，1024维 cosine）；`DEVICETRUTH_EMBEDDING_API_KEY` 为空时复用既有的 `DASHSCOPE_API_KEY`，无需为同一供应商维护两份密钥。`devicetruth.embedding.provider=deterministic`只是离线合同测试与本地无密钥演示，**不能证明语义召回质量**。真实供应商→PG→召回的在线验收由02-03必跑并单独记录。知识工具虽已提供强类型服务端接口，但尚未注册进`CapabilityGateway`，也没有接入Agent/Vue——Runtime接入是02-02的交付。
+
+```powershell
+# 真实PG：本次新增10项集成测试（每个测试类自建随机库并在结束时删除）
+$env:DEVICETRUTH_TEST_PG_BASE_URL = 'jdbc:postgresql://127.0.0.1:5432/'
+$env:DEVICETRUTH_TEST_PG_USERNAME = $env:SPRING_DATASOURCE_USERNAME
+$env:DEVICETRUTH_TEST_PG_PASSWORD = $env:SPRING_DATASOURCE_PASSWORD
+mvn -q '-Dtest=KnowledgeSearchTest' test
+# 离线embedding适配合同（本机HTTP替身，不需要密钥或数据库）
+mvn -q '-Dtest=EmbeddingClientTest' test
+```
+
 在已有 `DeviceTruth` 根目录运行，不要创建第二层同名目录。需要 JDK 21 和 Maven 3.9+；首次 Maven 构建需要下载依赖，以后可用已缓存依赖离线运行。`.mvn/maven.config` 将依赖缓存限制到本项目 `.m2/repository`，不改用户全局 Maven 设置。运行 JAR 不需要 Python；两个验收辅助脚本需要 Python 3。
 
 Windows PowerShell：本工作区已下载微软 JDK 21 到 `.tools/`。以下只改变当前终端进程，不安装全局组件，也不修改 PowerShell 执行策略。
@@ -93,6 +119,15 @@ python scripts/verify_cli.py
 ```
 
 在其他电脑上，先从 JDK 厂商官方渠道安装/解压 JDK 21，再将 `JAVA_HOME` 指向实际目录；`.tools/`、`.m2/` 和 `target/` 均不作为源文件交付。若 `scripts/use-java21.ps1` 被执行策略拒绝，使用上面的内联命令，无需更改策略。
+
+Windows **Git Bash**：`JAVA_HOME` 可以用 `D:\...`，但 `PATH` 必须用 `/d/...` 形式。`PATH` 以 `:` 分隔，`D:\...` 或 `D:/...` 里的冒号会把路径截成两段，导致 `export PATH="$JAVA_HOME/bin:$PATH"` 静默失效、`java` 仍解析到系统里的 JDK 17（`mvn` 因只读 `JAVA_HOME` 反而是 21）。设置后务必用 `java -version` 核对：
+
+```bash
+cd /d/Java_Project/DeviceTruth
+export JAVA_HOME='D:\Java_Project\DeviceTruth\.tools\jdk-21.0.13.0.2+1'
+export PATH="/d/Java_Project/DeviceTruth/.tools/jdk-21.0.13.0.2+1/bin:$PATH"
+java -version   # 必须是 21
+```
 
 bash（在已经安装 JDK 21 的 Linux/macOS 环境）：
 

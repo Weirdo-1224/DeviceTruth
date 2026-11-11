@@ -1,6 +1,10 @@
 # 新会话接续说明
 
-> **Phase1最终出口（2026-11-10）：** 用户集中回复“上述产品边界与设计符合预期”已保存；UAT6/6、独立Review clean、安全6/6/0open、VERIFICATION passed（6/6）。原生phase uat-passed 1 --require-verification通过（无阻断/无指纹不确定），phase complete 1已关闭M0并进入02。先提交当前Git，再仅执行已授权02-01；02-02/02-03不执行。下方“待集中确认/未关闭”等为历史。Native phase complete对中文需求表注册和SUMMARY里命令误当文件有非阻断格式警告，63需求及实际文件已核对，不修改全局GSD。
+> **最新接续（2026-11-11，02-01独立复审通过）：** 原P1（含V3历史向量污染）及两项P2全部关闭。独立实际运行185/0/0/0（35 suites）、打包及CLI通过；额外已有V3库升级V4探针9断言通过，迁移前引用仍可读，重建后再次启动不会重新隔离。SUMMARY complete/review passed；原生advance-plan实际推进到2，Phase2完成1/3、整体3/13，阶段保持进行中。02-02/02-03未获授权，不执行；未commit/push。先读[02-REVIEW](phases/02-open-rag/02-REVIEW.md)、[02-ACCEPTANCE](phases/02-open-rag/02-ACCEPTANCE.md)、[02-VALIDATION](phases/02-open-rag/02-VALIDATION.md)。STORE-03/KNOW-03/KNOW-06仍部分实现；真实embedding/模型、PDF/混合、Agent/Vue/真实文件存储等未验证。下方blocked、自测与旧HEAD内容均保留为历史，不覆盖本条。
+
+> **最新接续（2026-11-11，02-01审核修复轮）：** 独立Review结论P0 0/P1 1/P2 2，仅P1阻止通过，三项均已修复并自测：embedding档案改为`provider:model@dimension-cosine-r<revision>`（离线强制`deterministic-char2`、复用前核验、检索同时核对model/维度），复审P1后新增`V4`把修复前向量统一隔离为`NEEDS_REBUILD`（不信任任何历史标签、保留正文与引用、用新版本重建），切片按`maxChunkChars`码点切分并计入换行，SUMMARY改`status: blocked`使GSD恢复2/13。实际执行`mvn -o test`185/0/0/0（原154+31）、`mvn -o -DskipTests package`成功，`KnowledgeSearchTest`13、`KnowledgeChunkerTest`5、`EmbeddingClientTest`6、`KnowledgeConfigurationTest`6、`KnowledgeUpgradeMigrationTest`1 全通过，CLI全通过；打包JAR在既有库应用V4后：旧版重导409、重建2026.2可检索、隔离前引用可读；探针复现provider切换/换档案/错维度均409、切片上限80实测最长80。当前`status: blocked`、`review_status: changes_requested`：未标记PLAN/阶段DONE、未改ROADMAP、未commit/push。真实千问调用与向量召回、PDF/混合检索、工具接入Runtime/Agent/Vue、真实文件存储与规模性能均NOT_RUN。详见[02-01-SUMMARY](phases/02-open-rag/02-01-SUMMARY.md)。下方记录保留为历史事实。
+
+> **Phase1最终出口（2026-11-10）：** 用户集中回复“上述产品边界与设计符合预期”已保存；UAT6/6、独立Review clean、安全6/6/0open、VERIFICATION passed（6/6）。原生phase uat-passed 1 --require-verification通过（无阻断/无指纹不确定），phase complete 1已关闭M0并进入02。下方“待集中确认/未关闭”等为历史。
 
 > **最新策略（2026-11-10，覆盖下方旧逐项流程）：** 用户要求技术测试、A–E场景、CLI/状态/安全全部由代理实际执行，仅产品/业务/设计等集中一次人工确认。已核对GSD1.20.1原生coverage及分类器并落实[ACCEPTANCE](ACCEPTANCE.md)和AGENTS规则，未改全局GSD/config开关；SUMMARY原生分类4自动/1人工，5个分类正负探针通过。策略调整后重新实际package仍154/0/0/0，打包双进程PG重启再次通过。用户第1项明确回复“第1项通过”，已保存在01-UAT；原技术项转为代理自动记录，不再提示用户重复操作。先读01-ACCEPTANCE、01-UAT及当前VERIFICATION，只剩第3项一次产品/设计集中确认。出口满足后提交Git并仅执行02-01的授权不变；02-02/02-03不执行。下方“第1项尚未确认/逐项提示”等内容为先前历史。
 

@@ -10,6 +10,8 @@
 
 ## Current State
 
+> **2026-11-11最新事实：** 02-01已独立复审通过，原P1（含V3历史向量污染）及两项P2关闭；独立185/0/0/0、打包/CLI、已有V3与历史引用升级V4及重复启动探针通过。GSD原生认可完成3/13，当前位置02-02，Phase2仅1/3、未关闭。02-02/02-03未获实施授权，本轮未commit/push。知识服务端合同可用，尚无通用Agent/模型答案引用校验、真实embedding验收、PDF/混合检索或Vue。下方源码数量及M0状态为历史基线，当前以STATE和02-01-SUMMARY为准。
+
 - Java主源码57个文件、测试源码30个文件；Java21、Spring Boot3.5.16、AgentScope2.0.4、Maven单模块，新增JDBC/Flyway/Hikari，未升级框架。
 - CLI 和独立 HTTP Main 已有；4 个汽车 JSON fixture、2 条模拟规则；原生 HTML 演示页。
 - 2026-11-10独立Review发现并修复HTTP JSON宽松转换；全量test/package均154/0/0/0，CLI A–D及E安全负例保留，独立复审clean。product HTTP已接真实PG会话/消息/QUEUED切片；无RAG、标准Skill、Vue或Agent暂停恢复实现。

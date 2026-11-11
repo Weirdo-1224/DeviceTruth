@@ -11,8 +11,9 @@ DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI
 - `core/evidence/`、`core/state/`、`core/decision/`：`EvidenceManager` 重建事实并使旧依赖失效，`StateManager` 提交状态版本，`DecisionGuard` 校验决策。
 - `adapter/`：`JsonRepositories` 读取数据，`QwenReasoner`、`OpenAiReasoner`（OpenAI 兼容，可指向 DeepSeek）、`AgentScopeStep` 对接模型，`RunReportWriter` 保存报告。
 - `server/`、`api/`、`application/`：`DeviceTruthServerApplication` 起 HTTP 服务，`ConversationController` 暴露会话/诊断接口，`DiagnosisRunService` 有界异步执行 Core。
+- `knowledge/`：`KnowledgeImportService` 负责 MD/TXT 章节切片与向量化落库，`KnowledgeSearchService` 做归属过滤、向量召回与引用登记，`KnowledgeTools` 暴露 `search_knowledge`/`get_document_excerpt` 服务端合同，`EmbeddingClient` 适配真实供应商或离线确定性向量；`api/KnowledgeController` 暴露 `/api/knowledge/*`。`V2__knowledge_sources.sql` 新增文件/文档/切片/引用四表与 pgvector 索引，知识工具尚未注册进 `CapabilityGateway`（02-02）。
 
-测试位于 `src/test/java/io/devicetruth/`；`src/main/resources/` 保存 `application.properties`（默认推理器与路由模式）、`logback.xml` 和 `static/index.html` 演示前端。`datasets/` 保存模拟场景和资料，`skills/automotive-demo/rules.json` 保存规则，两者随 JAR 打包。
+测试位于 `src/test/java/io/devicetruth/`；`src/main/resources/` 保存 `application.properties`（默认推理器与路由模式）、`logback.xml` 和 `static/index.html` 演示前端。`datasets/` 保存模拟场景和资料（含 `datasets/knowledge/` 演示手册），`skills/automotive-demo/rules.json` 保存规则，两者随 JAR 打包。
 
 ## 构建、运行与测试命令
 

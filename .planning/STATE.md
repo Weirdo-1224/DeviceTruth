@@ -3,25 +3,25 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 02
 current_phase_name: 自由对话与知识检索
+current_plan: 2
 status: executing
-stopped_at: Phase 1 complete, ready to execute Phase 02
-last_updated: "2026-11-10T15:04:48.445Z"
-last_activity: 2026-11-10
-last_activity_desc: Phase 1 complete, transitioned to Phase 02
-state_head: dbb8b2e567db68a1b8d78a07bbd3b7a03c245bb0
+stopped_at: 02-01 independently reviewed and complete; 02-02 awaits user authorization
+last_updated: "2026-11-10T16:39:55.109Z"
+last_activity: 2026-11-11
+last_activity_desc: 02-01 independent re-review passed; 185 tests and V3-to-V4 upgrade probe pass
+state_head: 24f05de804b3be0f63a155387806f54548f96c3d
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 13
-  completed_plans: 2
-  percent: 15
+  completed_plans: 3
+  percent: 20
 milestone_name: 通用设备检修 Agent
 total_phases: 5
 total_plans_in_phase: 3
-review_status: phase_1_passed
-execution_authorized: true
-last_execution_authorization: "2026-11-10: Phase 1验收/独立Review/修复复验；全部出口满足后提交Git并执行02-01；不执行02-02/02-03"
-current_plan: 1
+review_status: phase_2_plan_01_passed
+execution_authorized: false
+last_execution_authorization: 2026-11-10授权仅02-01；2026-11-11独立复审通过。02-02/02-03仍未授权，不执行
 ---
 
 # Project State
@@ -31,22 +31,34 @@ current_plan: 1
 See: .planning/PROJECT.md (updated 2026-11-09)
 
 **Core value:** 自由设备问题能开启有来源、可补证、可恢复的可信调查。
-**Current focus:** Phase1技术验收、独立Review/安全及集中产品确认全部完成，VERIFICATION passed（6/6）、原生阶段门禁passed且已关闭。项目自动验收策略已落实。下一步提交当前Git后仅执行02-01；不执行02-02/02-03。
+**Current focus:** 02-01独立复审通过，原P1及两项P2全部关闭。185项测试、打包/CLI、已有V3及历史引用升级V4与重复启动探针通过；只完成本PLAN，不关闭Phase2。02-02/02-03仍未获授权，不执行。
 
 ## Current Position
 
 Phase: 02 of 5 (自由对话与知识检索)
-Plan: 1 of 3（02-01，已授权；先提交Phase1）
-Status: Phase1 completed; ready to commit and execute 02-01 only
-Last activity: 2026-11-10 — Phase 1 complete, transitioned to Phase 02
+Current Plan: 2
+Total Plans in Phase: 3
+Plan: 2 of 3
+Status: 02-01 complete; awaiting user authorization for 02-02
+Last activity: 2026-11-11 — 02-01 independent re-review passed
 
-Progress: [██░░░░░░░░] 15% [██░░░░░░░░]
+Progress: [██░░░░░░░░] 20% [██░░░░░░░░]
+
+## 02-01 本轮事实（2026-11-10）
+
+> **2026-11-11独立复审更新：** 原P1（含V3错误改标）与两项P2全部关闭，02-01完成。实际复跑185/0/0/0（35 suites），打包/CLI通过；真实PG ExistingV3UpgradeProbe 9断言通过，覆盖迁移前引用、旧版拒绝、新版重建及再次启动不重新隔离。下方自测与blocked记录保留为此前历史，当前结果以[02-REVIEW](phases/02-open-rag/02-REVIEW.md)和[02-VALIDATION](phases/02-open-rag/02-VALIDATION.md)为准。
+
+- 新增`V2__knowledge_sources.sql`（uploaded_file/knowledge_document/knowledge_chunk/evidence_reference，`vector(1024)`+HNSW）、`V3__knowledge_embedding_identity.sql`（旧档案标签归一化）及`io.devicetruth.knowledge`包、`ToolContext`、`KnowledgeController`；`ServerConfiguration`仅在product profile装配知识Bean。真实embedding固定千问`text-embedding-v4`（DashScope compatible-mode），档案标识为`provider:model@dimension-cosine-r<revision>`，专用密钥为空时复用`DASHSCOPE_API_KEY`。
+- 独立Review首轮P0 0/P1 1/P2 2均已修复；复审又发现V3按模型名推断供应商会把旧离线向量改标为真实档案，已新增V4将所有修复前向量隔离为`NEEDS_REBUILD`并补真实PG升级回归（不静默复用、不进入候选、正文/历史引用可读、新版本重建）。切片按配置上限切分、SUMMARY改`blocked`使GSD原生统计恢复2/13。
+- 实际执行：`mvn -o test` 185/0/0/0（原154+新增31）、`mvn -o -DskipTests package`成功；`KnowledgeSearchTest`13/0/0/0；`KnowledgeChunkerTest`5/0/0/0；`EmbeddingClientTest`6/0/0/0；`KnowledgeConfigurationTest`6/0/0/0；`KnowledgeUpgradeMigrationTest`1/0/0/0（真实PG升级）；`python scripts/verify_cli.py`全通过；打包JAR在既有`devicetruth`库应用V4：旧版重导409 `DOCUMENT_NEEDS_REBUILD`、2026.2重建后可检索、隔离前引用仍可读；打包探针验证provider切换/换档案/错维度均409、切片上限80实测最长80。
+- 未验证（NOT_RUN）：真实千问embedding调用与真实向量召回、PDF/混合检索、知识工具接入Runtime/Agent/Vue、真实文件存储与版本重试、规模性能。
+- 未commit/push，未改ROADMAP阶段状态；`status: blocked`（待复审），`review_status: changes_requested`。Git Bash 下`PATH`需用`/d/...`形式，否则`D:`冒号会把路径截断、`java`仍为JDK17（已写入README）。详见[02-01-SUMMARY](phases/02-open-rag/02-01-SUMMARY.md)。
 
 ## Performance Metrics
 
-- Total plans completed: 2/13（6/37任务）；完成阶段1/5。
-- M0: 01-01/01-02、独立Review、安全/阶段验证及用户集中确认全部通过；M1仅02-01获授权，尚未开始。
-- 当前HEAD dbb8b2e567db68a1b8d78a07bbd3b7a03c245bb0；01-02开始时已有上轮6份规划修改，均保留。本轮代码/状态仍在工作树，未提交Git。
+- Total plans completed: 3/13（9/37任务）；完成阶段1/5。计划比例约23%，原生STATE进度采用阶段口径。
+- M0已关闭；M1的02-01已完成且独立复审通过，02-02/02-03未执行、未授权。
+- 当前HEAD为24f05de；02-01实现与本轮审查状态保留在工作树，未commit/push。
 
 ## Accumulated Context
 
@@ -70,12 +82,12 @@ Progress: [██░░░░░░░░] 15% [██░░░░░░░░]
 ### Pending Todos
 
 - 用户第1项及集中回复“上述产品边界与设计符合预期”均已保存；01-UAT为6/6通过，阶段验证6/6 passed，Phase1已原生关闭。
-- 提交当前Git，再执行已授权的02-01；不得运行02-02/02-03。后续技术验收自动执行，不重新逐项询问。
-- 02-01将接入知识导入/检索，不因本轮PG切片通过就冒称RAG已实现。
+- 02-01已独立复审通过（185/0/0/0、CLI及升级探针通过）；只剩后续计划授权和Phase2阶段出口，产品确认集中一次；未提交Git。
+- 02-02/02-03仍未获授权，不得执行；真实embedding/PDF/混合检索与Agent接入保持NOT_RUN。
 
 ### Blockers/Concerns
 
-- Phase1已通过全部出口并关闭；02-01尚未执行，不能据此勾Phase2完成。
+- Phase1已关闭、02-01已完成；02-02/02-03及Phase2出口未完成，不勾Phase2完成。
 - Maven实际使用JDK21.0.13.0.2/Maven3.9.9，但直接java命令实测仍为17；用户命令必须显式使用仓库.tools内JDK21，不改全局设置。验收期间不再clean，避免临时移除JAR。
 - Docker Desktop Linux引擎实际可用，管道npipe:////./pipe/dockerDesktopLinuxEngine；interview-postgres已启动，映射5432。最初PG17拉取失败后已停止并按用户指令改用既有实例，历史失败保留。
 - 真实PG/迁移/消息事务/新JAR进程重启读取已验收；真实embedding/RAG、Agent自由执行/WAITING、Vue/SSE与执行恢复未验收。
@@ -100,7 +112,7 @@ interview_guide public表数量基线17；本轮仅在独立devicetruth/随机�
 
 ## Session Continuity
 
-Last session: 2026-11-10 (Asia/Shanghai)
-Stopped at: Phase 1 complete, ready to execute Phase 02
+Last session: 2026-11-11 (Asia/Shanghai)
+Stopped at: 02-01 complete; 02-02 awaits user authorization
 Resume file: .planning/NEXT_SESSION.md
-Read first: AGENTS.md → STATE → 01-UAT → 01-REVIEW → 01-VALIDATION → PROJECT → COVERAGE → ROADMAP
+Read first: AGENTS.md → STATE → 02-01-SUMMARY → 01-UAT → 01-REVIEW → 01-VALIDATION → PROJECT → COVERAGE → ROADMAP
