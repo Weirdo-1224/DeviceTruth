@@ -99,6 +99,8 @@ class KnowledgeSearchTest {
                 "--spring.datasource.url=" + databaseBaseUrl + databaseName,
                 "--spring.datasource.username=" + username, "--spring.datasource.password=" + password,
                 "--devicetruth.product.owner-id=" + owner, "--devicetruth.product.project-id=" + project,
+                // 本用例只验证导入/检索/引用合同，Agent worker 关闭，避免并发检索干扰引用归属断言。
+                "--devicetruth.agent.worker-enabled=false",
                 "--devicetruth.embedding.provider=" + provider,
                 "--devicetruth.embedding.dimension=" + dimension,
                 "--devicetruth.embedding.profile-revision=1"));

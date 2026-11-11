@@ -2,19 +2,24 @@ package io.devicetruth.core.reasoning;
 
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import io.devicetruth.core.contract.AgentResult;
 import io.devicetruth.core.contract.Checks;
 import java.util.List;
 import java.util.Map;
 
 /** 推理器提出的动作：五种形态之一，按 "type" 字段做 JSON 多态反序列化。
- *  每种形态的紧缩构造函数都会做协议级校验，非法提案在解析处即被拒绝。 */
+ *  每种形态的紧缩构造函数都会做协议级校验，非法提案在解析处即被拒绝。
+ *  通用 Agent 追加 CALL_TOOL/ASK_USER/ANSWER 三形态：前两者不改变状态，ANSWER 由服务器校验后落库。 */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
 @JsonSubTypes({
     @JsonSubTypes.Type(value = ActionProposal.CallCapability.class, name = "CALL_CAPABILITY"),
     @JsonSubTypes.Type(value = ActionProposal.ProposeHypothesis.class, name = "PROPOSE_HYPOTHESIS"),
     @JsonSubTypes.Type(value = ActionProposal.ProposeDecision.class, name = "PROPOSE_DECISION"),
     @JsonSubTypes.Type(value = ActionProposal.RequestInformation.class, name = "REQUEST_INFORMATION"),
-    @JsonSubTypes.Type(value = ActionProposal.Escalate.class, name = "ESCALATE")
+    @JsonSubTypes.Type(value = ActionProposal.Escalate.class, name = "ESCALATE"),
+    @JsonSubTypes.Type(value = ActionProposal.CallTool.class, name = "CALL_TOOL"),
+    @JsonSubTypes.Type(value = ActionProposal.AskUser.class, name = "ASK_USER"),
+    @JsonSubTypes.Type(value = ActionProposal.Answer.class, name = "ANSWER")
 })
 public sealed interface ActionProposal {
     /** 调用只读能力：读取数据，但不能直接改变状态；targetEvidenceNeedIds 声明本调用针对哪些证据缺口。 */
@@ -61,5 +66,37 @@ public sealed interface ActionProposal {
     /** 请求人工接管：推理器主动放弃自动结论，运行以 ESCALATE 结束。 */
     record Escalate(String reason) implements ActionProposal {
         public Escalate { Checks.text(reason, "reason"); }
+    }
+    /** 调用一个已注册的只读知识工具：参数允许嵌套对象（如 filters），键名与类型由工具模式约束。 */
+    record CallTool(String toolName, Map<String, Object> arguments, String purpose) implements ActionProposal {
+        public CallTool {
+            Checks.id(toolName, "toolName");
+            Checks.text(purpose, "purpose");
+            // Map.copyOf 同时拒绝 null 值：模型不能用 null 冒充“已提供参数”。
+            arguments = Map.copyOf(Checks.required(arguments, "arguments"));
+        }
+    }
+    /** 向用户提出一个待答问题：问题的 ID/版本由服务器生成，模型只能给正文与所需字段。 */
+    record AskUser(String question, List<String> requestedFields) implements ActionProposal {
+        public AskUser {
+            Checks.text(question, "question");
+            requestedFields = Checks.list(requestedFields);
+            if (requestedFields.isEmpty())
+                throw new IllegalArgumentException("requestedFields is required");
+        }
+    }
+    /** 提交答案草稿：引用必须指向本 run 已取回集合，风险等级由服务器重新判定。 */
+    record Answer(String category, String summary, List<AgentResult.Claim> claims, List<String> suggestions,
+                  List<String> uncertainties, List<String> limitations, List<String> referenceIds)
+            implements ActionProposal {
+        public Answer {
+            Checks.text(category, "category");
+            Checks.text(summary, "summary");
+            claims = Checks.list(claims);
+            suggestions = Checks.list(suggestions);
+            uncertainties = Checks.list(uncertainties);
+            limitations = Checks.list(limitations);
+            referenceIds = Checks.list(referenceIds);
+        }
     }
 }

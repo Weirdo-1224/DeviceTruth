@@ -1,6 +1,6 @@
 # DeviceTruth Agent Core V0.1
 
-V1.0当前入口为[.planning/README.md](.planning/README.md)。01-01与01-02已完成：基线/契约/Runtime原型，以及使用interview-postgres的PG会话/消息/QUEUED切片。2026-11-10独立Review发现HTTP JSON类型转换问题，修复后独立复审clean，全量154项及打包CLI/进程重启复验通过，见[本轮验证](.planning/phases/01-baseline-contracts/01-VALIDATION.md)。02-01（受权限约束的知识导入、向量检索与可定位引用）已按授权实施并自测，处于待独立Review状态；02-02/02-03未执行。**知识检索尚未接入Agent或Vue，真实embedding供应商、PDF与混合检索仍未验收。**下文V0.1的DONE和在线记录只描述历史版本，不能作为V1.0验收结果。
+V1.0当前入口为[.planning/README.md](.planning/README.md)。01-01与01-02已完成：基线/契约/Runtime原型，以及使用interview-postgres的PG会话/消息/QUEUED切片。02-01（受权限约束的知识导入、向量检索与可定位引用）已于2026-11-11独立复审通过并提交。02-02（通用Agent、同run补证与Vue最小产品页）已按授权实施并自测，处于待独立Review状态；02-03未执行。**真实模型/真实embedding、PDF与混合检索、浏览器人工演示仍未验收。**下文V0.1的DONE和在线记录只描述历史版本，不能作为V1.0验收结果。
 
 01-01 的当前验证、配置策略与局限见 [BASELINE](.planning/phases/01-baseline-contracts/BASELINE.md)，新输入/追问/引用/风险约定见 [CONTRACTS](.planning/phases/01-baseline-contracts/CONTRACTS.md)，主循环取舍见 [Runtime ADR](.planning/phases/01-baseline-contracts/ADR-runtime.md)。测试原型的复现命令为 `mvn -q '-Dtest=RuntimeComparisonTest' clean test`，不需要密钥或数据库。
 
@@ -18,9 +18,9 @@ DeviceTruth 是可运行的 Java 单 Agent Core。每步读取独立的结构化
 
 ### V1.0 M0 持久化接口
 
-新接口仅在独立HTTP服务启用`product`配置时提供。它保存用户原文、会话、任务与初始事件；**当前没有Agent worker，任务保持QUEUED，不会生成诊断答案**。正常任务调度/基本补答由02-02接手，崩溃遗留队列与可靠恢复由M2实现。legacy CLI和默认HTTP服务无需数据库，旧sessions/diagnoses接口继续保留。
+新接口仅在独立HTTP服务启用`product`配置时提供。它保存用户原文、会话、任务与初始事件，并由有界 worker 推进：`QUEUED → RUNNING →（WAITING_FOR_USER → QUEUED → RUNNING）→ COMPLETED / FAILED`。worker 关闭（`DEVICETRUTH_AGENT_WORKER_ENABLED=false`）时只保留 M0 的 QUEUED 持久化合同。崩溃遗留队列、租约/CAS 与跨进程恢复仍由M2实现。legacy CLI和默认HTTP服务无需数据库，旧sessions/diagnoses接口继续保留。
 
-本机按用户指定复用`interview-postgres`，实测PostgreSQL 16.15 + pgvector 0.8.7，端口5432；DeviceTruth使用独立`devicetruth`数据库，不修改`interview_guide`。Flyway执行`V1__agent_conversations.sql`，重复启动只校验已有迁移，不重建业务表。JDBC/Flyway/Hikari版本由Spring Boot 3.5.16管理，分别为42.7.11/11.7.2/6.3.3。实现按[Spring Boot 3.5迁移文档](https://docs.spring.io/spring-boot/3.5/how-to/data-initialization.html)使用Flyway PostgreSQL模块；扩展参考[pgvector官方文档](https://github.com/pgvector/pgvector)。
+本机按用户指定复用`interview-postgres`，实测PostgreSQL 16.15 + pgvector 0.8.7，端口5432；DeviceTruth使用独立`devicetruth`数据库，不修改`interview_guide`。Flyway执行`V1`–`V5`迁移（会话/消息/任务、知识四表、embedding档案、历史向量隔离、消息与run关联），重复启动只校验已有迁移，不重建业务表。JDBC/Flyway/Hikari版本由Spring Boot 3.5.16管理，分别为42.7.11/11.7.2/6.3.3。实现按[Spring Boot 3.5迁移文档](https://docs.spring.io/spring-boot/3.5/how-to/data-initialization.html)使用Flyway PostgreSQL模块；扩展参考[pgvector官方文档](https://github.com/pgvector/pgvector)。
 
 在项目根目录使用既有容器（以下只创建独立库，不清空原库；密码仅在当前进程内存中使用）：
 
@@ -47,8 +47,9 @@ Spring进程只使用三个`SPRING_DATASOURCE_*`环境变量，不读取模型�
 | GET | `/api/conversations` | 当前身份最近100个会话 |
 | GET | `/api/conversations/{id}` | 持久会话、按序消息和任务摘要 |
 | GET | `/api/conversations/{id}/messages` | 持久消息列表 |
-| POST | `/api/conversations/{id}/messages` | `Idempotency-Key: UUID`必填，202并返回同事务登记的QUEUED任务和Location |
-| GET | `/api/runs/{id}` | 持久任务状态；当前不会自动变成RUNNING |
+| POST | `/api/conversations/{id}/messages` | `Idempotency-Key: UUID`必填，202并返回同事务登记的任务和Location；带`replyTo`三元组时为补答 |
+| GET | `/api/runs/{id}` | 持久任务状态、待答问题`pendingQuestion`与答案`result` |
+| GET | `/api/runs/{id}/references` | 本run已取回的知识引用（文档版本/章节/页码），按归属过滤 |
 
 提交示例（会话ID由URL提供）：
 
@@ -59,7 +60,7 @@ $queued = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/convers
 Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/runs/$($queued.runId)"
 ```
 
-`userMessage`原样保存，必填、非空白、最多8000个Unicode码点；`selectedAssetId/asOf`可选，不要求故障码或Catalog准入。未给asOf时采用服务器requestedAt。当前只保存资产线索，不读取或确认资产现状。非空attachments/contextRefs以及replyTo会整体拒绝，不会静默丢弃。重用会话内的请求键返回409 `DUPLICATE_REQUEST`，不增加消息/任务；M2才提供完整幂等重放。无权和不存在均返回404 `NOT_FOUND_OR_DENIED`，其他新接口错误使用固定message、code、retryable、traceId，不透传SQL或配置内容。
+`userMessage`原样保存，必填、非空白、最多8000个Unicode码点；`selectedAssetId/asOf`可选，不要求故障码或Catalog准入。未给asOf时采用服务器requestedAt。当前只保存资产线索，不读取或确认资产现状。非空attachments/contextRefs会整体拒绝，不会静默丢弃；`replyTo`缺失字段返回400 `REPLY_TARGET_REQUIRED`，错run/错题号/旧版本/终态回复返回409 `STALE_OR_UNRELATED_REPLY`，都不会新建run。重用会话内的请求键返回409 `DUPLICATE_REQUEST`，不增加消息/任务；M2才提供完整幂等重放。无权和不存在均返回404 `NOT_FOUND_OR_DENIED`，其他新接口错误使用固定message、code、retryable、traceId，不透传SQL或配置内容。
 
 真实PG测试复用该实例，每次生成独立`devicetruth_test_<随机UUID>`空库，结束后仅删除自己生成的测试库，不拉取镜像：
 
@@ -75,9 +76,9 @@ python scripts/verify_cli.py
 
 `PersistentConversationTest`覆盖空库迁移、服务关闭重开、原文/Unicode、事务回滚、重复/并发提交及双身份/项目隔离。测试账号须能创建和删除专用测试库；缺少测试环境或真实PG不可连接时失败，不跳过冒充通过。仅验证旧离线链路时可执行`mvn -q '-Dtest=!PersistentConversationTest' test`，结果应单列为legacy回归。数据库可以是Docker内的既有实例，也可以是明确授权的独立真实测试服务器；无需Testcontainers依赖。
 
-### V1.0 M1 知识导入与检索（02-01，待独立Review）
+### V1.0 M1 知识导入与检索（02-01，已复审通过）
 
-`V2__knowledge_sources.sql`在既有库上**追加**`dt_uploaded_file`、`dt_knowledge_document`、`dt_knowledge_chunk`、`dt_evidence_reference`四张表，并创建pgvector余弦距离的HNSW索引。`V3__knowledge_embedding_identity.sql`曾按模型名推断供应商，无法证明旧向量来源；`V4__knowledge_legacy_quarantine.sql`因此把所有修复前写入的知识向量统一标记为`NEEDS_REBUILD`、档案改为`legacy-unverified:@<dim>-cosine-r0`，**不删除正文/切片/历史引用，也不重算向量**。三张迁移都不改动V1会话/消息/任务/事件表，重复启动只校验已执行迁移。
+`V2__knowledge_sources.sql`在既有库上**追加**`dt_uploaded_file`、`dt_knowledge_document`、`dt_knowledge_chunk`、`dt_evidence_reference`四张表，并创建pgvector余弦距离的HNSW索引。`V3__knowledge_embedding_identity.sql`曾按模型名推断供应商，无法证明旧向量来源；`V4__knowledge_legacy_quarantine.sql`因此把所有修复前写入的知识向量统一标记为`NEEDS_REBUILD`、档案改为`legacy-unverified:@<dim>-cosine-r0`，**不删除正文/切片/历史引用，也不重算向量**。三张迁移都不改动V1会话/消息/任务/事件表，重复启动只校验已执行迁移（02-02 的`V5`另行给`dt_message`增加可空`run_id`）。
 
 | 方法 | 路径 | 当前行为 |
 |---|---|---|
@@ -99,6 +100,55 @@ $env:DEVICETRUTH_TEST_PG_PASSWORD = $env:SPRING_DATASOURCE_PASSWORD
 mvn -q '-Dtest=KnowledgeSearchTest' test
 # 离线embedding适配合同（本机HTTP替身，不需要密钥或数据库）
 mvn -q '-Dtest=EmbeddingClientTest' test
+```
+
+### V1.0 M1 通用 Agent 与 Vue 产品页（02-02，待独立Review）
+
+产品入口不再只登记 QUEUED：`application/agent/GeneralAgentService` 从 PG 重建上下文，用唯一主循环 `TaskOrchestrator.runAgent(...)` 单步推进。模型只能提出 `CALL_TOOL`/`ASK_USER`/`ANSWER` 三种动作；工具必须已通过 `agentCapabilityGateway` 注册（当前为 `search_knowledge`、`get_document_excerpt`）。
+
+`AnswerGuard` 只在服务器侧判定，规则比“过滤几个坏词”更严：
+
+- **引用**：草稿与各断言里的 `referenceId` 都必须是本 run 已取回集合，且都进入答案引用列表；伪造引用 → `INVALID_CITATION`。
+- **不得确诊**：`fieldVerified` 由服务器给出，M1 恒为 `false`（03-01 接入资产记录后才可能为真）。此阶段任何 `CONFIRMED_FINDING` 类别或 `CONFIRMED` 断言一律 `UNCONFIRMED_FINDING` 拒绝，**不会降级后继续保留“已确诊”正文**；资产编号只登记、不当作核验。
+- **危险建议**：`短接/上电/强制闭合/绕过互锁/拆装/拆除/屏蔽保护` 等动作词出现在**没有安全语义**的句子里（summary、claim、suggestion 都查）即 `UNSAFE_ANSWER`；带“不得/禁止/必须由具备资质的人员现场执行”的引文可以发布，但标 HIGH + `REQUIRES_QUALIFIED_PERSONNEL`。
+- **数据性质**：只有全部引用都是 `AUTHORIZED` 才标 `AUTHORIZED`；混合或没有引用一律 `SIMULATED`。
+
+```text
+POST /api/conversations/{id}/messages  → 202 QUEUED
+  → 服务启动时 recoverQueued() 接手上一进程遗留的 QUEUED（RUNNING 遗留留给 M2）
+  → worker: QUEUED → RUNNING → 检索 → ASK_USER → 事务写问题并置 WAITING_FOR_USER（释放线程）
+  → 客户端带 replyTo{runId,pendingQuestionId,questionVersion} 补答 → 同 run 重新入队
+  → RUNNING → 再检索 → ANSWER（AnswerGuard 校验）→ 事务写答案并置 COMPLETED
+执行/模型失败 → FAILED（无答案，RunView.failureCode 给出白名单原因码）
+落库失败 → FAILED/PERSIST_FAILURE；调度队列满 → FAILED/QUEUE_REJECTED，不留幽灵 QUEUED
+```
+
+前端把 `failureCode` 映射为可读说明（如 `MODEL_CONFIGURATION_MISSING` → “服务端模型未配置或配置无效”），失败卡片同时显示原因码，不回显异常或配置值。
+
+`V5__agent_run_message_link.sql` 给 `dt_message` 增加可空 `run_id`（复合外键与CHECK），使补答后的上下文只包含本 run 的消息。该迁移只新增可空列，不回填历史数据。
+
+相关配置（`application-product.properties`）：`devicetruth.agent.reasoner=scripted|qwen|openai`（默认 scripted，离线确定性）、`devicetruth.agent.worker-enabled`（默认 true，false 时只保留 M0 的 QUEUED 合同）、`devicetruth.agent.max-concurrent-runs`、`devicetruth.agent.max-queue`。未知 reasoner 名称不会让容器启动失败，运行开始前以 `MODEL_CONFIGURATION_MISSING` 失败。
+
+前端为 `frontend/`（Vue 3.5 + TypeScript + Vite，Node ≥20.19 / npm ≥10）：
+
+```bash
+cd frontend
+npm ci                       # 按 lockfile 安装
+npm run test -- --run        # api 合同单测（Vitest）
+npm run build                # vue-tsc 类型检查 + 构建到 dist/
+npm run dev                  # 开发页，/api 代理到 127.0.0.1:8080
+```
+
+页面流程：输入问题 → 轮询运行状态 → 若有追问则在同页补答（自动带三元组）→ 展示答案类别/风险/断言/引用章节与限制。**浏览器人工演示尚未执行**，本阶段只有类型检查、构建与单测证据。
+
+```powershell
+# 真实PG + HTTP 两轮补证（随机测试库，结束时删除）
+$env:DEVICETRUTH_TEST_PG_BASE_URL = 'jdbc:postgresql://127.0.0.1:5432/'
+$env:DEVICETRUTH_TEST_PG_USERNAME = $env:SPRING_DATASOURCE_USERNAME
+$env:DEVICETRUTH_TEST_PG_PASSWORD = $env:SPRING_DATASOURCE_PASSWORD
+mvn -q '-Dtest=GeneralAgentFlowTest' test    # 协议/网关/引用/风险/并发/落库失败（真实PG）
+mvn -q '-Dtest=GeneralAgentApiTest' test     # 两轮HTTP、错题/跨权/启动接手/失败原因码
+mvn -q '-Dtest=AnswerGuardTest' test         # 答案安全规则（离线，无需数据库）
 ```
 
 在已有 `DeviceTruth` 根目录运行，不要创建第二层同名目录。需要 JDK 21 和 Maven 3.9+；首次 Maven 构建需要下载依赖，以后可用已缓存依赖离线运行。`.mvn/maven.config` 将依赖缓存限制到本项目 `.m2/repository`，不改用户全局 Maven 设置。运行 JAR 不需要 Python；两个验收辅助脚本需要 Python 3。

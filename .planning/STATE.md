@@ -3,25 +3,25 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 02
 current_phase_name: 自由对话与知识检索
-current_plan: 2
-status: executing
-stopped_at: 02-01 independently reviewed and complete; 02-02 awaits user authorization
-last_updated: "2026-11-10T16:39:55.109Z"
+current_plan: 3
+status: blocked
+stopped_at: 02-02 accepted with known issues; 02-03 not authorized
+last_updated: "2026-11-11T05:59:43.075Z"
 last_activity: 2026-11-11
-last_activity_desc: 02-01 independent re-review passed; 185 tests and V3-to-V4 upgrade probe pass
-state_head: 24f05de804b3be0f63a155387806f54548f96c3d
+last_activity_desc: 02-02按用户决定带已知问题通过；独立全量229项通过，3项P1与1项P2未关闭；02-03未授权
+state_head: e9aed3398c2f1a782edc55f5410a43c3e0c6631d
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 13
-  completed_plans: 3
+  completed_plans: 4
   percent: 20
 milestone_name: 通用设备检修 Agent
 total_phases: 5
 total_plans_in_phase: 3
-review_status: phase_2_plan_01_passed
+review_status: phase_2_plan_02_passed_with_known_issues
 execution_authorized: false
-last_execution_authorization: 2026-11-10授权仅02-01；2026-11-11独立复审通过。02-02/02-03仍未授权，不执行
+last_execution_authorization: 2026-11-11用户授权执行02-02并自测；02-03仍未授权，不执行。02-01已于2026-11-11独立复审通过并提交(e9aed33)。
 ---
 
 # Project State
@@ -31,18 +31,39 @@ last_execution_authorization: 2026-11-10授权仅02-01；2026-11-11独立复审�
 See: .planning/PROJECT.md (updated 2026-11-09)
 
 **Core value:** 自由设备问题能开启有来源、可补证、可恢复的可信调查。
-**Current focus:** 02-01独立复审通过，原P1及两项P2全部关闭。185项测试、打包/CLI、已有V3及历史引用升级V4与重复启动探针通过；只完成本PLAN，不关闭Phase2。02-02/02-03仍未获授权，不执行。
+**Current focus:** 02-02按用户明确决定带已知问题通过；3项P1和1项P2未关闭，见[独立复审](phases/02-open-rag/02-02-REVIEW.md)。02-03未授权，不执行；Phase2尚未完成。
 
 ## Current Position
 
 Phase: 02 of 5 (自由对话与知识检索)
-Current Plan: 2
+Current Plan: 3
 Total Plans in Phase: 3
-Plan: 2 of 3
-Status: 02-01 complete; awaiting user authorization for 02-02
-Last activity: 2026-11-11 — 02-01 independent re-review passed
+Plan: 3 of 3
+Status: 02-02 用户接受已知问题后通过；02-03 未授权
+Last activity: 2026-11-11 — 02-02 独立复审与带问题通过
 
-Progress: [██░░░░░░░░] 20% [██░░░░░░░░]
+Progress: [██░░░░░░░░] 20%
+
+## 02-02 本轮事实（2026-11-11）
+
+> **最新独立复审与用户决定：** 用户明确要求有问题记录后直接通过；本计划已由 GSD 原生 `state advance-plan` 从 2 推进至 3。独立复审保留 3 项 P1（答案危险操作、无现场证据确定结论、追问绕过安全检查）和 1 项 P2（否定性确诊说明误拒），均未修复；详见 [02-02-REVIEW](phases/02-open-rag/02-02-REVIEW.md)。独立复跑真实PG全量 229/0/0/0、前端测试12/12和构建通过；两个独立反例仍被放行，不能宣称安全保护通过。02-03 未授权、Phase2未关闭。以下修复轮与待审描述均为历史。
+
+> **审查修复轮 3（剩余 P1×2，待复审）：** “注意风险/验电后”等弱安全词放行危险操作、无现场证据输出确定性设备故障结论，两项均改为结构性关闭：`AnswerGuard` 含动作子句仅放行禁止性提示或资质边界声明（白名单式，弱安全词不再豁免），无 `fieldVerified` 时设备指代+确定性结论的断言一律拒绝，高风险答案附服务端受控安全提示；`TaskOrchestrator` 拒绝反馈附修正指引，有界重试后 FAILED 不变。`AnswerGuardTest` 21 项、`GeneralAgentFlowTest` 16 项、全量 **229/0/0/0**，打包与 `verify_cli.py` 通过。详见 [02-02-SUMMARY](phases/02-open-rag/02-02-SUMMARY.md) 的“审查修复轮 3”表。
+
+> **审查修复轮 2：** 复审提出 P1×3（确诊正文绕过守卫、安全词同句放行且 uncertainties/limitations 未检查、遗留 QUEUED 超 100 条留幽灵任务）已全部修复并补测试：`AnswerGuard` 新增正文级确诊表述检查与逐子句危险动作检查（转折/冒号切分），`AgentRunRepository.queued` 去掉 100 条上限；`AnswerGuardTest` 16 项、`GeneralAgentApiTest` 7 项（含 105 条遗留队列接手用例）、全量 **222/0/0/0**，打包与 `verify_cli.py` 通过。真实模型/embedding/浏览器 E2E 仍未验证。详见 [02-02-SUMMARY](phases/02-open-rag/02-02-SUMMARY.md) 的“审查修复轮 2”表。
+
+> **审查修复轮：** 独立审查提出 P1×5（无核验仍可确诊、危险建议绕过、混合资料标错 AUTHORIZED、M0 遗留队列未交接、并发写入卡 RUNNING）与 P2×2（claim 独有引用丢失、页面只显示“执行失败”）后，已全部修复并补测试；`GeneralAgentApiTest` 6 项、`GeneralAgentFlowTest` 14 项、`AnswerGuardTest` 10 项、前端 12 项，全量 **215/0/0/0**。`fieldVerified` 在 M1 恒为 false，本阶段不存在合法确诊路径；崩溃遗留 RUNNING 仍留给 M2。详见 [02-02-SUMMARY](phases/02-open-rag/02-02-SUMMARY.md) 的“审查修复轮”表。
+
+- 新增 `V5__agent_run_message_link.sql`（`dt_message.run_id` 可空列 + 复合外键 + CHECK），补答后可按 run 精确重建消息序列；既有库实测从 V4 只应用 1 个迁移升级到 V5。
+- 通用协议：`ActionProposal` 追加 `CALL_TOOL`/`ASK_USER`/`ANSWER`，legacy 五动作保留；新合同 `AgentTaskInput`/`AgentResult`；`GeneralReasoner`（含 attemptedTools/feedback）与 `ScriptedAgentReasoner`、`StructuredAgentReasoner`、`AgentModelConnections`。
+- 唯一主循环演进：`TaskOrchestrator.runAgent(...)` 与 legacy `run(...)` 同类共存；工具经 `CapabilityGateway.executeTool`（未知/未授权/顶层参数错误一律拒绝，嵌套由工具强类型解析），答案经 `AnswerGuard`（引用子集、风险由服务器判定、无资产不得确诊）。
+- 产品装配：`agentCapabilityGateway` 只注册知识工具，legacy `capabilityGateway` 保留并 `@Primary`；`GeneralAgentService` 有界 worker、每 run 新推理器、`devicetruth.agent.*` 配置（reasoner/worker-enabled/max-concurrent-runs/max-queue）。
+- 持久化与 API：`AgentRunRepository` 状态机（条件更新防重复接手）、待答问题、引用读取、白名单事件；`ConversationRepository` 助手/补答消息与 `runMessages`；`POST .../messages` 支持 `replyTo` 三元组，`GET /api/runs/{id}` 返回 `pendingQuestion`/`result`，新增 `GET /api/runs/{id}/references`。
+- 前端 `frontend/`：Vue3.5.45 + Vite8.3.7 + Vitest5.1.0 + TS5.9.3 + vue-tsc3.3.14，`api.ts` 冻结两个合同与安全轮询，`App.vue` 展示消息/状态/追问/答案/引用。
+- 实际执行：`mvn -o test` 215/0/0/0（35 suites）、`mvn -o -q -DskipTests package`成功、`python scripts/verify_cli.py`全通过；新增 `GeneralAgentFlowTest` 14/0/0/0、`GeneralAgentApiTest` 6/0/0/0、`AnswerGuardTest` 10/0/0/0；独立 HTTP 进程在既有 `devicetruth` 库完成 V4→V5 升级并跑通两轮（导入201→提交202→WAITING→补答202同run→COMPLETED，错版本补答409且runs=1）；前端 `npm ci`/`npm run test -- --run` 12/0/0/0/`npm run build` 均通过。
+- 未验证（NOT_RUN）：真实千问/OpenAI 通用 Agent 调用、真实 embedding 与向量质量、浏览器人工演示 E2E-01/02/03 与 E2E-07-basic、PDF/混合检索、跨进程恢复与租约/CAS（M2）、并发补答与规模性能。
+- 未 commit/push；`status: blocked`、`review_status: pending`；未标记 PLAN 完成、未改 ROADMAP 阶段态。详见[02-02-SUMMARY](phases/02-open-rag/02-02-SUMMARY.md)。
+ [██░░░░░░░░]
 
 ## 02-01 本轮事实（2026-11-10）
 
@@ -57,8 +78,8 @@ Progress: [██░░░░░░░░] 20% [██░░░░░░░░]
 ## Performance Metrics
 
 - Total plans completed: 3/13（9/37任务）；完成阶段1/5。计划比例约23%，原生STATE进度采用阶段口径。
-- M0已关闭；M1的02-01已完成且独立复审通过，02-02/02-03未执行、未授权。
-- 当前HEAD为24f05de；02-01实现与本轮审查状态保留在工作树，未commit/push。
+- M0已关闭；M1的02-01已完成并复审通过（已提交e9aed33），02-02已实施待审查，02-03未执行、未授权。
+- 当前HEAD为e9aed33；02-02实现（含三轮审查修复）保留在工作树，未commit/push。最新全量测试229/0/0/0。
 
 ## Accumulated Context
 
@@ -82,16 +103,17 @@ Progress: [██░░░░░░░░] 20% [██░░░░░░░░]
 ### Pending Todos
 
 - 用户第1项及集中回复“上述产品边界与设计符合预期”均已保存；01-UAT为6/6通过，阶段验证6/6 passed，Phase1已原生关闭。
-- 02-01已独立复审通过（185/0/0/0、CLI及升级探针通过）；只剩后续计划授权和Phase2阶段出口，产品确认集中一次；未提交Git。
-- 02-02/02-03仍未获授权，不得执行；真实embedding/PDF/混合检索与Agent接入保持NOT_RUN。
+- 02-01已独立复审通过并提交（e9aed33）；02-02已实施并通过审查修复轮自测（215/0/0/0、打包/CLI、V4→V5升级、前端12/12与构建），等待独立复审。
+- 02-03仍未获授权，不得执行；真实模型/真实embedding/PDF/混合检索/浏览器演示保持NOT_RUN。
 
 ### Blockers/Concerns
 
-- Phase1已关闭、02-01已完成；02-02/02-03及Phase2出口未完成，不勾Phase2完成。
+- Phase1已关闭、02-01已完成；02-02待审查、02-03未执行，不勾Phase2完成。
 - Maven实际使用JDK21.0.13.0.2/Maven3.9.9，但直接java命令实测仍为17；用户命令必须显式使用仓库.tools内JDK21，不改全局设置。验收期间不再clean，避免临时移除JAR。
 - Docker Desktop Linux引擎实际可用，管道npipe:////./pipe/dockerDesktopLinuxEngine；interview-postgres已启动，映射5432。最初PG17拉取失败后已停止并按用户指令改用既有实例，历史失败保留。
-- 真实PG/迁移/消息事务/新JAR进程重启读取已验收；真实embedding/RAG、Agent自由执行/WAITING、Vue/SSE与执行恢复未验收。
+- 真实PG/迁移/两轮补证HTTP链路/新JAR进程重启读取已验收；真实模型与真实embedding、浏览器人工演示、Agent执行恢复未验收。
 - 本地固定身份仅可证明服务层授权合同；共享部署前需真实认证。
+- 02-02引入了`dt_message.run_id`可空列（V5）：只前进不回退，历史消息不回填。
 
 ## Verification Snapshot
 
@@ -113,6 +135,6 @@ interview_guide public表数量基线17；本轮仅在独立devicetruth/随机�
 ## Session Continuity
 
 Last session: 2026-11-11 (Asia/Shanghai)
-Stopped at: 02-01 complete; 02-02 awaits user authorization
+Stopped at: 02-02 implemented and self-verified; independent review pending
 Resume file: .planning/NEXT_SESSION.md
-Read first: AGENTS.md → STATE → 02-01-SUMMARY → 01-UAT → 01-REVIEW → 01-VALIDATION → PROJECT → COVERAGE → ROADMAP
+Read first: AGENTS.md → STATE → 02-02-SUMMARY → 02-REVIEW → 02-01-SUMMARY → PROJECT → ROADMAP

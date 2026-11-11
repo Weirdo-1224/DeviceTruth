@@ -37,6 +37,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -86,8 +87,22 @@ public class ServerConfiguration {
     }
 
     /** 只读仓储与注册完成后不再修改的 Gateway 可以共享；Reasoner 绝不能注册成 Bean。 */
-    @Bean CapabilityGateway capabilityGateway(JsonRepositories repositories) {
+    @Bean
+    @Primary
+    CapabilityGateway capabilityGateway(JsonRepositories repositories) {
         return CapabilityGateway.standard(repositories, repositories, repositories);
+    }
+
+    /**
+     * 产品 Agent 的网关：只登记知识工具（注册即服务器授权）。
+     * legacy 资产能力仍留在上面的 standard 网关，避免无资产问答被 legacy 的必填 assetId 语义污染。
+     */
+    @Bean
+    @Profile("product")
+    CapabilityGateway agentCapabilityGateway(KnowledgeTools knowledgeTools) {
+        var gateway = new CapabilityGateway();
+        knowledgeTools.registerInto(gateway);
+        return gateway;
     }
 
     /**
@@ -191,7 +206,7 @@ public class ServerConfiguration {
                 Double.parseDouble(environment.getProperty("devicetruth.knowledge.min-similarity", "0.15")));
     }
 
-    /** 服务端知识工具合同；Runtime/Gateway 注册由 02-02 交付。 */
+    /** 服务端知识工具合同；02-02 起注册进产品 Agent 网关（agentCapabilityGateway）。 */
     @Bean
     @Profile("product")
     KnowledgeTools knowledgeTools(KnowledgeSearchService knowledgeSearchService) {

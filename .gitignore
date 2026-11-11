@@ -10,3 +10,5 @@ outputs/validation/
 .idea/
 *.iml
 .arts/
+frontend/node_modules/
+frontend/dist/

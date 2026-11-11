@@ -80,7 +80,7 @@ class KnowledgeUpgradeMigrationTest {
         assertThat(jdbc.queryForObject("SELECT content FROM dt_knowledge_chunk WHERE document_id=?",
                 String.class, legacy.documentId())).isEqualTo(legacy.chunkContent());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class))
-                .isEqualTo(4);
+                .isEqualTo(5);
 
         var embeddingCalls = new java.util.concurrent.atomic.AtomicInteger();
         EmbeddingProfile realProfile = EmbeddingProfile.of("openai", "http://127.0.0.1:1", "test-key",

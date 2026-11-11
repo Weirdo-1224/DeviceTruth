@@ -1,7 +1,11 @@
 package io.devicetruth.knowledge;
 
+import io.devicetruth.core.capability.AgentToolTypes.ToolOutcome;
+import io.devicetruth.core.capability.AgentToolTypes.ToolSpec;
+import io.devicetruth.core.capability.CapabilityGateway;
 import io.devicetruth.core.capability.CapabilityTypes.ToolError;
 import io.devicetruth.core.capability.ToolContext;
+import io.devicetruth.core.contract.AgentResult.Reference;
 import io.devicetruth.core.contract.Checks;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -12,7 +16,7 @@ import java.util.UUID;
 /**
  * 知识工具的服务端强类型接口与 JSON Schema。
  * query 允许中文、空格与标点；filters 是受限的嵌套对象；documentId/chunkId 保持严格标识校验。
- * 本切片只提供服务端可注入合同，CapabilityGateway 注册与 Runtime 接入由 02-02 交付。
+ * registerInto 把两个工具注册进 CapabilityGateway：注册即服务器授权，模型只能用这里公开的模式。
  */
 public final class KnowledgeTools {
     public static final String SEARCH = "search_knowledge";
@@ -103,6 +107,55 @@ public final class KnowledgeTools {
         } catch (KnowledgeException | IllegalArgumentException failure) {
             return new ExcerptOutcome(false, UUID.randomUUID().toString(), EXCERPT, null, error(failure));
         }
+    }
+
+    /**
+     * 把两个知识工具注册进网关：注册即服务器授权，参数模式与输出模式同时公开给推理器。
+     * 未注册的工具在网关处直接拒绝，模型无法通过编造工具名扩大权限。
+     */
+    public void registerInto(CapabilityGateway gateway) {
+        Checks.required(gateway, "gateway");
+        for (ToolDescriptor descriptor : descriptors()) {
+            ToolSpec spec = new ToolSpec(descriptor.name(), descriptor.description(), descriptor.domain(),
+                    descriptor.readOnly(), descriptor.inputSchema(), descriptor.outputSchema());
+            if (SEARCH.equals(descriptor.name())) gateway.registerTool(spec, this::searchOutcome);
+            else if (EXCERPT.equals(descriptor.name())) gateway.registerTool(spec, this::excerptOutcome);
+        }
+    }
+
+    private ToolOutcome searchOutcome(Map<String, Object> arguments, ToolContext context) {
+        SearchOutcome outcome = search(arguments, context);
+        if (!outcome.success()) return ToolOutcome.failed(outcome.requestId(), SEARCH, outcome.error());
+        List<Reference> references = outcome.hits().stream().map(KnowledgeTools::hitReference).toList();
+        return ToolOutcome.ok(outcome.requestId(), SEARCH, outcome, references, dataNature(references));
+    }
+
+    private ToolOutcome excerptOutcome(Map<String, Object> arguments, ToolContext context) {
+        ExcerptOutcome outcome = excerpt(arguments, context);
+        if (!outcome.success()) return ToolOutcome.failed(outcome.requestId(), EXCERPT, outcome.error());
+        var excerpt = outcome.excerpt();
+        var reference = new Reference(excerpt.referenceId().toString(), "KNOWLEDGE_DOCUMENT",
+                excerpt.documentId().toString(), excerpt.documentVersion(), excerpt.chunkId().toString(),
+                excerpt.title(), excerpt.page(), excerpt.section(), truncate(excerpt.content(), 2000),
+                excerpt.dataNature());
+        return ToolOutcome.ok(outcome.requestId(), EXCERPT, outcome, List.of(reference), excerpt.dataNature());
+    }
+
+    private static Reference hitReference(KnowledgeSearchService.KnowledgeHit hit) {
+        return new Reference(hit.referenceId().toString(), "KNOWLEDGE_DOCUMENT", hit.documentId().toString(),
+                hit.documentVersion(), hit.chunkId().toString(), hit.title(), hit.page(), hit.section(),
+                truncate(hit.content(), 600), hit.dataNature());
+    }
+
+    /** 任一引用为模拟数据时整体保持 SIMULATED，避免把模拟手册冒充为已授权现场资料。 */
+    private static String dataNature(List<Reference> references) {
+        return references.stream().allMatch(reference -> "AUTHORIZED".equals(reference.dataNature()))
+                ? "AUTHORIZED" : "SIMULATED";
+    }
+
+    private static String truncate(String content, int max) {
+        if (content == null) return "";
+        return content.length() <= max ? content : content.substring(0, max);
     }
 
     public List<ToolDescriptor> descriptors() {

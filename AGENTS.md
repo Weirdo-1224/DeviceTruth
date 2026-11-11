@@ -5,13 +5,15 @@
 DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI 与独立 HTTP 服务两个入口。源码位于 `src/main/java/io/devicetruth/`：
 
 - `app/`：`DeviceTruthApplication` 负责启动和装配，`CliOptions` 解析参数。
-- `core/reasoning/`：`Reasoner` 根据状态提出 `ActionProposal`，`ScriptedReasoner` 支持离线推理。
-- `core/runtime/`：`TaskOrchestrator` 控制单步循环、执行预算和事件记录。
-- `core/capability/`：`CapabilityGateway` 注册只读能力，校验参数和访问范围。
-- `core/evidence/`、`core/state/`、`core/decision/`：`EvidenceManager` 重建事实并使旧依赖失效，`StateManager` 提交状态版本，`DecisionGuard` 校验决策。
-- `adapter/`：`JsonRepositories` 读取数据，`QwenReasoner`、`OpenAiReasoner`（OpenAI 兼容，可指向 DeepSeek）、`AgentScopeStep` 对接模型，`RunReportWriter` 保存报告。
-- `server/`、`api/`、`application/`：`DeviceTruthServerApplication` 起 HTTP 服务，`ConversationController` 暴露会话/诊断接口，`DiagnosisRunService` 有界异步执行 Core。
-- `knowledge/`：`KnowledgeImportService` 负责 MD/TXT 章节切片与向量化落库，`KnowledgeSearchService` 做归属过滤、向量召回与引用登记，`KnowledgeTools` 暴露 `search_knowledge`/`get_document_excerpt` 服务端合同，`EmbeddingClient` 适配真实供应商或离线确定性向量；`api/KnowledgeController` 暴露 `/api/knowledge/*`。`V2__knowledge_sources.sql` 新增文件/文档/切片/引用四表与 pgvector 索引，知识工具尚未注册进 `CapabilityGateway`（02-02）。
+- `core/reasoning/`：`Reasoner` 根据状态提出 `ActionProposal`，`ScriptedReasoner` 支持离线推理；`ActionProposal` 现含 legacy 五动作与通用三动作（`CALL_TOOL`/`ASK_USER`/`ANSWER`），`GeneralReasoner`/`ScriptedAgentReasoner` 提供通用 Agent 的单步提议。
+- `core/runtime/`：`TaskOrchestrator` 是唯一产品主循环，`run(...)` 服务 legacy 诊断、`runAgent(...)` 服务通用 Agent，共享单步、事件与有界循环；`AgentRunOutcome` 表达等待/完成/失败。
+- `core/capability/`：`CapabilityGateway` 注册 legacy 单值能力与通用工具（`registerTool/toolCatalog/executeTool`），校验参数、授权与只读；`AgentToolTypes` 定义 `ToolSpec`/`ToolOutcome`；`ToolContext` 携带服务器确定的身份与 run 范围。
+- `core/evidence/`、`core/state/`、`core/decision/`：`EvidenceManager` 重建事实并使旧依赖失效，`StateManager` 提交状态版本，`DecisionGuard` 校验 legacy 决策，`AnswerGuard` 校验通用答案的引用子集、风险与“无资产不得确诊”。
+- `core/contract/`：`Models` 为 legacy 诊断协议值；`AgentTaskInput`/`AgentResult` 为通用 Agent 的输入与答案（事实/可能性/建议/人工项、引用、风险、dataNature）。
+- `adapter/`：`JsonRepositories` 读取数据，`QwenReasoner`、`OpenAiReasoner`（OpenAI 兼容，可指向 DeepSeek）、`AgentScopeStep` 对接模型，`StructuredAgentReasoner`/`AgentModelConnections` 提供通用 Agent 的单步协议与供应商连接，`RunReportWriter` 保存报告，`persistence/` 读写 PG。
+- `server/`、`api/`、`application/`：`DeviceTruthServerApplication` 起 HTTP 服务，`ConversationController` 暴露会话/诊断接口，`AgentConversationController` 暴露产品会话/run/引用接口，`DiagnosisRunService` 有界异步执行 Core，`application/agent/GeneralAgentService` 提供 QUEUED→RUNNING→WAITING_FOR_USER→…→COMPLETED/FAILED 的持久状态机与有界 worker。
+- `knowledge/`：`KnowledgeImportService` 负责 MD/TXT 章节切片与向量化落库，`KnowledgeSearchService` 做归属过滤、向量召回与引用登记，`KnowledgeTools` 暴露 `search_knowledge`/`get_document_excerpt` 服务端合同并通过 `registerInto` 注册进产品 Agent 网关，`EmbeddingClient` 适配真实供应商或离线确定性向量；`api/KnowledgeController` 暴露 `/api/knowledge/*`。
+- `frontend/`：Vue3 + TypeScript + Vite 最小产品页（`src/api.ts` 冻结消息/补答合同与安全轮询，`src/App.vue` 展示持久消息、追问、答案与引用）；SSE 留到 05-01。
 
 测试位于 `src/test/java/io/devicetruth/`；`src/main/resources/` 保存 `application.properties`（默认推理器与路由模式）、`logback.xml` 和 `static/index.html` 演示前端。`datasets/` 保存模拟场景和资料（含 `datasets/knowledge/` 演示手册），`skills/automotive-demo/rules.json` 保存规则，两者随 JAR 打包。
 
@@ -30,6 +32,9 @@ DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI
 | `python scripts/verify_cli.py` | 核验打包后 CLI 的 A–D 场景及报告 |
 | `python scripts/verify_online.py` | 核验真实 Qwen 调用、场景 B 结果和运行轨迹 |
 | `java -cp target/classes;<依赖> io.devicetruth.server.DeviceTruthServerApplication` | 起 HTTP 服务（默认 8080，`-Dserver.port=` 可改端口），浏览器打开 `/index.html` 使用演示前端 |
+| `cd frontend && npm ci` | 按 lockfile 安装前端依赖（Node ≥20.19 / npm ≥10） |
+| `cd frontend && npm run test -- --run` | 前端 api 合同单测（Vitest） |
+| `cd frontend && npm run build` | `vue-tsc --noEmit` 类型检查 + Vite 构建到 `dist/`（开发时 `npm run dev` 代理 `/api` 到 8080） |
 
 两个脚本需要 Python 3 和最新 JAR；在线运行还需要 `DASHSCOPE_API_KEY`、网络和模型额度。修改数据或规则后重新打包。报告保存在 `outputs/runs/<runId>/`。
 

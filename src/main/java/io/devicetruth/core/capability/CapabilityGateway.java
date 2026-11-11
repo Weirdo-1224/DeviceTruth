@@ -1,10 +1,13 @@
 package io.devicetruth.core.capability;
 
+import io.devicetruth.core.capability.AgentToolTypes.*;
 import io.devicetruth.core.capability.CapabilityTypes.*;
 import io.devicetruth.core.capability.Repositories.*;
 import io.devicetruth.core.contract.Models.DiagnosisRequest;
 import io.devicetruth.core.reasoning.ActionProposal.CallCapability;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -14,7 +17,10 @@ import static io.devicetruth.core.contract.Checks.*;
 /** 能力网关：所有数据读取的唯一入口。只做注册、鉴权与参数校验，本身不接触数据。 */
 public final class CapabilityGateway {
     private record Registration(Descriptor descriptor, ReadOnlyHandler handler) {}
+    private record ToolRegistration(ToolSpec spec, AgentToolHandler handler) {}
     private final Map<String,Registration> registrations=new LinkedHashMap<>();
+    /** 通用 Agent 工具（允许嵌套参数）：与 legacy 单值能力分开注册，互不共享参数校验规则。 */
+    private final Map<String,ToolRegistration> tools=new LinkedHashMap<>();
 
     /** 注册一个只读能力；ID 重复即拒绝。 */
     public void register(Descriptor descriptor,ReadOnlyHandler handler) {
@@ -24,6 +30,63 @@ public final class CapabilityGateway {
     }
     /** 能力目录：推理器通过它了解可调用的能力及其参数模式。 */
     public List<Descriptor> catalog() { return registrations.values().stream().map(Registration::descriptor).toList(); }
+
+    /**
+     * 注册一个通用只读工具；名称重复即拒绝。
+     * 注册动作本身就是服务器授权：模型只能看到并调用这里登记过的工具。
+     */
+    public void registerTool(ToolSpec spec, AgentToolHandler handler) {
+        required(spec, "spec"); required(handler, "handler");
+        if (tools.putIfAbsent(spec.name(), new ToolRegistration(spec, handler)) != null)
+            throw new IllegalArgumentException("Tool already registered");
+    }
+
+    /** 当前上下文可见的工具目录：已注册 ∩ 服务器授权（ToolContext.allowedTools）。 */
+    public List<ToolSpec> toolCatalog(ToolContext context) {
+        return tools.values().stream().map(ToolRegistration::spec)
+                .filter(spec -> context == null || context.allows(spec.name())).toList();
+    }
+
+    /** 已注册工具名（服务端授权的来源），用于构造 ToolContext.allowedTools。 */
+    public Set<String> toolNames() { return Collections.unmodifiableSet(new LinkedHashSet<>(tools.keySet())); }
+
+    /**
+     * 执行一次通用工具调用：未注册、非只读、未授权、顶层参数缺失或未知一律拒绝，绝不执行 handler。
+     * 嵌套参数（如 filters）由工具自己的强类型解析拒绝，错误统一映射为 ToolError。
+     */
+    public ToolOutcome executeTool(ToolContext context, String toolName, Map<String, Object> arguments) {
+        String requestId = UUID.randomUUID().toString();
+        try {
+            if (context == null) throw new QueryException("INVALID_ARGUMENTS", "Tool context is required");
+            var entry = tools.get(toolName);
+            if (entry == null) throw new QueryException("UNKNOWN_TOOL", "Tool is not registered");
+            var spec = entry.spec();
+            if (!spec.readOnly()) throw new QueryException("NOT_READ_ONLY", "Only read-only tools may execute");
+            if (!context.allows(spec.name()))
+                throw new QueryException("TOOL_NOT_ALLOWED", "Tool outside server-authorized scope");
+            Map<String, Object> args = arguments == null ? Map.of() : arguments;
+            var allowed = spec.allowedParameters();
+            for (String key : args.keySet())
+                if (!allowed.contains(key)) throw new QueryException("INVALID_ARGUMENTS", "Unknown parameter");
+            for (String key : spec.requiredParameters())
+                if (args.get(key) == null) throw new QueryException("INVALID_ARGUMENTS", "Missing required parameter");
+            var outcome = entry.handler().execute(Map.copyOf(args), context);
+            if (outcome == null || !spec.name().equals(outcome.toolName()))
+                throw new QueryException("INVALID_TOOL_OUTPUT", "Tool returned an inconsistent outcome");
+            return outcome;
+        } catch (QueryException e) {
+            return ToolOutcome.failed(requestId, safeToolName(toolName), new ToolError(e.code(), e.getMessage(), false));
+        } catch (Exception e) {
+            return ToolOutcome.failed(requestId, safeToolName(toolName),
+                    new ToolError("TOOL_FAILURE", "Read-only tool failed", true));
+        }
+    }
+
+    /** 失败结果的工具名也必须是合法标识；模型给出的非法名称不能反过来破坏审计记录。 */
+    private static String safeToolName(String toolName) {
+        try { return id(toolName, "toolName"); } catch (RuntimeException e) { return "unknown.tool"; }
+    }
+
     /** 执行一次能力调用。依次校验：已注册、只读、任务域内、参数合法、无越权（跨资产/域/症状），
      *  最后检查工具返回的记录未超出任务资产范围。任何失败都包装为 ToolError 而非抛异常。 */
     public CapabilityResult execute(DiagnosisRequest scope,CallCapability call) {

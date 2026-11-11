@@ -67,7 +67,9 @@ class PersistentConversationTest {
                 "--logging.level.org.springframework=WARN", "--logging.level.org.springframework.jdbc=INFO",
                 "--devicetruth.core.reasoner=scripted", "--spring.datasource.url=" + databaseBaseUrl + databaseName,
                 "--spring.datasource.username=" + username, "--spring.datasource.password=" + password,
-                "--devicetruth.product.owner-id=" + owner, "--devicetruth.product.project-id=" + project);
+                "--devicetruth.product.owner-id=" + owner, "--devicetruth.product.project-id=" + project,
+                // 本用例只验证 M0 的持久化合同（消息/QUEUED/不变量），不启动 Agent worker，避免状态被异步推进。
+                "--devicetruth.agent.worker-enabled=false");
     }
 
     private static String base(ConfigurableApplicationContext context) {
@@ -119,7 +121,7 @@ class PersistentConversationTest {
         jdbc = new JdbcTemplate(app.getBean(com.zaxxer.hikari.HikariDataSource.class));
         assertThat(detail(id)).isEqualTo(before);
         assertThat(Json.MAPPER.readTree(rest.getForObject(base + "/api/runs/" + runId, String.class))).isEqualTo(run);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class)).isEqualTo(4);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class)).isEqualTo(5);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE NOT success", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT extversion FROM pg_extension WHERE extname='vector'", String.class)).isEqualTo("0.8.7");
         assertThat(jdbc.queryForObject("SHOW server_version", String.class)).startsWith("16.15");
@@ -246,7 +248,11 @@ class PersistentConversationTest {
         assertThat(post(path, Map.of("schemaVersion", 2, "userMessage", "bad version"), UUID.randomUUID()).getBody()).contains("SCHEMA_VERSION_UNSUPPORTED");
         assertThat(post(path, Map.of("schemaVersion", 1, "userMessage", "文件尚未支持", "attachments", List.of(Map.of("fileId", "x"))), UUID.randomUUID()).getBody()).contains("REFERENCES_NOT_AVAILABLE");
         assertThat(post(path, Map.of("schemaVersion", 1, "userMessage", "上下文尚未支持", "contextRefs", List.of(Map.of("kind", "DOCUMENT", "id", "x"))), UUID.randomUUID()).getBody()).contains("REFERENCES_NOT_AVAILABLE");
-        assertThat(post(path, Map.of("schemaVersion", 1, "userMessage", "补答尚未支持", "replyTo", Map.of("runId", "x")), UUID.randomUUID()).getBody()).contains("REPLY_NOT_AVAILABLE");
+        // 02-02 起补答已经支持；三元组不完整时按 REPLY_TARGET_REQUIRED 拒绝，仍不写消息、不建 run
+        var incompleteReply = post(path, Map.of("schemaVersion", 1, "userMessage", "补答缺关联字段",
+                "replyTo", Map.of("runId", "x")), UUID.randomUUID());
+        assertThat(incompleteReply.getStatusCode().value()).isEqualTo(400);
+        assertThat(incompleteReply.getBody()).contains("REPLY_TARGET_REQUIRED");
         assertThat(detail(id).path("messages").size()).isZero();
         // 按Unicode码点而非UTF-16长度计数，边界上的中文和emoji原样保存。
         String boundary = "🔋".repeat(8000);

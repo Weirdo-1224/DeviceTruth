@@ -44,6 +44,12 @@ public class AgentConversationController {
     @GetMapping("/api/runs/{id}")
     RunView run(@PathVariable UUID id) { return service.run(id); }
 
+    /** 本 run 已取回的知识引用（含文档版本与章节/页码），按归属过滤；跨身份读取返回 404。 */
+    @GetMapping("/api/runs/{id}/references")
+    java.util.List<io.devicetruth.core.contract.AgentResult.Reference> references(@PathVariable UUID id) {
+        return service.references(id);
+    }
+
     @ExceptionHandler(RequestFailure.class)
     ResponseEntity<Map<String, Object>> requestFailure(RequestFailure failure) {
         return error(failure.status(), failure.code());
