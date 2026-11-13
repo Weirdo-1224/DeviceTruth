@@ -317,7 +317,9 @@
         "隔离库导入手册 2026.1；使用可稳定触发追问的受控测试推理器，另记真实模型结果。"
       ],
       "passCriteria": [
-        "首次请求进入 WAITING_FOR_USER，持久保存待答问题；补答关联同一 run，继续调查并能回读新答案所用引用。"
+        "分支 A（产生追问）：首轮产生 WAITING_FOR_USER，待答问题落库并可回读；补答沿用同一 run，答案形成且可回读引用。",
+        "分支 B（直接作答）：首轮直接 COMPLETED 时不算失败，但答案必须带引用（或明确“未使用资料”的限制）且包含 limitations/uncertainties，且无现场核验时不得输出确诊；evidence 必须记录实际分支。",
+        "两条分支都要求：消息/待答问题/答案字段、runId 与引用可回读；补答后的追问内容同样受安全边界约束。"
       ],
       "evidence": [
         "待答记录、补答关联字段、runId、消息序列和引用。"
@@ -342,7 +344,13 @@
         }
       ],
       "status": "NOT_RUN",
-      "fixtureStatus": "REPOSITORY_FILES_AVAILABLE"
+      "fixtureStatus": "REPOSITORY_FILES_AVAILABLE",
+      "boundaryDecision": {
+        "date": "2026-11-14",
+        "source": "用户决定",
+        "decision": "“首轮必须产生追问”不作为产品硬约束；模型可直接作答，但必须带引用与限制，且不得输出未经核验的确诊。",
+        "rationale": "真实供应商在信息已足够时会直接给出来源化答案，追问只是缺信息时的交互手段；判分按实际分支核对，不因未追问记 FAIL。"
+      }
     },
     {
       "id": "E2E-08",

@@ -1,7 +1,7 @@
 /**
- * 与 /api 的强类型合同：发送自由消息、回答待答问题、读取持久状态。
+ * 与 /api 的强类型合同：发送自由消息、回答待答问题、读取持久状态与运行事件。
  * 浏览器不持有任何凭据，也不提交 owner/project/权限：身份始终由服务器决定。
- * 本阶段只用安全轮询；SSE 与断线续传留到 05-01。
+ * 运行进度用 SSE 订阅（原生 EventSource 断线自动带 Last-Event-ID 重连），轮询作为兜底与终态校准。
  */
 
 export type RunStatus = 'QUEUED' | 'RUNNING' | 'WAITING_FOR_USER' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
@@ -238,6 +238,174 @@ export function readReferences(runId: string): Promise<Reference[]> {
   return call<Reference[]>('/api/runs/' + encodeURIComponent(runId) + '/references', { method: 'GET' })
 }
 
+/** 公开运行事件（历史回读与 SSE 共用同一映射）；data 为按类型白名单字段，不含 prompt/密钥/原始输出。 */
+export interface RunEvent {
+  seq: number
+  type: string
+  recordedAt: string
+  data: Record<string, unknown>
+}
+
+/** 历史回读：按 seq 升序；afterSeq 只取 seq > afterSeq 的增量，用于订阅前先补历史。 */
+export function readRunEvents(runId: string, afterSeq?: number): Promise<RunEvent[]> {
+  const path = '/api/runs/' + encodeURIComponent(runId) + '/events'
+  return call<RunEvent[]>(afterSeq === undefined ? path : path + '?after=' + afterSeq, { method: 'GET' })
+}
+
+/** EventSource 的最小结构替身：生产用原生 EventSource 包装，测试注入假实现。 */
+export interface EventSourceLike {
+  readonly readyState?: number
+  onmessage: ((event: { data: string }) => void) | null
+  onerror: ((event: unknown) => void) | null
+  addEventListener(type: string, listener: (event: { data: string }) => void): void
+  close(): void
+}
+
+export interface RunStreamHandle {
+  close(): void
+}
+
+export interface RunStreamOptions {
+  /** 已收到的最大 seq（初次为 0）；页面用它做幂等去重，重连后服务端会按 Last-Event-ID 补齐历史。 */
+  lastSeq: number
+  onEvent: (event: RunEvent) => void
+  onTerminal?: (status: string) => void
+  onError?: (error: unknown) => void
+  eventSourceFactory?: (url: string) => EventSourceLike
+  /**
+   * 连续 onerror 达到该阈值、且期间没有收到任何成功事件时判为永久失败（触发 onError 并 close）。
+   * 默认 8：浏览器拦截/断连窗口（约 5–15 秒、原生重试间隔约 3 秒）只会产生几次失败重试，
+   * 默认阈值不会误杀；测试可调小。未达阈值的瞬时断线仍交给原生重连，按游标补齐。
+   */
+  maxRetryErrors?: number
+}
+
+/** SSE 会按 event: 字段分发到具名监听器，这里登记契约里的全部事件类型（含 RUN_WAITING 与 RUN_TERMINAL）。 */
+const STREAM_EVENT_TYPES: readonly string[] = [
+  'RUN_QUEUED',
+  'RUN_RECOVERED',
+  'RUN_WAITING',
+  'RUN_TOOL',
+  'RUN_MODEL',
+  'RUN_ANSWER',
+  'RUN_FAILED',
+  'RUN_CANCELLED',
+  'RUN_LATE_RESPONSE',
+  'RUN_TERMINAL'
+]
+
+function defaultEventSourceFactory(url: string): EventSourceLike {
+  const source = new EventSource(url)
+  let onmessage: ((event: { data: string }) => void) | null = null
+  let onerror: ((event: unknown) => void) | null = null
+  // openRunEventStream 会在创建后给包装器赋值 onerror；必须用 getter/setter 实时转发到原生连接，
+  // 否则原生 error 事件永远到不了页面侧的错误处理（§8.5）。
+  return {
+    get readyState() {
+      return source.readyState
+    },
+    get onmessage() {
+      return onmessage
+    },
+    set onmessage(handler) {
+      onmessage = handler
+      source.onmessage = handler ? (event) => handler({ data: event.data as string }) : null
+    },
+    get onerror() {
+      return onerror
+    },
+    set onerror(handler) {
+      onerror = handler
+      source.onerror = handler ? (event) => handler(event) : null
+    },
+    addEventListener: (type, listener) => {
+      source.addEventListener(type, (event) => listener({ data: (event as MessageEvent).data as string }))
+    },
+    close: () => source.close()
+  }
+}
+
+/**
+ * 打开 /api/runs/{id}/stream 的 SSE 订阅。
+ * RUN_TERMINAL 到达后自动 close()；连接永久关闭（readyState=CLOSED）且未收到终态时上报 onError 并停止。
+ * 其余错误（readyState=CONNECTING）交给浏览器原生重连，服务端按 Last-Event-ID 补齐历史，页面按 seq 去重；
+ * 连续 onerror 达 maxRetryErrors（默认 8）且期间无成功事件时判为永久失败，同样上报 onError 并停止。
+ */
+export function openRunEventStream(runId: string, options: RunStreamOptions): RunStreamHandle {
+  const factory = options.eventSourceFactory ?? defaultEventSourceFactory
+  const source = factory('/api/runs/' + encodeURIComponent(runId) + '/stream')
+  const maxRetryErrors = options.maxRetryErrors ?? 8
+  let closed = false
+  let terminalSeen = false
+  let retryErrors = 0
+
+  const close = (): void => {
+    if (closed) return
+    closed = true
+    source.close()
+  }
+
+  for (const type of STREAM_EVENT_TYPES) {
+    source.addEventListener(type, (message) => {
+      if (closed) return
+      // 收到任何服务端帧都说明连接可用：重置连续错误计数（§8.5）
+      retryErrors = 0
+      if (type === 'RUN_TERMINAL') {
+        let status = 'UNKNOWN'
+        try {
+          status = String((JSON.parse(message.data) as { status?: unknown }).status ?? 'UNKNOWN')
+        } catch {
+          // 终态帧解析失败按 UNKNOWN 处理，仍要收尾关闭
+        }
+        terminalSeen = true
+        try {
+          options.onTerminal?.(status)
+        } finally {
+          close()
+        }
+        return
+      }
+      let event: RunEvent
+      try {
+        event = JSON.parse(message.data) as RunEvent
+      } catch (error) {
+        options.onError?.(error)
+        return
+      }
+      if (typeof event.seq !== 'number' || typeof event.type !== 'string') {
+        options.onError?.(new Error('事件格式不符合协议'))
+        return
+      }
+      options.onEvent(event)
+    })
+  }
+
+  source.onerror = (error) => {
+    if (closed) return
+    // 原生 EventSource 永久关闭（如服务端结束流）时不会再重连：未收到终态说明异常收尾
+    if (source.readyState === 2 && !terminalSeen) {
+      try {
+        options.onError?.(error)
+      } finally {
+        close()
+      }
+      return
+    }
+    // 瞬时断线：原生仍处于 CONNECTING 会自动重连。只有连续失败累计到阈值且期间无任何成功事件，
+    // 才放弃重连并上报永久失败（页面控制器据此把 live 置 false，退回轮询兜底）
+    retryErrors += 1
+    if (retryErrors >= maxRetryErrors) {
+      try {
+        options.onError?.(error)
+      } finally {
+        close()
+      }
+    }
+  }
+
+  return { close }
+}
+
 export function uploadMarkdown(file: File, title?: string, version = '1.0'): Promise<FileView> {
   const form = new FormData()
   form.append('file', file)
@@ -336,4 +504,82 @@ export async function waitForRun(runId: string, options: WaitOptions = {}): Prom
     if (Date.now() >= deadline) throw new ApiError('RUN_WAIT_TIMEOUT', 0, '等待运行结果超时')
     await sleep(intervalMs)
   }
+}
+
+/** 取消运行：QUEUED/WAITING 立即 CANCELLED，RUNNING 协作式收尾；终态再取消 409 RUN_ALREADY_TERMINAL。 */
+export function cancelRun(runId: string): Promise<RunView> {
+  return call<RunView>('/api/runs/' + encodeURIComponent(runId) + '/cancel', { method: 'POST' })
+}
+
+/** 本 run 选中的领域 Skill（版本与适用范围）；未选择时服务器返回 404 SKILL_NOT_SELECTED，这里归一为 null。 */
+export interface SkillSelection {
+  skillId: string
+  name: string
+  version: string
+  scope: string[]
+}
+
+export async function readRunSkill(runId: string): Promise<SkillSelection | null> {
+  try {
+    return await call<SkillSelection>('/api/runs/' + encodeURIComponent(runId) + '/skill', { method: 'GET' })
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'SKILL_NOT_SELECTED') return null
+    throw error
+  }
+}
+
+/** 配置记录：来源、核实状态与有效期分开表达；知识/文档记载不等于现场核实。 */
+export interface ConfigurationEntry {
+  recordId: string
+  componentId: string
+  attribute: string
+  value: string
+  sourceType: string
+  sourceId: string
+  sourceRef: string
+  dataNature: string
+  verificationStatus: 'DOCUMENTED' | 'FIELD_VERIFIED'
+  authority: number
+  validFrom: string
+  validTo: string | null
+  recordedAt: string
+  observedAt: string | null
+}
+
+export interface MaintenanceEntry {
+  recordId: string
+  componentId: string
+  operation: string
+  beforeValue: string | null
+  afterValue: string | null
+  sourceType: string
+  sourceId: string
+  sourceRef: string
+  dataNature: string
+  verificationStatus: 'DOCUMENTED' | 'FIELD_VERIFIED'
+  authority: number
+  validFrom: string
+  validTo: string | null
+  recordedAt: string
+  observedAt: string | null
+}
+
+/** 资产组合视图（指定时点）：身份范围 + 全部配置/维修记录 + 装机与冲突判断。 */
+export interface AssetComposite {
+  assetId: string
+  ownerId: string
+  projectId: string
+  asOf: string
+  configurations: ConfigurationEntry[]
+  maintenance: MaintenanceEntry[]
+  installationStatus: 'FIELD_CONFIRMED' | 'UNCONFIRMED'
+  conflict: 'NONE' | 'CONFLICT'
+  requiredChecks: string[]
+  limitations: string[]
+  dataNature: string
+}
+
+export function readAsset(assetId: string, asOf?: string): Promise<AssetComposite> {
+  const query = asOf ? '?asOf=' + encodeURIComponent(asOf) : ''
+  return call<AssetComposite>('/api/assets/' + encodeURIComponent(assetId) + query, { method: 'GET' })
 }

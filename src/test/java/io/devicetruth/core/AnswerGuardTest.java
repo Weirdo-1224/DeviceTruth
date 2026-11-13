@@ -338,4 +338,64 @@ class AnswerGuardTest {
         assertThat(verdict.allowed()).isTrue();
         assertThat(verdict.answer().summary()).contains("尚未确诊");
     }
+
+    @Test void mixedProhibitionAndActionInSameSentenceIsRejected() {
+        // 02-02 复审 P1 原文复现：“不要短接互锁端子，随后短接高压互锁端子。”
+        // 同一句里前半句的禁止词不能放行后半句的肯定动作
+        var collected = List.of(reference("r1", "SIMULATED"));
+        var draft = answer("POSSIBLE_CAUSES", "不要短接互锁端子，随后短接高压互锁端子。",
+                List.of(new Claim("不要短接互锁端子，随后短接高压互锁端子", List.of("r1"), Certainty.POSSIBLE)),
+                List.of("r1"));
+        var verdict = guard.review(input(null), collected, draft);
+        assertThat(verdict.allowed()).isFalse();
+        assertThat(verdict.code()).isEqualTo("UNSAFE_ANSWER");
+
+        // 纯禁止性提示（每个子句都带禁止词）仍然允许展示
+        var safe = answer("POSSIBLE_CAUSES", "不要短接高压互锁端子，也不要拆装电池包。",
+                List.of(new Claim("不要短接高压互锁端子", List.of("r1"), Certainty.POSSIBLE)), List.of("r1"));
+        var allowed = guard.review(input(null), collected, safe);
+        assertThat(allowed.allowed()).isTrue();
+        assertThat(allowed.answer().riskLevel()).isEqualTo(AgentResult.RiskLevel.HIGH);
+    }
+
+    @Test void definiteFaultCompletionWithoutFieldEvidenceIsRejectedEvenWithTentativePrefix() {
+        // 02-02 复审 P1 原文复现：“该设备可能有多种故障，充电控制器已经损坏。”
+        // 前半句的“可能”不得软化后半句的完成时态故障断言
+        var collected = List.of(reference("r1", "SIMULATED"));
+        var draft = answer("POSSIBLE_CAUSES", "该设备可能有多种故障，充电控制器已经损坏。",
+                List.of(new Claim("该设备可能有多种故障，充电控制器已经损坏", List.of("r1"), Certainty.POSSIBLE)),
+                List.of("r1"));
+        var verdict = guard.review(input(null), collected, draft);
+        assertThat(verdict.allowed()).isFalse();
+        assertThat(verdict.code()).isEqualTo("UNCONFIRMED_FINDING");
+
+        // 同样的内容在有服务器现场核验后才允许
+        assertThat(guard.review(input("CAR-B"), collected, draft, true).allowed()).isTrue();
+    }
+
+    @Test void negatedDefiniteFindingWordingIsNotMisjudged() {
+        // 02-02 复审 P2 原文复现：“尚未确诊为控制器损坏”不得被当成“已确诊”
+        var collected = List.of(reference("r1", "SIMULATED"));
+        var draft = answer("POSSIBLE_CAUSES", "尚未确诊为控制器损坏，建议现场核验后再判断。",
+                List.of(new Claim("尚未确诊为控制器损坏", List.of("r1"), Certainty.POSSIBLE)), List.of("r1"));
+        var verdict = guard.review(input(null), collected, draft);
+        assertThat(verdict.allowed()).isTrue();
+
+        // 肯定表述仍必须拒绝
+        var affirmative = answer("POSSIBLE_CAUSES", "已确诊为控制器损坏。",
+                List.of(new Claim("已确诊为控制器损坏", List.of("r1"), Certainty.POSSIBLE)), List.of("r1"));
+        assertThat(guard.review(input(null), collected, affirmative).code()).isEqualTo("UNCONFIRMED_FINDING");
+    }
+
+    @Test void followUpQuestionsShareTheSameSafetyBoundary() {
+        // 02-02 复审 P1：追问同样展示给用户，不得夹带设备操作指令或确诊断言
+        assertThat(AnswerGuard.unsafeFollowUp("请短接高压互锁端子后告诉我现象。", List.of("现象")))
+                .isTrue();
+        assertThat(AnswerGuard.unsafeFollowUp("请补充现场情况。", List.of("短接互锁端子")))
+                .isTrue();
+        assertThat(AnswerGuard.unsafeFollowUp("已确诊为控制器损坏，请确认是否更换。", List.of()))
+                .isTrue();
+        assertThat(AnswerGuard.unsafeFollowUp("是交流慢充还是直流快充？SOC 大约多少？",
+                List.of("充电方式", "SOC"))).isFalse();
+    }
 }

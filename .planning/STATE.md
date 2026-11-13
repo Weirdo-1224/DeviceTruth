@@ -3,28 +3,32 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 05
 current_phase_name: 完整工作台、质量与交付
-current_plan: Not started
+current_plan: "03"
 status: executing
-stopped_at: Phase 4 complete, ready to execute Phase 05
-last_updated: "2026-11-13T12:45:18.599Z"
+stopped_at: Phase 5 三个计划均完成并实测；等待两项集中人工确认（UAT），未关闭阶段
+last_updated: "2026-11-14T02:00:00.000Z"
 last_activity: 2026-11-13
-last_activity_desc: Phase 4 complete, transitioned to Phase 05
-state_head: 480cfd692b401dfd1b9f7387da87c28c9c34cca2
+last_activity_desc: 05-01/05-02/05-03 complete with evidence; phase exit awaits UAT confirmation
+state_head: d005031ec5e564bfd4971ca3a1f400cf575b9c58
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 13
-  completed_plans: 10
-  percent: 77
+  completed_plans: 13
+  percent: 100
 milestone_name: 通用设备检修 Agent
 total_phases: 5
 total_plans_in_phase: 3
-review_status: phase_04_verified
+review_status: phase_05_pending_uat
 execution_authorized: false
-last_execution_authorization: 2026-11-13 用户授权修复 Phase 3 与 Phase 4 衔接缺口、并行实施并验收。
+last_execution_authorization: 2026-11-13/14 用户授权实施并验收 05-01→05-02→05-03 与 Phase 5 整体验收；未授权 git 提交/推送/生产部署。
 ---
 
 # Project State
+
+> 2026-11-14 最新：**Phase 5 三个计划全部完成并实测，阶段待两项集中人工确认，未关闭**。05-01 复验轮六项审查问题（渐进持久事件/异步 SSE+容量/订阅原子化/空值规则/onerror 转发/无 run 清理）+ 审查方追加六项（恢复保留事件序号、渐进写入租约复核、V16 迁移断言、终态事件同事务、拒绝流不占容量、浏览器永久失败用例）全部落盘；全量 `mvn -o test` **360/0/0/1**、前端 36/36+build、浏览器 A–E 5/5（`sse-browser-808e290f3a99`）、`verify_cli` 通过。05-02 交付工作台（`DiagnosisReport`/`EvidenceComparison`/取消/Skill）+ 延期安全四项 + PDF 明确状态 + 14 例 E2E 矩阵（离线 PASS6/覆盖4/未跑4；在线 DeepSeek+DashScope PASS9/覆盖4/FAIL1=E2E-07 首轮未追问，如实记录）。05-03 交付 Dockerfile/compose/nginx/运维文档，**演练完整 PASS**（`deployment-20261114014426`：启动→产品链路→重启持久→备份恢复 6 表行数一致→迁移失败阻断→forward-fix 恢复）。UAT 待确认：① 多人共享是否排期接真实认证；② E2E-07「首轮必须追问」是否作为硬约束。文档：05-01/02/03-SUMMARY、05-ACCEPTANCE、05-VERIFICATION、05-VALIDATION、05-UAT、ACCEPTANCE-RESULTS。全部改动未提交，留在工作区待审阅。
+
+> 2026-11-13 最新：**05-01 实施完成并通过技术验收（用户授权范围：05-01 实施、子代理派工、整合、技术验收；05-02/05-03 未授权，停下待审）**。主代理统一契约（`05-01-CONTRACT.md`）后派工三个子代理并行：A 后端 SSE（`AgentConversationController` 新增 `GET /api/runs/{id}/events` 与 `/stream`、`SafeAgentEventViews` 白名单映射、`RunEventStreamService` 先历史后订阅再补读、订阅有界 409、断开清理）、B Vue 时间线（`api.ts` 事件流合同、`timeline.ts` 控制器、`RunTimeline.vue`、App.vue 接线）、C 集成与浏览器验收（`AgentStreamTest` 7/7、`scripts/verify_sse_browser.py` 三场景）。主代理整合修复：App.vue 选中历史终态 run 回读历史 + 视图不完整自动重跟（浏览器终验覆盖）；浏览器脚本两处时序修复（SSE 代理必须逐块转发；断连前须等浏览器收到过带 id 事件，否则 EventSource 无游标）。实测：全量 350/0/0/1（新增 AgentStreamTest 7）、前端 28/28+build、打包、verify_cli 全通过；浏览器三场景 PASS（断点 seq=4 断开→重连带 `Last-Event-ID: 4`→补齐 1..7 各一次；切换会话旧 run 零 stream 请求；终态历史回读 1..7）。证据：`outputs/validation/sse-browser-7e894c22cc0a/`。**05-01 代码与验收记录未提交，留在工作区供审阅**；未验证项见 [05-01-SUMMARY](phases/05-workbench-quality/05-01-SUMMARY.md)（真实模型长耗时流、订阅压测、独立认证为 05-03 范围）。
 
 > 2026-11-13 最新：Phase 3 补验和 Phase 4 验收结束。DeepSeek + DashScope 实际执行，Phase 3 同 run 追问、补答、引用和 Token 落库已核对；Phase 4 同批在线结果汽车 9/9、工厂 8/8（工厂措辞误判用更正规则复核原答案）。原生 UAT 门禁通过并关闭 Phase 4，累计 10/13 计划、4/5 阶段。Phase 5 尚未开始。全量 PostgreSQL 343 项（342 通过、1 跳过），见两阶段 ACCEPTANCE。
 
@@ -59,14 +63,14 @@ See: .planning/PROJECT.md (updated 2026-11-09)
 
 ## Current Position
 
-Phase: 05 — 完整工作台、质量与交付
-Current Plan: Not started
-Total Plans in Phase: 2
-Plan: 2 of 2
-Status: Ready to execute
-Last activity: 2026-11-13 — Phase 4 complete, transitioned to Phase 05
+Phase: 05 — 完整工作台、质量与交付（三个计划全部完成，阶段未关闭）
+Current Plan: 05-03 complete (verified)
+Total Plans in Phase: 3
+Plan: 3 of 3
+Status: awaiting UAT confirmation (two product decisions)
+Last activity: 2026-11-14 — 05-03 deployment drill PASS; Phase 5 exit pending UAT
 
-Progress: [███████░░░] 9/13 plans ([██████░░░░] 60%)
+Progress: [██████████] 13/13 plans (phase 4/5 still open)
 
 ## 02-02 本轮事实（2026-11-11）
 
@@ -86,7 +90,7 @@ Progress: [███████░░░] 9/13 plans ([██████░░
 - 前端 `frontend/`：Vue3.5.45 + Vite8.3.7 + Vitest5.1.0 + TS5.9.3 + vue-tsc3.3.14，`api.ts` 冻结两个合同与安全轮询，`App.vue` 展示消息/状态/追问/答案/引用。
 - 实际执行：`mvn -o test` 215/0/0/0（35 suites）、`mvn -o -q -DskipTests package`成功、`python scripts/verify_cli.py`全通过；新增 `GeneralAgentFlowTest` 14/0/0/0、`GeneralAgentApiTest` 6/0/0/0、`AnswerGuardTest` 10/0/0/0；独立 HTTP 进程在既有 `devicetruth` 库完成 V4→V5 升级并跑通两轮（导入201→提交202→WAITING→补答202同run→COMPLETED，错版本补答409且runs=1）；前端 `npm ci`/`npm run test -- --run` 12/0/0/0/`npm run build` 均通过。
 - 未验证（NOT_RUN）：真实千问/OpenAI 通用 Agent 调用、真实 embedding 与向量质量、浏览器人工演示 E2E-01/02/03 与 E2E-07-basic、PDF/混合检索、跨进程恢复与租约/CAS（M2）、并发补答与规模性能。
-- 未 commit/push；`status: blocked`、`review_status: pending`；未标记 PLAN 完成、未改 ROADMAP 阶段态。详见[02-02-SUMMARY](phases/02-open-rag/02-02-SUMMARY.md)。
+- 未 commit/push；`status: blocked`、`review_status: phase_05_pending_uat`；未标记 PLAN 完成、未改 ROADMAP 阶段态。详见[02-02-SUMMARY](phases/02-open-rag/02-02-SUMMARY.md)。
  [██░░░░░░░░]
 
 ## 02-01 本轮事实（2026-11-10）

@@ -1,19 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  cancelRun,
+  readAsset,
+  readRunSkill,
   ApiError,
   describeFailure,
   listAssets,
   listConversations,
   newRequestKey,
+  openRunEventStream,
   readRun,
   readReferences,
+  readRunEvents,
   replyToQuestion,
   sendMessage,
   uploadMarkdown,
   waitForFile,
   waitForRun,
+  type RunEvent,
   type RunView
 } from './api'
+import { createRunTimelineController } from './timeline'
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111'
 const CONVERSATION_ID = '22222222-2222-4222-8222-222222222222'
@@ -59,6 +66,17 @@ function stubFetch(...responses: Response[]): void {
     return response
   })
   vi.stubGlobal('fetch', mock)
+}
+
+/** 按 URL 决定响应，便于同一时间线里区分不同 run/游标的历史回读。 */
+function stubFetchByUrl(handler: (url: string) => Response): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init: init ?? {} })
+      return handler(String(input))
+    })
+  )
 }
 
 function bodyOf(call: Recorded): Record<string, unknown> {
@@ -314,5 +332,414 @@ describe('api 合同', () => {
 
     await sendMessage(CONVERSATION_ID, '没有设备的通用问题', 'key-no-asset')
     expect(bodyOf(calls[1])).toEqual({ schemaVersion: 1, userMessage: '没有设备的通用问题' })
+  })
+})
+
+
+function runEvent(seq: number, type: string, data: Record<string, unknown> = {}): RunEvent {
+  return { seq, type, recordedAt: '2026-11-13T12:00:00Z', data }
+}
+
+/** 假 EventSource：实现 api.ts 的 EventSourceLike，由测试手动派发服务端帧。 */
+class FakeEventSource {
+  static instances: FakeEventSource[] = []
+
+  readonly url: string
+  closed = false
+  readyState = 0
+  onmessage: ((event: { data: string }) => void) | null = null
+  onerror: ((event: unknown) => void) | null = null
+  private readonly listeners = new Map<string, Array<(event: { data: string }) => void>>()
+
+  constructor(url: string) {
+    this.url = url
+    FakeEventSource.instances.push(this)
+  }
+
+  addEventListener(type: string, listener: (event: { data: string }) => void): void {
+    const list = this.listeners.get(type) ?? []
+    list.push(listener)
+    this.listeners.set(type, list)
+  }
+
+  emit(type: string, data: unknown): void {
+    const message = { data: typeof data === 'string' ? data : JSON.stringify(data) }
+    for (const listener of this.listeners.get(type) ?? []) listener(message)
+  }
+
+  /** 模拟连接永久关闭（如服务端结束流）：readyState=CLOSED 且浏览器不再重连。 */
+  failPermanently(): void {
+    this.readyState = 2
+    this.onerror?.(new Error('connection closed'))
+  }
+
+  /** 模拟瞬时断线：readyState 保持 CONNECTING（0），原生 EventSource 会自动按 Last-Event-ID 重连。 */
+  failTransiently(): void {
+    this.onerror?.(new Error('connection interrupted'))
+  }
+
+  close(): void {
+    this.closed = true
+    this.readyState = 2
+  }
+}
+
+/**
+ * 假原生 EventSource：记录赋值到原生对象上的 handler，验证默认工厂的 getter/setter 确实把
+ * 包装器 onerror 转发到原生 error 事件（§8.5）。openRunEventStream 不传 eventSourceFactory 时
+ * defaultEventSourceFactory 会 new 全局 EventSource，测试用 vi.stubGlobal 换成这个类。
+ */
+class FakeNativeEventSource {
+  static instances: FakeNativeEventSource[] = []
+
+  readonly url: string
+  closed = false
+  readyState = 0
+  onmessage: ((event: { data: string }) => void) | null = null
+  onerror: ((event: unknown) => void) | null = null
+
+  constructor(url: string) {
+    this.url = url
+    FakeNativeEventSource.instances.push(this)
+  }
+
+  addEventListener(): void {
+    // 具名事件监听注册与否不影响本替身要验证的 onerror 转发
+  }
+
+  close(): void {
+    this.closed = true
+    this.readyState = 2
+  }
+}
+
+describe('运行事件与时间线', () => {
+  beforeEach(() => {
+    FakeEventSource.instances = []
+    FakeNativeEventSource.instances = []
+  })
+
+  it('历史回读按游标请求 /events，返回按 seq 升序的事件', async () => {
+    stubFetchByUrl((url) => {
+      if (url === '/api/runs/' + RUN_ID + '/events')
+        return jsonResponse([runEvent(1, 'RUN_QUEUED', { status: 'QUEUED' }), runEvent(2, 'RUN_TOOL', { toolName: 'search_knowledge', success: true })])
+      if (url === '/api/runs/' + RUN_ID + '/events?after=1') return jsonResponse([runEvent(2, 'RUN_TOOL', { toolName: 'search_knowledge', success: true }), runEvent(3, 'RUN_MODEL', { attempt: 1, outcome: 'OK', durationMs: 800 })])
+      return jsonResponse({ code: 'NOT_FOUND', message: '请求无法处理。', retryable: false, traceId: 'trace-events' }, 404)
+    })
+
+    const all = await readRunEvents(RUN_ID)
+    expect(calls[0].url).toBe('/api/runs/' + RUN_ID + '/events')
+    expect(all.map((event) => event.seq)).toEqual([1, 2])
+    expect(all[1].data.toolName).toBe('search_knowledge')
+
+    const incremental = await readRunEvents(RUN_ID, 1)
+    expect(calls[1].url).toBe('/api/runs/' + RUN_ID + '/events?after=1')
+    expect(incremental.map((event) => event.seq)).toEqual([2, 3])
+  })
+
+  it('run 不存在时历史回读以 ApiError 暴露，而不是返回空时间线', async () => {
+    stubFetch(jsonResponse({ code: 'NOT_FOUND', message: '请求无法处理。', retryable: false, traceId: 'trace-404' }, 404))
+    await expect(readRunEvents(RUN_ID)).rejects.toMatchObject({ code: 'NOT_FOUND', status: 404 })
+    expect(calls[0].url).toBe('/api/runs/' + RUN_ID + '/events')
+  })
+
+  it('openRunEventStream 订阅 /stream，按事件类型派发且保持到达顺序', () => {
+    const seen: RunEvent[] = []
+    const handle = openRunEventStream(RUN_ID, {
+      lastSeq: 0,
+      onEvent: (event) => seen.push(event),
+      eventSourceFactory: (url) => new FakeEventSource(url)
+    })
+    const source = FakeEventSource.instances[0]
+    expect(source.url).toBe('/api/runs/' + RUN_ID + '/stream')
+
+    source.emit('RUN_TOOL', runEvent(1, 'RUN_TOOL', { toolName: 'search_knowledge', success: true, durationMs: 120 }))
+    source.emit('RUN_MODEL', runEvent(2, 'RUN_MODEL', { model: 'qwen-max', attempt: 1, outcome: 'OK', durationMs: 800 }))
+    source.emit('RUN_TOOL', runEvent(3, 'RUN_TOOL', { toolName: 'search_knowledge', success: false, errorCode: 'TOOL_TIMEOUT', retryable: true }))
+
+    expect(seen.map((event) => event.seq)).toEqual([1, 2, 3])
+    expect(seen[2].data.errorCode).toBe('TOOL_TIMEOUT')
+    handle.close()
+    expect(source.closed).toBe(true)
+  })
+
+  it('收到 RUN_TERMINAL 后回调终态并自动关闭流', () => {
+    const terminals: string[] = []
+    openRunEventStream(RUN_ID, {
+      lastSeq: 0,
+      onEvent: () => {},
+      onTerminal: (status) => terminals.push(status),
+      eventSourceFactory: (url) => new FakeEventSource(url)
+    })
+    const source = FakeEventSource.instances[0]
+
+    source.emit('RUN_TERMINAL', { status: 'COMPLETED' })
+
+    expect(terminals).toEqual(['COMPLETED'])
+    expect(source.closed).toBe(true)
+  })
+
+  it('流被永久关闭且未收到终态时上报 onError 并停止', () => {
+    const errors: unknown[] = []
+    openRunEventStream(RUN_ID, {
+      lastSeq: 0,
+      onEvent: () => {},
+      onError: (error) => errors.push(error),
+      eventSourceFactory: (url) => new FakeEventSource(url)
+    })
+    const source = FakeEventSource.instances[0]
+
+    source.failPermanently()
+
+    expect(errors).toHaveLength(1)
+    expect(source.closed).toBe(true)
+  })
+
+  it('先补历史再开流；断线重连补齐时，重复 seq 不重复追加', async () => {
+    const history = Array.from({ length: 12 }, (_, index) =>
+      runEvent(index + 1, 'RUN_TOOL', { toolName: 'search_knowledge', success: true, durationMs: 100 })
+    )
+    stubFetchByUrl((url) => (url === '/api/runs/' + RUN_ID + '/events' ? jsonResponse(history) : jsonResponse([], 404)))
+    const controller = createRunTimelineController({ eventSourceFactory: (url) => new FakeEventSource(url) })
+
+    await controller.follow(RUN_ID)
+    const source = FakeEventSource.instances[0]
+    expect(controller.snapshot().events.map((event) => event.seq)).toEqual(history.map((event) => event.seq))
+
+    // 模拟断线重连：服务端按 Last-Event-ID 补齐，把已收事件重放后再发新事件 13、14
+    const replayed = [...history, runEvent(13, 'RUN_MODEL', { attempt: 2, outcome: 'OK', durationMs: 900 }), runEvent(14, 'RUN_ANSWER', { category: 'POSSIBLE_CAUSES', riskLevel: 'LOW', dataNature: 'SIMULATED' })]
+    for (const event of replayed) source.emit(event.type, event)
+    expect(controller.snapshot().events.map((event) => event.seq)).toEqual(Array.from({ length: 14 }, (_, index) => index + 1))
+    expect(controller.snapshot().maxSeq).toBe(14)
+
+    // 至少一次语义下服务端可能再重发旧事件：仍不重复渲染
+    source.emit('RUN_TOOL', history[4])
+    source.emit('RUN_MODEL', replayed[12])
+    expect(controller.snapshot().events.map((event) => event.seq)).toEqual(Array.from({ length: 14 }, (_, index) => index + 1))
+  })
+
+  it('收到 RUN_TERMINAL 后停止订阅但保留时间线展示', async () => {
+    stubFetchByUrl((url) => (url === '/api/runs/' + RUN_ID + '/events' ? jsonResponse([runEvent(1, 'RUN_QUEUED', { status: 'QUEUED' })]) : jsonResponse([], 404)))
+    const controller = createRunTimelineController({ eventSourceFactory: (url) => new FakeEventSource(url) })
+
+    await controller.follow(RUN_ID)
+    const source = FakeEventSource.instances[0]
+    source.emit('RUN_ANSWER', runEvent(2, 'RUN_ANSWER', { category: 'CONFIRMED_FINDING', riskLevel: 'MEDIUM', dataNature: 'SIMULATED' }))
+    source.emit('RUN_TERMINAL', { status: 'COMPLETED' })
+
+    const snapshot = controller.snapshot()
+    expect(snapshot.live).toBe(false)
+    expect(snapshot.terminalStatus).toBe('COMPLETED')
+    expect(snapshot.events.map((event) => event.seq)).toEqual([1, 2])
+    expect(source.closed).toBe(true)
+  })
+
+  it('切换 run 时关闭旧流，旧流迟到事件不更新当前页面', async () => {
+    const otherRunId = '99999999-9999-4999-8999-999999999999'
+    stubFetchByUrl((url) => {
+      if (url === '/api/runs/' + RUN_ID + '/events') return jsonResponse([runEvent(1, 'RUN_TOOL', { toolName: 'search_knowledge', success: true })])
+      if (url === '/api/runs/' + otherRunId + '/events') return jsonResponse([runEvent(1, 'RUN_QUEUED', { status: 'QUEUED' })])
+      return jsonResponse([], 404)
+    })
+    const controller = createRunTimelineController({ eventSourceFactory: (url) => new FakeEventSource(url) })
+
+    await controller.follow(RUN_ID)
+    const firstSource = FakeEventSource.instances[0]
+    await controller.follow(otherRunId)
+    expect(firstSource.closed).toBe(true)
+    expect(controller.snapshot().runId).toBe(otherRunId)
+
+    // 旧 run 的迟到事件必须被忽略，当前 run 的增量正常追加
+    firstSource.emit('RUN_TOOL', runEvent(2, 'RUN_TOOL', { toolName: 'late', success: true }))
+    const secondSource = FakeEventSource.instances[1]
+    secondSource.emit('RUN_MODEL', runEvent(2, 'RUN_MODEL', { attempt: 1, outcome: 'OK' }))
+
+    const snapshot = controller.snapshot()
+    expect(snapshot.runId).toBe(otherRunId)
+    expect(snapshot.events.map((event) => event.type)).toEqual(['RUN_QUEUED', 'RUN_MODEL'])
+  })
+
+  it('重复跟随同一进行中的 run 不重复开流', async () => {
+    stubFetchByUrl((url) => (url === '/api/runs/' + RUN_ID + '/events' ? jsonResponse([runEvent(1, 'RUN_QUEUED', { status: 'QUEUED' })]) : jsonResponse([], 404)))
+    const controller = createRunTimelineController({ eventSourceFactory: (url) => new FakeEventSource(url) })
+
+    await controller.follow(RUN_ID)
+    await controller.follow(RUN_ID)
+
+    expect(FakeEventSource.instances).toHaveLength(1)
+    expect(calls.filter((call) => call.url.endsWith('/events'))).toHaveLength(1)
+  })
+
+  it('历史加载失败时保持关闭并透传错误，不开流也不伪装成功', async () => {
+    stubFetch(jsonResponse({ code: 'NOT_FOUND', message: '请求无法处理。', retryable: false, traceId: 'trace-history' }, 404))
+    const errors: unknown[] = []
+    const controller = createRunTimelineController({
+      eventSourceFactory: (url) => new FakeEventSource(url),
+      onError: (error) => errors.push(error)
+    })
+
+    await controller.follow(RUN_ID)
+
+    expect(controller.snapshot().live).toBe(false)
+    expect(controller.snapshot().events).toEqual([])
+    expect(errors).toHaveLength(1)
+    expect(FakeEventSource.instances).toHaveLength(0)
+  })
+
+  it('默认事件源工厂把包装器 onerror 经 getter/setter 转发到原生 error 事件', () => {
+    vi.stubGlobal('EventSource', FakeNativeEventSource)
+    const errors: unknown[] = []
+    openRunEventStream(RUN_ID, {
+      lastSeq: 0,
+      onEvent: () => {},
+      onError: (error) => errors.push(error),
+      maxRetryErrors: 1
+    })
+    const native = FakeNativeEventSource.instances[0]
+    expect(native.url).toBe('/api/runs/' + RUN_ID + '/stream')
+    // openRunEventStream 给包装器赋值 onerror 后，原生连接上必须能读到同一个 handler
+    expect(native.onerror).not.toBeNull()
+
+    // 触发原生 error：handler 经包装器转发生效，且达阈值后 close 也转发到原生连接
+    native.onerror?.(new Error('boom'))
+    expect(errors).toHaveLength(1)
+    expect(native.closed).toBe(true)
+  })
+
+  it('连续 onerror 达默认阈值 8 且期间无成功事件时判永久失败：控制器置 live=false 并关流', async () => {
+    stubFetchByUrl((url) => (url === '/api/runs/' + RUN_ID + '/events' ? jsonResponse([]) : jsonResponse([], 404)))
+    const errors: unknown[] = []
+    const controller = createRunTimelineController({
+      eventSourceFactory: (url) => new FakeEventSource(url),
+      onError: (error) => errors.push(error)
+    })
+
+    await controller.follow(RUN_ID)
+    const source = FakeEventSource.instances[0]
+    expect(controller.snapshot().live).toBe(true)
+
+    for (let i = 0; i < 7; i++) source.failTransiently()
+    expect(errors).toHaveLength(0)
+    expect(controller.snapshot().live).toBe(true)
+
+    source.failTransiently()
+    expect(errors).toHaveLength(1)
+    expect(controller.snapshot().live).toBe(false)
+    expect(source.closed).toBe(true)
+  })
+
+  it('阈值内的瞬时错误后收到成功事件会重置计数，不误报永久失败', () => {
+    const errors: unknown[] = []
+    const seen: RunEvent[] = []
+    openRunEventStream(RUN_ID, {
+      lastSeq: 0,
+      onEvent: (event) => seen.push(event),
+      onError: (error) => errors.push(error),
+      maxRetryErrors: 2,
+      eventSourceFactory: (url) => new FakeEventSource(url)
+    })
+    const source = FakeEventSource.instances[0]
+
+    source.failTransiently()
+    source.emit('RUN_TOOL', runEvent(1, 'RUN_TOOL', { toolName: 'search_knowledge', success: true }))
+    source.failTransiently()
+
+    expect(errors).toHaveLength(0)
+    expect(seen.map((event) => event.seq)).toEqual([1])
+    expect(source.closed).toBe(false)
+  })
+
+  it('RUN_WAITING 经具名监听器派发到 onEvent，且非终态不关闭流', () => {
+    const seen: RunEvent[] = []
+    openRunEventStream(RUN_ID, {
+      lastSeq: 0,
+      onEvent: (event) => seen.push(event),
+      eventSourceFactory: (url) => new FakeEventSource(url)
+    })
+    const source = FakeEventSource.instances[0]
+
+    source.emit('RUN_WAITING', runEvent(1, 'RUN_WAITING', { questionVersion: 2 }))
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0].type).toBe('RUN_WAITING')
+    expect(seen[0].data.questionVersion).toBe(2)
+    expect(source.closed).toBe(false)
+  })
+
+  it('clear() 后快照全空并通知页面，迟到的旧事件被忽略', async () => {
+    stubFetchByUrl((url) =>
+      url === '/api/runs/' + RUN_ID + '/events'
+        ? jsonResponse([runEvent(1, 'RUN_QUEUED', { status: 'QUEUED' })])
+        : jsonResponse([], 404)
+    )
+    const controller = createRunTimelineController({ eventSourceFactory: (url) => new FakeEventSource(url) })
+    let changes = 0
+    controller.onChange(() => {
+      changes += 1
+    })
+
+    await controller.follow(RUN_ID)
+    const source = FakeEventSource.instances[0]
+    source.emit('RUN_TOOL', runEvent(2, 'RUN_TOOL', { toolName: 'search_knowledge', success: true }))
+    expect(controller.snapshot().events.map((event) => event.seq)).toEqual([1, 2])
+
+    controller.clear()
+    const cleared = controller.snapshot()
+    expect(cleared.runId).toBeNull()
+    expect(cleared.events).toEqual([])
+    expect(cleared.maxSeq).toBe(0)
+    expect(cleared.live).toBe(false)
+    expect(cleared.terminalStatus).toBeNull()
+    expect(source.closed).toBe(true)
+    expect(changes).toBeGreaterThan(0)
+
+    // 旧流迟到事件：generation 已变 + runId 已空，双保险下不会填回展示
+    source.emit('RUN_MODEL', runEvent(3, 'RUN_MODEL', { attempt: 1, outcome: 'OK' }))
+    expect(controller.snapshot().events).toEqual([])
+  })
+
+  it('取消运行：POST /cancel 返回更新后的 RunView；终态再取消把 409 映射为 ApiError', async () => {
+    stubFetchByUrl((url) =>
+      url === '/api/runs/' + RUN_ID + '/cancel'
+        ? jsonResponse({ runId: RUN_ID, status: 'CANCELLED' })
+        : jsonResponse({ code: 'RUN_ALREADY_TERMINAL', message: '已结束', retryable: false, traceId: 't' }, 409)
+    )
+    const updated = await cancelRun(RUN_ID)
+    expect(updated.status).toBe('CANCELLED')
+    stubFetchByUrl(() => jsonResponse(
+      { code: 'RUN_ALREADY_TERMINAL', message: '已结束', retryable: false, traceId: 't' }, 409))
+    await expect(cancelRun(RUN_ID)).rejects.toMatchObject({ code: 'RUN_ALREADY_TERMINAL', status: 409 })
+  })
+
+  it('领域 Skill：已选择时返回版本与适用范围，SKILL_NOT_SELECTED 归一为 null', async () => {
+    stubFetchByUrl((url) =>
+      url === '/api/runs/' + RUN_ID + '/skill'
+        ? jsonResponse({ skillId: 'automotive-diagnosis', name: '汽车诊断', version: '1.0.0', scope: ['汽车'] })
+        : jsonResponse({ code: 'SKILL_NOT_SELECTED', message: '未选择', retryable: false, traceId: 't' }, 404)
+    )
+    const skill = await readRunSkill(RUN_ID)
+    expect(skill?.version).toBe('1.0.0')
+    expect(skill?.skillId).toBe('automotive-diagnosis')
+    expect(await readRunSkill('22222222-2222-4222-8222-222222222222')).toBeNull()
+  })
+
+  it('资产组合视图：按 assetId 读取配置/维修记录，404 映射为 ApiError', async () => {
+    stubFetchByUrl((url) =>
+      url === '/api/assets/CAR-B'
+        ? jsonResponse({
+            assetId: 'CAR-B', ownerId: 'o', projectId: 'p', asOf: '2026-11-13T00:00:00Z',
+            configurations: [{ recordId: 'r1', componentId: 'BMS', attribute: 'moduleVersion', value: 'D-120A',
+              sourceType: 'FACTORY', sourceId: 's1', sourceRef: 'ref', dataNature: 'SIMULATED',
+              verificationStatus: 'DOCUMENTED', authority: 1, validFrom: '2024-03-12T00:00:00Z', validTo: null,
+              recordedAt: '2024-03-12T00:00:00Z', observedAt: null }],
+            maintenance: [], installationStatus: 'UNCONFIRMED', conflict: 'CONFLICT',
+            requiredChecks: ['现场核验'], limitations: ['模拟数据'], dataNature: 'SIMULATED'
+          })
+        : jsonResponse({ code: 'NOT_FOUND_OR_DENIED', message: '不存在', retryable: false, traceId: 't' }, 404)
+    )
+    const asset = await readAsset('CAR-B')
+    expect(asset.configurations[0]?.value).toBe('D-120A')
+    expect(asset.conflict).toBe('CONFLICT')
+    await expect(readAsset('UNKNOWN')).rejects.toMatchObject({ code: 'NOT_FOUND_OR_DENIED' })
   })
 })

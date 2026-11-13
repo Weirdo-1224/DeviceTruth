@@ -74,6 +74,7 @@ public class ProductConfiguration {
      * 产品通用 Agent 服务：知识工具经 agentCapabilityGateway 进入唯一主循环，
      * 每 run 新建推理器实例，worker 有界；worker-enabled=false 时只保留 M0 的 QUEUED 持久化合同。
      * initMethod=recoverQueued 在装配完成后接手上一个进程遗留的 QUEUED 任务（M0 队列交接）。
+     * 事件通知钩子取 RunEventStreamService.publish：只在事件事务提交后调用（先提交后发布）。
      */
     @Bean(initMethod = "recoverQueued")
     @DependsOn("productFlyway")
@@ -81,6 +82,7 @@ public class ProductConfiguration {
             @Qualifier("agentCapabilityGateway") CapabilityGateway gateway,
             ServerIdentity identity, SkillRuntime skills,
             io.devicetruth.knowledge.FileUploadService fileUploadService,
+            io.devicetruth.application.agent.RunEventStreamService runEventStreamService,
             @Value("${devicetruth.agent.reasoner:scripted}") String reasonerName,
             @Value("${devicetruth.agent.max-concurrent-runs:2}") int maxConcurrentRuns,
             @Value("${devicetruth.agent.max-queue:10}") int maxQueue,
@@ -91,10 +93,44 @@ public class ProductConfiguration {
         var transactions = new TransactionTemplate(new DataSourceTransactionManager(source));
         return new GeneralAgentService(new ConversationRepository(jdbc),
                 new AgentRunRepository(jdbc, environment.getProperty("devicetruth.agent.max-active-duration-ms",
-                        Long.class, 120_000L)),
+                        Long.class, 120_000L), transactions),
                 transactions,
                 identity, gateway, agentReasoners(agentReasonerName(environment, reasonerName)), maxConcurrentRuns,
-                maxQueue, workerEnabled, fileUploadService, leaseSeconds, maxRecoveryAttempts, skills);
+                maxQueue, workerEnabled, fileUploadService, leaseSeconds, maxRecoveryAttempts, skills,
+                runEventStreamService::publish);
+    }
+
+    /**
+     * 复验 §8.2：SSE relay 专用有界线程池，容量=devicetruth.stream.max-connections（默认 64），
+     * relay 不占用 Tomcat 请求线程；全局容量判定在 RunEventStreamService 同一锁内完成，
+     * 池饱和的竞态窗口由 execute 拒绝兜底为 503 STREAM_CAPACITY。
+     */
+    @Bean(destroyMethod = "shutdown")
+    java.util.concurrent.ThreadPoolExecutor runStreamRelayExecutor(
+            @Value("${devicetruth.stream.max-connections:64}") int maxConnections) {
+        var seq = new java.util.concurrent.atomic.AtomicInteger();
+        return new java.util.concurrent.ThreadPoolExecutor(maxConnections, maxConnections, 60,
+                java.util.concurrent.TimeUnit.SECONDS, new java.util.concurrent.ArrayBlockingQueue<>(maxConnections),
+                runnable -> {
+                    Thread thread = new Thread(runnable, "devicetruth-stream-" + seq.incrementAndGet());
+                    thread.setDaemon(true);
+                    return thread;
+                });
+    }
+
+    /** 05-01 实时事件流：内存通知 + 低频兜底补读；单 run 订阅有界（默认 16，超出 409）、
+     *  全局有界（默认 64，超出 503）、单连接期限 ttl（默认 60 分钟，超时统一清理，复验 §8.2）。 */
+    @Bean
+    @DependsOn("productFlyway")
+    io.devicetruth.application.agent.RunEventStreamService runEventStreamService(
+            HikariDataSource source, ServerIdentity identity,
+            java.util.concurrent.ThreadPoolExecutor runStreamRelayExecutor,
+            @Value("${devicetruth.stream.max-subscriptions:16}") int maxSubscriptions,
+            @Value("${devicetruth.stream.max-connections:64}") int maxConnections,
+            @Value("${devicetruth.stream.ttl-minutes:60}") long ttlMinutes) {
+        return new io.devicetruth.application.agent.RunEventStreamService(
+                new AgentRunRepository(new JdbcTemplate(source)), identity, maxSubscriptions,
+                maxConnections, java.time.Duration.ofMinutes(ttlMinutes), runStreamRelayExecutor);
     }
 
     /** 结构化设备主数据仓储：身份、组件、配置与维修历史（V8）。 */

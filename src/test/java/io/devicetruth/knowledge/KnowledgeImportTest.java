@@ -210,9 +210,23 @@ class KnowledgeImportTest {
         assertThat(traversal.getStatusCode().value()).isEqualTo(400);
         assertThat(fileRoot.resolve("owner-a").resolve("escape.md")).doesNotExist();
 
+        // 05-02 延期项：PDF 接受登记但返回明确状态 OCR_REQUIRED/PDF_NOT_SUPPORTED，
+        // 不解析、不切片、不产生正文或页码，绝不伪造内容
         var pdf = upload(base, "manual.pdf", "%PDF-fake".getBytes(StandardCharsets.UTF_8), "application/pdf");
-        assertThat(pdf.getStatusCode().value()).isEqualTo(415);
-        assertThat(pdf.getBody()).contains("UNSUPPORTED_FILE_TYPE");
+        assertThat(pdf.getStatusCode().value()).isEqualTo(202);
+        String pdfId = json(pdf).path("fileId").asText();
+        JsonNode pdfView = awaitFile(base, pdfId, "OCR_REQUIRED");
+        assertThat(pdfView.path("failureCode").asText()).isEqualTo("PDF_NOT_SUPPORTED");
+        assertThat(pdfView.path("documentId").isNull()).isTrue();
+        assertThat(pdfView.path("mime").asText()).isEqualTo("application/pdf");
+        // 重试保持明确状态，不进入无限循环，也不产生文档
+        var pdfRetry = rest.postForEntity(base + "/api/files/" + pdfId + "/retry", null, String.class);
+        assertThat(pdfRetry.getStatusCode().value()).isEqualTo(202);
+        assertThat(awaitFile(base, pdfId, "OCR_REQUIRED").path("documentId").isNull()).isTrue();
+        // 其它不支持类型仍是 415
+        var exe = upload(base, "tool.exe", new byte[] {1, 2, 3}, "application/octet-stream");
+        assertThat(exe.getStatusCode().value()).isEqualTo(415);
+        assertThat(exe.getBody()).contains("UNSUPPORTED_FILE_TYPE");
 
         var invalid = upload(base, "broken.md", new byte[] {(byte) 0xc3, 0x28}, "text/markdown");
         assertThat(invalid.getStatusCode().value()).isEqualTo(202);

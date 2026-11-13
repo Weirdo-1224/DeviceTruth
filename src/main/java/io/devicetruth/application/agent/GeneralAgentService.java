@@ -66,6 +66,8 @@ public final class GeneralAgentService {
     }
 
     private static final Set<String> REPLY_KEYS = Set.of("runId", "pendingQuestionId", "questionVersion");
+    /** 单次历史读取上限：超出由调用方用游标分批；Repository 内部再按 500 分批查库。 */
+    private static final int EVENT_HISTORY_LIMIT = 5000;
 
     private final ConversationRepository conversations;
     private final AgentRunRepository runs;
@@ -80,6 +82,8 @@ public final class GeneralAgentService {
     private final SkillRuntime skills;
     /** 本进程实例的 worker 标识：租约按它判定持有者，崩溃后由新进程在租约过期后回收。 */
     private final String workerId;
+    /** 事件落库事务提交后的内存通知钩子（先提交后发布）；缺省无操作。 */
+    private final java.util.function.Consumer<UUID> eventNotifier;
     private final java.time.Duration leaseDuration;
     private final RunRecoveryService recovery;
     private final java.util.concurrent.ScheduledExecutorService heartbeats;
@@ -117,8 +121,24 @@ public final class GeneralAgentService {
                                int maxConcurrentRuns, int maxQueue, boolean workerEnabled,
                                io.devicetruth.knowledge.FileUploadService files, long leaseSeconds,
                                int maxRecoveryAttempts, SkillRuntime skills) {
+        this(conversations, runs, transactions, identity, gateway, reasoners, maxConcurrentRuns, maxQueue,
+                workerEnabled, files, leaseSeconds, maxRecoveryAttempts, skills, runId -> {});
+    }
+
+    /**
+     * eventNotifier 在事件落库事务提交后被调用（先提交后发布），由 RunEventStreamService
+     * 用内存通知唤醒实时订阅；缺省为无操作，测试与 legacy 装配不受影响。
+     */
+    public GeneralAgentService(ConversationRepository conversations, AgentRunRepository runs,
+                               TransactionTemplate transactions, ServerIdentity identity,
+                               CapabilityGateway gateway, Supplier<GeneralReasoner> reasoners,
+                               int maxConcurrentRuns, int maxQueue, boolean workerEnabled,
+                               io.devicetruth.knowledge.FileUploadService files, long leaseSeconds,
+                               int maxRecoveryAttempts, SkillRuntime skills,
+                               java.util.function.Consumer<UUID> eventNotifier) {
         if (maxConcurrentRuns < 1 || maxQueue < 0) throw new IllegalArgumentException("Worker limits must be positive");
         if (leaseSeconds < 1) throw new IllegalArgumentException("leaseSeconds must be positive");
+        this.eventNotifier = eventNotifier;
         this.conversations = conversations;
         this.runs = runs;
         this.transactions = transactions;
@@ -175,12 +195,15 @@ public final class GeneralAgentService {
      * 终态 run 再取消返回 409 RUN_ALREADY_TERMINAL；不存在/跨身份统一 404。
      */
     public RunView cancel(UUID runId) {
-        return transactions.execute(status -> {
+        RunView view = transactions.execute(status -> {
             runs.load(identity, runId, true);
             if (runs.requestCancel(identity, runId, Instant.now()) != 1)
                 throw new RequestFailure("RUN_ALREADY_TERMINAL", 409);
             return runs.require(identity, runId);
         });
+        // 事务已提交：RUN_CANCELLED 等事件落库后才允许发布内存通知（先提交后发布）。
+        notifyEvents(runId);
+        return view;
     }
 
     /**
@@ -209,6 +232,13 @@ public final class GeneralAgentService {
         return runs.modelEvents(identity, runId);
     }
 
+    /** 公开事件历史（05-01）：白名单映射 + 有界分批；先 runs.require 授权，不存在/跨身份 404。 */
+    public List<SafeAgentEventViews.PublicEvent> events(UUID runId, long afterSeq) {
+        if (afterSeq < 0) throw new IllegalArgumentException("afterSeq must be >= 0");
+        runs.require(identity, runId);
+        return runs.eventsAfter(identity, runId, afterSeq, EVENT_HISTORY_LIMIT);
+    }
+
     /**
      * 提交一条消息：普通消息开启新任务；带 replyTo 三元组的消息是对当前 run 待答问题的补答，
      * 关联不成立时返回 REPLY_TARGET_REQUIRED/STALE_OR_UNRELATED_REPLY，绝不静默新建 run。
@@ -235,6 +265,7 @@ public final class GeneralAgentService {
             importContextRefs(contextRefs, created.runId());
             return created;
         });
+        notifyEvents(run.runId());
         dispatch(run.runId());
         return run;
     }
@@ -263,6 +294,7 @@ public final class GeneralAgentService {
             importContextRefs(contextRefs, record.runId());
             return runs.require(identity, record.runId());
         });
+        notifyEvents(run.runId());
         dispatch(run.runId());
         return run;
     }
@@ -410,11 +442,14 @@ public final class GeneralAgentService {
                 return null;
             }
             var references = runs.references(identity, runId);
+            // 当前执行尝试号 = 领取 RUNNING 时 attempts+1 后的值（渐进持久步骤事件归属，§8.1）
+            var progress = progressWriter(run);
             if (skills == null)
-                return orchestrator.runAgent(input, gateway, toolContext, references, reasoner, abortCode);
+                return orchestrator.runAgent(input, gateway, toolContext, references, reasoner, abortCode,
+                        () -> new TaskOrchestrator.SkillStep(toolContext, List.of(), null), progress);
             var skillSession = skills.open(gateway, toolContext, run.version() + 1);
             return orchestrator.runAgent(input, skillSession.gateway(), toolContext, references, reasoner,
-                    abortCode, skillSession::step);
+                    abortCode, skillSession::step, progress);
         } catch (SkillException e) {
             failClaimedQuietly(run, e.code());
             return null;
@@ -448,14 +483,8 @@ public final class GeneralAgentService {
                         Map.of("status", current.status(), "code", outcome.stopReason()), Instant.now());
                 return null;
             }
-            Instant auditedAt = Instant.now();
-            for (var event : outcome.events()) {
-                if ("TOOL_RESULT".equals(event.type()))
-                    runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_TOOL", event.data(), auditedAt);
-                if ("MODEL_ATTEMPT".equals(event.type()))
-                    runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_MODEL",
-                            modelEventPayload(event.data()), auditedAt);
-            }
+            // 步骤事件（RUN_TOOL/RUN_MODEL）已由执行中的渐进持久回调写入，收尾不再重复写；
+            // 用量汇总保持幂等重算，终态迁移仍与下面的状态更新同事务。
             if (attempts > 0) runs.updateModelUsage(identity, run.runId());
 
             // 锁内重新计时，避免模型返回后在等待锁或保存审计的时间里超限却仍提交问答。
@@ -483,8 +512,13 @@ public final class GeneralAgentService {
                 var question = outcome.question().withVersion(run.questionVersion() + 1);
                 conversations.appendAssistant(identity, run.conversationId(), run.runId(), question.question(),
                         now, run.asOf());
-                runs.waitForUser(identity, current, question, outcome.stepsUsed(), outcome.references().size(),
-                        segmentMs, attempts, tools, now);
+                // 等待补充信息是持久状态迁移（非终态）：事件与 waitForUser 同事务写入，流保持打开；
+                // 事件写在 CAS 成功之后，迁移被并发打断时不留悬挂事件。
+                int waiting = runs.waitForUser(identity, current, question, outcome.stepsUsed(),
+                        outcome.references().size(), segmentMs, attempts, tools, now);
+                if (waiting == 1)
+                    runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_WAITING",
+                            Map.of("questionVersion", question.questionVersion()), now);
             } else if (outcome.status() == TaskOrchestrator.AgentStatus.COMPLETED) {
                 conversations.appendAssistant(identity, run.conversationId(), run.runId(),
                         outcome.answer().summary(), now, run.asOf());
@@ -496,6 +530,42 @@ public final class GeneralAgentService {
             }
             return null;
         });
+        // 本段全部事件（RUN_TOOL/RUN_MODEL/RUN_ANSWER/RUN_FAILED/...）随上面事务提交后才发布通知。
+        notifyEvents(run.runId());
+    }
+
+    /**
+     * 渐进持久进度回调（05-01 复验 §8.1）：主循环每记录一个事件同步触发一次，
+     * TOOL_RESULT/MODEL_ATTEMPT 各自以短事务立即落库为 RUN_TOOL/RUN_MODEL
+     * （attempt=worker 领取 RUNNING 时 attempts+1 后的当前尝试号；先提交后通知）。
+     * 落库失败只记日志：步骤事件缺失不影响主循环推进，终态仍由 persist 收口；
+     * 已提交的步骤事件保留，恢复重跑使用新的尝试号。
+     */
+    private java.util.function.Consumer<TaskOrchestrator.RunEvent> progressWriter(RunRecord run) {
+        int attempt = run.attempts() + 1;
+        UUID runId = run.runId();
+        return event -> {
+            boolean toolEvent = "TOOL_RESULT".equals(event.type());
+            if (!toolEvent && !"MODEL_ATTEMPT".equals(event.type())) return;
+            try {
+                transactions.execute(status -> {
+                    if (!runs.lockClaim(identity, runId, run.version() + 1, attempt, Instant.now())) return null;
+                    if (toolEvent) {
+                        runs.appendEvent(identity, runId, run.conversationId(), "RUN_TOOL",
+                                event.data(), Instant.now(), attempt);
+                    } else {
+                        runs.appendEvent(identity, runId, run.conversationId(), "RUN_MODEL",
+                                modelEventPayload(event.data()), Instant.now(), attempt);
+                        runs.updateModelUsage(identity, runId);
+                    }
+                    return null;
+                });
+                notifyEvents(runId);
+            } catch (RuntimeException e) {
+                LOG.error("Agent progress event persistence failed: runId={} type={}",
+                        runId, e.getClass().getSimpleName());
+            }
+        };
     }
 
     /** RUN_MODEL 白名单载荷：模型版本、第几次尝试、结果码与单次耗时；原始输出与 Prompt 不落库。 */
@@ -541,8 +611,18 @@ public final class GeneralAgentService {
                 }
                 return null;
             });
+            notifyEvents(runId);
         } catch (RuntimeException e) {
             LOG.error("Agent run failure marking failed: runId={} type={}", runId, e.getClass().getSimpleName());
+        }
+    }
+
+    /** 内存通知只做唤醒，异常不得影响主流程；漏唤醒由 SSE 侧低频兜底补读覆盖。 */
+    private void notifyEvents(UUID runId) {
+        try {
+            eventNotifier.accept(runId);
+        } catch (RuntimeException e) {
+            LOG.error("Agent event notification failed: runId={} type={}", runId, e.getClass().getSimpleName());
         }
     }
 

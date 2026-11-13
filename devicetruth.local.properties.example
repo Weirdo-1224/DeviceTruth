@@ -20,3 +20,9 @@ DEVICETRUTH_EMBEDDING_DIMENSION=
 DEVICETRUTH_EMBEDDING_PROFILE_REVISION=
 DEVICETRUTH_EMBEDDING_TIMEOUT_MS=
 DEVICETRUTH_EMBEDDING_SEND_DIMENSIONS=
+
+# Run event stream (SSE) tuning: blanks use application defaults.
+# max-connections: global concurrent stream limit (default 64; overflow 503 STREAM_CAPACITY).
+# ttl-minutes: per-connection TTL (default 60; expiry cleaned by emitter timeout).
+DEVICETRUTH_STREAM_MAX_CONNECTIONS=
+DEVICETRUTH_STREAM_TTL_MINUTES=

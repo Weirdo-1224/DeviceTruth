@@ -78,13 +78,22 @@ public final class AgentRunRepository {
     private final JdbcTemplate jdbc;
     /** 总时限（累计执行时长上限，毫秒）：入队时写入 budget.limits.maxActiveDurationMs，恢复不清零。 */
     private final long maxActiveDurationMs;
+    /** 恢复状态与事件原子提交，事件序号分配由同一事务中的 run 行锁保护。 */
+    private final org.springframework.transaction.support.TransactionTemplate transactions;
 
     public AgentRunRepository(JdbcTemplate jdbc) { this(jdbc, 120_000); }
 
     public AgentRunRepository(JdbcTemplate jdbc, long maxActiveDurationMs) {
+        this(jdbc, maxActiveDurationMs, new org.springframework.transaction.support.TransactionTemplate(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(jdbc.getDataSource())));
+    }
+
+    public AgentRunRepository(JdbcTemplate jdbc, long maxActiveDurationMs,
+                              org.springframework.transaction.support.TransactionTemplate transactions) {
         this.jdbc = jdbc;
         if (maxActiveDurationMs < 1) throw new IllegalArgumentException("maxActiveDurationMs must be positive");
         this.maxActiveDurationMs = maxActiveDurationMs;
+        this.transactions = java.util.Objects.requireNonNull(transactions, "transactions");
     }
 
     public RunView enqueue(ServerIdentity identity, UUID conversationId, UUID messageId, Instant now, Instant asOf) {
@@ -190,8 +199,13 @@ public final class AgentRunRepository {
                 identity.ownerId(), identity.projectId(), java.sql.Timestamp.from(now));
     }
 
-    /** RUNNING → QUEUED：仅当版本未变且租约仍处过期状态时回收，成功才允许重新调度。 */
+    /** RUNNING → QUEUED：仅当版本未变且租约仍处过期状态时回收，成功才允许重新调度。
+     *  已发布事件保持不变；回收事件与状态变更同事务提交。 */
     public int requeueRecovered(ServerIdentity identity, ExpiredRun run, Instant now) {
+        return transactions.execute(status -> requeueRecoveredAtomic(identity, run, now));
+    }
+
+    private int requeueRecoveredAtomic(ServerIdentity identity, ExpiredRun run, Instant now) {
         int updated = update("""
                 UPDATE dt_agent_run SET status='QUEUED', version=version+1, updated_at=?,
                     lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
@@ -199,14 +213,19 @@ public final class AgentRunRepository {
                   AND (lease_expires_at IS NULL OR lease_expires_at < ?)
                 """, java.sql.Timestamp.from(now), run.runId(), identity.ownerId(), identity.projectId(),
                 run.version(), java.sql.Timestamp.from(now));
-        if (updated == 1)
+        if (updated == 1) {
             appendEvent(identity, run.runId(), run.conversationId(), "RUN_RECOVERED",
                     Map.of("attempts", run.attempts()), now);
+        }
         return updated;
     }
 
     /** 遗留 RUNNING 无法安全续跑时明确失败：同样以租约过期+版本 CAS 兜底，绝不留下永久 RUNNING。 */
     public int failRecovered(ServerIdentity identity, ExpiredRun run, String code, Instant now) {
+        return transactions.execute(status -> failRecoveredAtomic(identity, run, code, now));
+    }
+
+    private int failRecoveredAtomic(ServerIdentity identity, ExpiredRun run, String code, Instant now) {
         int updated = update("""
                 UPDATE dt_agent_run SET status='FAILED', version=version+1, updated_at=?,
                     lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
@@ -448,6 +467,56 @@ public final class AgentRunRepository {
                 runId, identity.ownerId(), identity.projectId());
     }
 
+    /** 单次查询批大小与单次调用硬上限：超出分批读取，防止一次性拉爆内存。 */
+    private static final int EVENT_BATCH = 500;
+    private static final int EVENT_HARD_LIMIT = 5000;
+
+    private static final RowMapper<io.devicetruth.application.agent.SafeAgentEventViews.PublicEvent> EVENT_MAPPER =
+            (r, n) -> io.devicetruth.application.agent.SafeAgentEventViews.fromPayload(
+                    r.getLong("seq"), r.getString("type"), r.getTimestamp("recorded_at").toInstant(),
+                    payload(r.getString("safe_payload")));
+
+    /** jsonb 文本解析为字段 Map；解析失败按空载荷处理（公开视图退化为空 data，不猜测内容）。 */
+    private static Map<String, Object> payload(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try {
+            return Json.MAPPER.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    /** 公开事件流：seq > afterSeq 按升序返回，limit 有界（超过内部批大小分批查询）。 */
+    public List<io.devicetruth.application.agent.SafeAgentEventViews.PublicEvent> eventsAfter(
+            ServerIdentity identity, UUID runId, long afterSeq, int limit) {
+        if (limit < 1) return List.of();
+        int capped = Math.min(limit, EVENT_HARD_LIMIT);
+        var events = new java.util.ArrayList<io.devicetruth.application.agent.SafeAgentEventViews.PublicEvent>();
+        long cursor = afterSeq;
+        while (events.size() < capped) {
+            int batchSize = Math.min(EVENT_BATCH, capped - events.size());
+            var batch = jdbc.query("""
+                    SELECT seq, type, recorded_at, safe_payload::text AS safe_payload FROM dt_run_event
+                    WHERE run_id=? AND owner_id=? AND project_id=? AND seq>?
+                    ORDER BY seq LIMIT ?
+                    """, EVENT_MAPPER, runId, identity.ownerId(), identity.projectId(), cursor, batchSize);
+            if (batch.isEmpty()) break;
+            events.addAll(batch);
+            cursor = batch.getLast().seq();
+            if (batch.size() < batchSize) break;
+        }
+        return List.copyOf(events);
+    }
+
+    /** 本 run 当前最大事件序号；无事件返回 0。 */
+    public long latestSeq(ServerIdentity identity, UUID runId) {
+        Long latest = jdbc.queryForObject("""
+                SELECT COALESCE(MAX(seq),0) FROM dt_run_event
+                WHERE run_id=? AND owner_id=? AND project_id=?
+                """, Long.class, runId, identity.ownerId(), identity.projectId());
+        return latest == null ? 0 : latest;
+    }
+
     /** 把同归属的历史证据登记到当前 run；不存在或跨权统一拒绝，返回的新 ID 才能用于本次回答。 */
     public UUID importReference(ServerIdentity identity, UUID sourceReferenceId, UUID targetRunId) {
         try {
@@ -472,14 +541,37 @@ public final class AgentRunRepository {
         }
     }
 
-    /** 公开事件只写白名单类型与逐字段构造的安全载荷；推理输入与原始模型输出永不落库。 */
+    public boolean lockClaim(ServerIdentity identity, UUID runId, long version, int attempt, Instant now) {
+        return !jdbc.query("""
+                SELECT id FROM dt_agent_run WHERE id=? AND owner_id=? AND project_id=?
+                  AND status='RUNNING' AND version=? AND attempts=? AND lease_expires_at > ? FOR UPDATE
+                """, (r, n) -> r.getObject(1), runId, identity.ownerId(), identity.projectId(),
+                version, attempt, java.sql.Timestamp.from(now)).isEmpty();
+    }
+
+    /** 事件落库：缺省 attempt=0（生命周期事件，见 05-01 复验 §8.1）。 */
     public void appendEvent(ServerIdentity identity, UUID runId, UUID conversationId, String type,
                             Object payload, Instant now) {
+        appendEvent(identity, runId, conversationId, type, payload, now, 0);
+    }
+
+    /** 公开事件只写白名单类型与逐字段构造的安全载荷；推理输入与原始模型输出永不落库。
+     *  attempt 为事件归属的执行尝试号：步骤事件记 worker 领取 RUNNING 时 attempts+1 后的当前值。 */
+    public void appendEvent(ServerIdentity identity, UUID runId, UUID conversationId, String type,
+                            Object payload, Instant now, int attempt) {
+        transactions.executeWithoutResult(
+                status -> appendEventAtomic(identity, runId, conversationId, type, payload, now, attempt));
+    }
+
+    private void appendEventAtomic(ServerIdentity identity, UUID runId, UUID conversationId, String type,
+                                   Object payload, Instant now, int attempt) {
+        jdbc.queryForObject("SELECT id FROM dt_agent_run WHERE id=? AND owner_id=? AND project_id=? FOR UPDATE",
+                UUID.class, runId, identity.ownerId(), identity.projectId());
         jdbc.update("""
-                INSERT INTO dt_run_event(run_id,seq,conversation_id,owner_id,project_id,type,recorded_at,safe_payload)
-                SELECT ?, COALESCE(MAX(seq),0)+1, ?,?,?,?,?,CAST(? AS jsonb) FROM dt_run_event WHERE run_id=?
+                INSERT INTO dt_run_event(run_id,seq,conversation_id,owner_id,project_id,type,recorded_at,safe_payload,attempt)
+                SELECT ?, COALESCE(MAX(seq),0)+1, ?,?,?,?,?,CAST(? AS jsonb),? FROM dt_run_event WHERE run_id=?
                 """, runId, conversationId, identity.ownerId(), identity.projectId(), type,
-                java.sql.Timestamp.from(now), Json.write(payload), runId);
+                java.sql.Timestamp.from(now), Json.write(payload), attempt, runId);
     }
 
     private int update(String sql, Object... arguments) { return jdbc.update(sql, arguments); }

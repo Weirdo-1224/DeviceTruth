@@ -37,6 +37,9 @@ public final class AnswerGuard {
     private static final Set<String> BOUNDARY_LEADS = Set.of("必须由", "应由", "须由", "只能由");
     /** 资质边界声明的执行主体。 */
     private static final Set<String> QUALIFIED_ACTORS = Set.of("具备资质", "有资质", "专业人员", "授权人员", "厂家");
+    /** 祈使/顺序执行标记：出现时该子句是“要你去做”的指令，不能被资质边界句里的列举语义覆盖。 */
+    private static final Set<String> IMPERATIVE_MARKERS = Set.of("请", "立即", "马上", "先", "再", "接着",
+            "随后", "然后", "务必", "直接", "动手", "执行");
     /** 服务端受控的高风险提示：对高风险处置不展示模型生成的具体步骤。 */
     private static final String SERVER_SAFETY_NOTICE =
             "涉及高压等高风险处置：本系统不提供具体操作步骤，必须由具备资质的专业人员按厂家规程断电、验电后现场处理。";
@@ -57,8 +60,13 @@ public final class AnswerGuard {
             "倾向", "建议", "待", "尚未", "不能", "无法", "需", "如果", "或");
     /** 句切分：以句号/分号/换行/感叹号/问号为界，避免跨句误判安全语义。 */
     private static final String SENTENCE_DELIMITERS = "[。；;！!？?\\n]";
-    /** 子句切分：转折词和冒号之后的子句要单独判断，“有风险，但请短接…”不能靠安全词放行。 */
-    private static final String CLAUSE_DELIMITERS = "[：:]|但(?:是)?|然而|不过|却";
+    /** 子句切分：逗号/顿号/转折词/冒号之后的子句要单独判断，
+     *  “不要短接互锁端子，随后短接高压互锁端子”不能靠前一个子句的禁止词整体放行。 */
+    private static final String CLAUSE_DELIMITERS = "[：:，,、]|但(?:是)?|然而|不过|却";
+    /** 确定性故障完成时态：即使没有设备指代，也是在断言“已经是这个故障”，无现场核验一律拒绝。 */
+    private static final Set<String> DEFINITE_COMPLETIONS = Set.of("已经损坏", "已损坏", "损坏了", "已经失效",
+            "已失效", "失效了", "已经击穿", "已击穿", "已经断裂", "已断裂", "已经卡死", "已卡死", "已经粘连",
+            "已粘连", "已经短路", "已短路", "故障原因是", "原因就是", "确定是", "必然是", "一定是");
 
     /** 校验结论：拒绝时只带稳定错误码，不把草稿正文回传。 */
     public record Verdict(boolean allowed, String code, AgentResult answer) {
@@ -159,22 +167,35 @@ public final class AnswerGuard {
     private static boolean recommendsControlAction(String text) {
         if (text == null || text.isBlank()) return false;
         for (String sentence : text.split(SENTENCE_DELIMITERS)) {
+            // 资质边界声明覆盖整句时，只放行“名词性列举”的子句（如“任何涉及短接…的操作，都必须由…执行”）；
+            // 祈使动作（“请短接…”/“随后短接…”）仍然拒绝，禁止词也只在自身子句内有效。
+            boolean boundary = containsAny(sentence, BOUNDARY_LEADS) && containsAny(sentence, QUALIFIED_ACTORS);
+            boolean nominalList = sentence.contains("涉及") || sentence.contains("任何")
+                    || sentence.contains("包括") || sentence.contains("诸如");
             for (String clause : sentence.split(CLAUSE_DELIMITERS)) {
                 if (!containsAny(clause, CONTROL_ACTIONS)) continue;
                 if (containsAny(clause, PROHIBITIVE_MARKERS)) continue;
                 if (containsAny(clause, BOUNDARY_LEADS) && containsAny(clause, QUALIFIED_ACTORS)) continue;
+                // 资质边界句里的列举项（“…的操作”“…作业”）是名词性描述，不是执行指令；
+                // 但只要子句带祈使/顺序标记（“请短接…”“随后短接…”），仍按危险指令拒绝
+                if (boundary && nominalList && !containsAny(clause, IMPERATIVE_MARKERS)) continue;
                 return true;
             }
         }
         return false;
     }
 
-    /** 完成时态确诊表述：否定/待查/建议核实的软化语境除外，其余一律视为声称已确诊。 */
+    /** 完成时态确诊表述：否定/待查/建议核实的软化语境除外，其余一律视为声称已确诊。
+     *  逐子句判定，“尚未确诊为控制器损坏”这类否定性说明不得被当成已确诊。 */
     private static boolean assertsConfirmedFinding(String text) {
         if (text == null || text.isBlank()) return false;
         for (String sentence : text.split(SENTENCE_DELIMITERS)) {
-            if (containsAny(sentence, CONFIRMATION_TERMS)) return true;
-            if (sentence.contains("确诊") && !containsAny(sentence, CONFIRMATION_SOFTENERS)) return true;
+            for (String clause : sentence.split(CLAUSE_DELIMITERS)) {
+                boolean states = containsAny(clause, CONFIRMATION_TERMS) || clause.contains("确诊");
+                if (!states) continue;
+                if (containsAny(clause, CONFIRMATION_SOFTENERS)) continue;
+                return true;
+            }
         }
         return false;
     }
@@ -187,11 +208,28 @@ public final class AnswerGuard {
     private static boolean assertsDeviceDefect(String text) {
         if (text == null || text.isBlank()) return false;
         for (String sentence : text.split(SENTENCE_DELIMITERS)) {
-            if (!containsAny(sentence, DEVICE_REFERENTS)) continue;
-            if (!containsAny(sentence, DEFINITE_CONCLUSIONS)) continue;
-            if (containsAny(sentence, TENTATIVE_MARKERS)) continue;
-            return true;
+            for (String clause : sentence.split(CLAUSE_DELIMITERS)) {
+                // 完成时态故障断言：即使指代在别的子句里（“该设备可能有多种故障，充电控制器已经损坏”），
+                // 只要本子句是“已经是这个故障”且没有缓和词，就等同声明确诊
+                if (containsAny(clause, DEFINITE_COMPLETIONS) && !containsAny(clause, TENTATIVE_MARKERS)) return true;
+                if (!containsAny(clause, DEVICE_REFERENTS)) continue;
+                if (!containsAny(clause, DEFINITE_CONCLUSIONS)) continue;
+                if (containsAny(clause, TENTATIVE_MARKERS)) continue;
+                return true;
+            }
         }
+        return false;
+    }
+
+    /**
+     * 追问安全边界（05-02 延期项）：模型提出的追问同样会直接展示给用户，
+     * 不得夹带设备操作指令或“已确诊/已完成”类断言。越界由主循环拒绝该动作。
+     */
+    public static boolean unsafeFollowUp(String question, List<String> requestedFields) {
+        if (recommendsControlAction(question) || assertsConfirmedFinding(question)) return true;
+        if (requestedFields == null) return false;
+        for (String field : requestedFields)
+            if (recommendsControlAction(field) || assertsConfirmedFinding(field)) return true;
         return false;
     }
 

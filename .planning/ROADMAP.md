@@ -124,9 +124,9 @@
 
 **Plans:** 3 plans（均已编写待审任务书；未执行）
 
-- [ ] [05-01-PLAN.md](phases/05-workbench-quality/05-01-PLAN.md) — 持久事件驱动的实时 SSE 与安全历史；依赖 04-02；wave 1
-- [ ] [05-02-PLAN.md](phases/05-workbench-quality/05-02-PLAN.md) — 完整工作台、评测矩阵与检索质量验证；收口前处理延期正文安全、PDF和浏览器E2E；依赖 05-01；wave 2
-- [ ] [05-03-PLAN.md](phases/05-workbench-quality/05-03-PLAN.md) — 可启动交付、备份恢复与运维说明；依赖 05-02；wave 3
+- [x] [05-01-PLAN.md](phases/05-workbench-quality/05-01-PLAN.md) — 持久事件驱动的实时 SSE 与安全历史；依赖 04-02；wave 1（2026-11-13 实施并技术验收通过，见 [05-01-SUMMARY](phases/05-workbench-quality/05-01-SUMMARY.md)）
+- [x] [05-02-PLAN.md](phases/05-workbench-quality/05-02-PLAN.md) — 完整工作台、评测矩阵与检索质量验证；收口前处理延期正文安全、PDF和浏览器E2E；依赖 05-01；wave 2（2026-11-13 实施并验收，见 [05-02-SUMMARY](phases/05-workbench-quality/05-02-SUMMARY.md)）
+- [x] [05-03-PLAN.md](phases/05-workbench-quality/05-03-PLAN.md) — 可启动交付、备份恢复与运维说明；依赖 05-02；wave 3（2026-11-13 实施并验收，见 [05-03-SUMMARY](phases/05-workbench-quality/05-03-SUMMARY.md)）
 
 **边界 / 风险：** 在线评测/多人授权/数据量性能不能用离线成功替代；不为MVP引入额外平台。
 

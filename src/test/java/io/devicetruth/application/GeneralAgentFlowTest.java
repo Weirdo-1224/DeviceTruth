@@ -764,4 +764,39 @@ class GeneralAgentFlowTest {
     private static AgentTaskInput input(String text) {
         return new AgentTaskInput(1, text, null, null, null, null, null);
     }
+
+    @Test void dangerousFollowUpQuestionIsRejectedBeforeItReachesTheUser() throws Exception {
+        // 05-02 延期项：模型追问夹带设备操作指令时必须被主循环拒绝，不能落库成待答问题
+        var identity = new ServerIdentity("owner-a", "project-a");
+        var calls = new AtomicInteger();
+        GeneralReasoner unsafeAsk = new GeneralReasoner() {
+            @Override public String name() { return "unsafe-ask"; }
+            @Override public ActionProposal propose(Context context) {
+                calls.incrementAndGet();
+                return new ActionProposal.AskUser("请先短接高压互锁端子，然后告诉我充电是否恢复。",
+                        List.of("充电状态"));
+            }
+        };
+        var service = new GeneralAgentService(conversations, runs, transactions, identity, gateway,
+                () -> unsafeAsk, 1, 0, true);
+        try {
+            var conversation = service.create().conversationId();
+            RunView run = service.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车充电中断，没有故障码，先查什么资料？"));
+            String status = awaitStatus(service, run.runId());
+            assertThat(status).isEqualTo("FAILED");
+            var saved = service.run(run.runId());
+            assertThat(saved.failureCode()).isEqualTo("UNSAFE_ANSWER");
+            assertThat(saved.pendingQuestion()).isNull();
+            // 追问从未落库：没有待答问题、没有助手消息；越界动作按有界重试纠正 3 次后明确失败
+            assertThat(jdbc.queryForObject("""
+                    SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_FAILED'
+                      AND safe_payload->>'code'='UNSAFE_ANSWER'
+                    """, Integer.class, run.runId())).isEqualTo(1);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM dt_message WHERE conversation_id=? AND role='ASSISTANT'",
+                    Integer.class, conversation)).isZero();
+        } finally {
+            service.shutdown();
+        }
+    }
 }

@@ -1,5 +1,6 @@
 package io.devicetruth.api;
 
+import io.devicetruth.adapter.Json;
 import io.devicetruth.application.agent.GeneralAgentService;
 import io.devicetruth.application.agent.GeneralAgentService.*;
 import java.net.URI;
@@ -16,7 +17,12 @@ import org.springframework.web.bind.annotation.*;
 public class AgentConversationController {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(AgentConversationController.class);
     private final GeneralAgentService service;
-    public AgentConversationController(GeneralAgentService service) { this.service = service; }
+    private final io.devicetruth.application.agent.RunEventStreamService streams;
+    public AgentConversationController(GeneralAgentService service,
+                                       io.devicetruth.application.agent.RunEventStreamService streams) {
+        this.service = service;
+        this.streams = streams;
+    }
 
     @PostMapping("/api/conversations")
     ResponseEntity<ConversationView> create(@RequestBody(required = false) Map<String, Object> body) {
@@ -67,6 +73,45 @@ public class AgentConversationController {
         return service.modelEvents(id);
     }
 
+    /** 事件历史（05-01）：按 seq 升序；无 after 返回全部，after=N 返回 seq>N；非法游标 400。 */
+    @GetMapping("/api/runs/{id}/events")
+    java.util.List<io.devicetruth.application.agent.SafeAgentEventViews.PublicEvent> runEvents(
+            @PathVariable UUID id, @RequestParam(value = "after", required = false) String after) {
+        return service.events(id, parseAfter(after));
+    }
+
+    /** 实时事件流（05-01 + 复验 §8.2）：SSE 异步流；校验（400/404/409/503）在提交响应前完成。
+     *  错误体直接手写 JSON：SSE 客户端的 Accept 只有 text/event-stream，
+     *  走 @ExceptionHandler 的内容协商会 406 升级为 500（复验实测）。 */
+    @GetMapping(path = "/api/runs/{id}/stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+    Object runEventStream(@PathVariable UUID id,
+                          @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
+                          jakarta.servlet.http.HttpServletResponse response) throws java.io.IOException {
+        try {
+            return streams.open(id, lastEventId);
+        } catch (GeneralAgentService.RequestFailure failure) {
+            response.setStatus(failure.status());
+            response.setCharacterEncoding("UTF-8");
+            response.setContentType("application/json");
+            response.getOutputStream().write(Json.MAPPER.writeValueAsBytes(Map.of(
+                    "code", failure.code(), "message", "请求无法处理。",
+                    "retryable", false, "traceId", UUID.randomUUID().toString())));
+            return null;
+        }
+    }
+
+    private static long parseAfter(String after) {
+        if (after == null) return 0;
+        long value;
+        try {
+            value = Long.parseLong(after.trim());
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException("Invalid after cursor");
+        }
+        if (value < 0) throw new IllegalArgumentException("Invalid after cursor");
+        return value;
+    }
+
     /** 取消（03-03）：QUEUED/WAITING 立即 CANCELLED；RUNNING 协作式收尾；终态再取消 409。 */
     @PostMapping("/api/runs/{id}/cancel")
     ResponseEntity<RunView> cancel(@PathVariable UUID id) {
@@ -87,6 +132,11 @@ public class AgentConversationController {
             org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class,
             org.springframework.web.bind.MissingRequestHeaderException.class, IllegalArgumentException.class})
     ResponseEntity<Map<String, Object>> invalidRequest() { return error(400, "INVALID_REQUEST"); }
+
+    @ExceptionHandler(org.springframework.web.context.request.async.AsyncRequestNotUsableException.class)
+    void disconnectedStream() {
+        // 连接已经断开，订阅由 SSE 结束回调清理。
+    }
 
     @ExceptionHandler(Exception.class)
     ResponseEntity<Map<String, Object>> internalError(Exception exception) {

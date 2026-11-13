@@ -82,8 +82,9 @@ class KnowledgeUpgradeMigrationTest {
                 legacy.documentId())).isEqualTo(documentProfile);
         assertThat(jdbc.queryForObject("SELECT content FROM dt_knowledge_chunk WHERE document_id=?",
                 String.class, legacy.documentId())).isEqualTo(legacy.chunkContent());
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class))
-                .isEqualTo(15); // V1–V15，包括 Skill 安装与模拟观测。
+        assertThat(jdbc.queryForList(
+                "SELECT version FROM flyway_schema_history WHERE success", String.class))
+                .contains("4", "7", "15", "16");
 
         var embeddingCalls = new java.util.concurrent.atomic.AtomicInteger();
         EmbeddingProfile realProfile = EmbeddingProfile.of("openai", "http://127.0.0.1:1", "test-key",

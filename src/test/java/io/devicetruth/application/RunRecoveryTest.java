@@ -251,6 +251,10 @@ class RunRecoveryTest {
         } finally {
             early.shutdown();
         }
+        runs.appendEvent(IDENTITY, runId, runs.load(IDENTITY, runId, false).conversationId(),
+                "RUN_MODEL", java.util.Map.of("result", "PRE_CRASH"), java.time.Instant.now(), 1);
+        long publishedSeq = jdbc.queryForObject(
+                "SELECT max(seq) FROM dt_run_event WHERE run_id=?", Long.class, runId);
         Thread.sleep(LEASE_SECONDS * 1000 + 500);
 
         // 新进程对账：崩溃 RUNNING 按持久检查点回收并重新调度，scripted 继续检索→追问
@@ -265,6 +269,12 @@ class RunRecoveryTest {
             assertThat(jdbc.queryForObject(
                     "SELECT safe_payload->>'attempts' FROM dt_run_event WHERE run_id=? AND type='RUN_RECOVERED'",
                     String.class, runId)).isEqualTo("1");
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND seq=? AND type='RUN_MODEL' AND attempt=1",
+                    Integer.class, runId, publishedSeq)).isEqualTo(1);
+            assertThat(jdbc.queryForObject(
+                    "SELECT seq FROM dt_run_event WHERE run_id=? AND type='RUN_RECOVERED'",
+                    Long.class, runId)).isGreaterThan(publishedSeq);
             // 同一 run、同一目标消息：恢复没有重建会话或复制目标
             assertThat(jdbc.queryForObject(
                     "SELECT count(*) FROM dt_agent_run WHERE id=?", Integer.class, runId)).isEqualTo(1);

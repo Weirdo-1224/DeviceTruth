@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   ApiError,
+  cancelRun as cancelRunRequest,
   createConversation,
   describeFailure,
   listAssets,
   listConversations,
   readConversation,
+  readRunSkill,
   replyToQuestion,
   sendMessage,
   uploadMarkdown,
@@ -15,8 +17,14 @@ import {
   type ConversationView,
   type FileView,
   type MessageView,
-  type RunView
+  type RunEvent,
+  type RunView,
+  type SkillSelection
 } from './api'
+import RunTimeline from './components/RunTimeline.vue'
+import DiagnosisReport from './components/DiagnosisReport.vue'
+import EvidenceComparison from './components/EvidenceComparison.vue'
+import { createRunTimelineController } from './timeline'
 
 const STORAGE_KEY = 'devicetruth.conversation-id'
 
@@ -34,6 +42,80 @@ const uploading = ref(false)
 const errorText = ref('')
 const uploadedFile = ref<FileView | null>(null)
 const openReferenceId = ref<string | null>(null)
+const selectedSkill = ref<SkillSelection | null>(null)
+const cancelling = ref(false)
+
+// 运行时间线：SSE 订阅 + 历史补齐 + maxSeq 幂等去重都在控制器里；错误只降级为轮询兜底，不覆盖页面错误提示
+const timeline = createRunTimelineController()
+const timelineEvents = ref<RunEvent[]>([])
+const timelineLive = ref(false)
+
+function syncTimelineView(): void {
+  const state = timeline.snapshot()
+  timelineEvents.value = [...state.events]
+  timelineLive.value = state.live
+}
+
+timeline.onChange(syncTimelineView)
+
+/**
+ * run 或其状态变化时对齐时间线：
+ * 指向另一个 run（切换会话/任务，含选中历史里的终态 run）一律重新 follow；
+ * 同 run 但视图未完整收尾（流已断且从未收到 RUN_TERMINAL）时也重新 follow——
+ * 典型场景：流提前断开后 run 在别的页面推进到终态，切回时必须回读补齐历史。
+ * 当前会话没有任何 run 时 clear()：旧时间线不再残留，迟到事件由 generation 与 runId 双保险丢弃。
+ * follow 内部先关旧订阅；迟到的旧 run 事件由控制器按 generation 丢弃，不污染当前页面。
+ */
+watch(
+  () => (run.value ? run.value.runId + ':' + run.value.status : ''),
+  () => {
+    const current = run.value
+    if (!current) {
+      timeline.clear()
+      return
+    }
+    const state = timeline.snapshot()
+    const incomplete = !state.live && state.terminalStatus === null
+    if (state.runId !== current.runId || incomplete) {
+      void timeline.follow(current.runId)
+    }
+  }
+)
+
+/** 当前 run 选中的领域 Skill（无选择时为空）；随 run 切换重新读取，失败不影响主流程。 */
+watch(
+  () => run.value?.runId ?? '',
+  async (runId) => {
+    if (!runId) {
+      selectedSkill.value = null
+      return
+    }
+    try {
+      const skill = await readRunSkill(runId)
+      if (run.value?.runId === runId) selectedSkill.value = skill
+    } catch {
+      if (run.value?.runId === runId) selectedSkill.value = null
+    }
+  },
+  { immediate: true }
+)
+
+/** 取消运行：QUEUED/WAITING 立即生效，RUNNING 协作式收尾；终态再取消会得到 409。 */
+async function cancelCurrentRun(): Promise<void> {
+  const current = run.value
+  if (!current || cancelling.value) return
+  cancelling.value = true
+  errorText.value = ''
+  try {
+    const updated = await cancelRunRequest(current.runId)
+    if (run.value?.runId === current.runId) run.value = updated
+    await refresh()
+  } catch (error) {
+    errorText.value = describeError(error)
+  } finally {
+    cancelling.value = false
+  }
+}
 
 const statusLabels: Record<string, string> = {
   QUEUED: '排队中',
@@ -46,7 +128,6 @@ const statusLabels: Record<string, string> = {
 
 const statusLabel = computed(() => (run.value ? statusLabels[run.value.status] ?? run.value.status : '未开始'))
 const pendingQuestion = computed(() => run.value?.pendingQuestion ?? null)
-const answer = computed(() => run.value?.result ?? null)
 const failureText = computed(() =>
   run.value && run.value.status === 'FAILED' ? describeFailure(run.value.failureCode) : ''
 )
@@ -240,6 +321,10 @@ onMounted(async () => {
     errorText.value = describeError(error)
   }
 })
+
+onUnmounted(() => {
+  timeline.close()
+})
 </script>
 
 <template>
@@ -279,9 +364,23 @@ onMounted(async () => {
 
         <section class="status">
           <span>运行状态：{{ statusLabel }}</span>
+          <span v-if="selectedSkill" class="skill-badge">
+            领域包：{{ selectedSkill.name }} v{{ selectedSkill.version }}
+          </span>
           <span v-if="resumingRunId && run?.runId === resumingRunId" class="hint">正在从服务器恢复进行中的调查…</span>
+          <button
+            v-if="run && (run.status === 'QUEUED' || run.status === 'RUNNING' || run.status === 'WAITING_FOR_USER')"
+            type="button"
+            class="link"
+            :disabled="cancelling"
+            @click="cancelCurrentRun"
+          >
+            {{ cancelling ? '正在取消…' : '取消本次调查' }}
+          </button>
           <button v-if="!busy && conversation" type="button" class="link" @click="refresh">刷新</button>
         </section>
+
+        <RunTimeline v-if="timelineEvents.length > 0" :events="timelineEvents" :live="timelineLive" />
 
         <section class="card picker">
           <label>
@@ -294,6 +393,8 @@ onMounted(async () => {
           <p class="hint">选择设备后，新问题会带上资产编号；不选择也可以先做资料问答。</p>
         </section>
 
+        <EvidenceComparison v-if="selectedAssetId" :asset-id="selectedAssetId" :as-of="run?.asOf ?? null" />
+
         <section class="card upload">
           <h2>上传 Markdown 资料</h2>
           <input type="file" accept=".md,text/markdown" :disabled="uploading" @change="upload" />
@@ -303,12 +404,6 @@ onMounted(async () => {
             <span v-if="uploadedFile.parseStatus === 'PARSED'">，将随下一条问题作为检索范围线索。</span>
             <span v-else-if="uploadedFile.failureCode">（{{ uploadedFile.failureCode }}）</span>
           </p>
-        </section>
-
-        <section v-if="failureText" class="card failure" role="alert">
-          <h2>本次没有得到答案</h2>
-          <p>{{ failureText }}</p>
-          <p v-if="run?.failureCode" class="hint">原因码：{{ run.failureCode }}</p>
         </section>
 
         <section class="messages">
@@ -331,52 +426,15 @@ onMounted(async () => {
           </button>
         </section>
 
-        <section v-if="answer" class="card answer">
-          <h2>回答（{{ answer.category }} · 风险 {{ answer.riskLevel }} · {{ answer.dataNature }}）</h2>
-          <p class="summary">{{ answer.summary }}</p>
-
-          <div v-if="answer.claims.length > 0">
-            <h3>依据</h3>
-            <ul>
-              <li v-for="(claim, index) in answer.claims" :key="index">
-                {{ claim.text }}（{{ claim.certainty }}）
-                <span class="refs">{{ claim.referenceIds.map((id) => '#' + id.slice(0, 8)).join(' ') }}</span>
-              </li>
-            </ul>
-          </div>
-
-          <div v-if="answer.references.length > 0">
-            <h3>引用</h3>
-            <ul class="references">
-              <li v-for="reference in answer.references" :key="reference.referenceId">
-                <button
-                  type="button"
-                  class="link citation"
-                  @click="openReferenceId = openReferenceId === reference.referenceId ? null : reference.referenceId"
-                >
-                  《{{ reference.title }}》{{ reference.section ?? '' }}
-                  <span v-if="reference.page">（第 {{ reference.page }} 页）</span>
-                </button>
-                · 版本 {{ reference.sourceVersion }} · {{ reference.dataNature }}
-                <p v-if="openReferenceId === reference.referenceId" class="excerpt">{{ reference.excerpt }}</p>
-              </li>
-            </ul>
-          </div>
-
-          <div v-if="answer.suggestions.length > 0">
-            <h3>建议</h3>
-            <ul>
-              <li v-for="(suggestion, index) in answer.suggestions" :key="index">{{ suggestion }}</li>
-            </ul>
-          </div>
-
-          <div v-if="answer.limitations.length > 0 || answer.uncertainties.length > 0">
-            <h3>限制与不确定点</h3>
-            <ul>
-              <li v-for="(item, index) in [...answer.limitations, ...answer.uncertainties]" :key="index">{{ item }}</li>
-            </ul>
-          </div>
-        </section>
+        <DiagnosisReport
+          :status="run?.status ?? 'COMPLETED'"
+          :result="run?.result ?? null"
+          :failure-code="run?.failureCode ?? null"
+          :failure-text="failureText"
+          :references="run?.result?.references ?? []"
+          :active-reference-id="openReferenceId"
+          @toggle-reference="openReferenceId = openReferenceId === $event ? null : $event"
+        />
 
         <section class="composer">
           <textarea
@@ -561,6 +619,13 @@ button {
 button:disabled {
   background: #b6c2cf;
   cursor: not-allowed;
+}
+.skill-badge {
+  font-size: 12px;
+  color: #334e68;
+  background: #eef2f5;
+  border-radius: 10px;
+  padding: 1px 8px;
 }
 .composer {
   margin-top: 8px;

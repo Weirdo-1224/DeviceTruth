@@ -236,6 +236,20 @@ public final class TaskOrchestrator {
                                     List<Reference> seedReferences, GeneralReasoner reasoner,
                                     java.util.function.Supplier<String> abortCode,
                                     java.util.function.Supplier<SkillStep> skillStep) {
+        return runAgent(input, gateway, toolContext, seedReferences, reasoner, abortCode, skillStep, null);
+    }
+
+    /**
+     * 通用 Agent 主循环（带渐进持久进度回调，05-01 复验 §8.1）：
+     * 每个内部事件记录点同步回调一次（先内存事件、再回调），应用层据此把
+     * TOOL_RESULT/MODEL_ATTEMPT 立即以短事务落库为 RUN_TOOL/RUN_MODEL；
+     * 回调不得抛异常破坏主循环，应用层自行吞掉落库失败。
+     */
+    public AgentRunOutcome runAgent(AgentTaskInput input, CapabilityGateway gateway, ToolContext toolContext,
+                                    List<Reference> seedReferences, GeneralReasoner reasoner,
+                                    java.util.function.Supplier<String> abortCode,
+                                    java.util.function.Supplier<SkillStep> skillStep,
+                                    java.util.function.Consumer<RunEvent> progress) {
         if (input == null || gateway == null || toolContext == null || reasoner == null)
             throw new IllegalArgumentException("input, gateway, toolContext and reasoner are required");
         var events = new ArrayList<RunEvent>();
@@ -250,9 +264,9 @@ public final class TaskOrchestrator {
         while (true) {
             // 协作式取消/总时限：模型每步之间检查，终态由持久层 CAS 收口
             String abort = abortCode == null ? null : abortCode.get();
-            if (abort != null) return aborted(input, messages, references, events, steps, abort);
+            if (abort != null) return aborted(input, messages, references, events, steps, abort, progress);
             if (steps >= input.maxSteps()) {
-                event(events, "RUN_FAILED", input.runVersion(), Map.of("code", "BUDGET_EXHAUSTED"));
+                event(events, "RUN_FAILED", input.runVersion(), Map.of("code", "BUDGET_EXHAUSTED"), progress);
                 return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                         List.copyOf(references.values()), events, steps, "BUDGET_EXHAUSTED");
             }
@@ -261,7 +275,8 @@ public final class TaskOrchestrator {
                     List.copyOf(references.values()), attemptedTools, steps, input.maxSteps(), feedback,
                     skill.availableSkills(), skill.activeSkill(), input.selectedAssetId(), input.asOf(), toolResults);
             event(events, "REASON_INPUT", input.runVersion(),
-                    Map.of("stepsUsed", steps, "tools", context.tools().size(), "references", context.references().size()));
+                    Map.of("stepsUsed", steps, "tools", context.tools().size(), "references", context.references().size()),
+                    progress);
             ActionProposal action;
             try {
                 action = reasoner.propose(context, abortCode == null ? () -> null : abortCode);
@@ -270,27 +285,27 @@ public final class TaskOrchestrator {
                 // 模型配置/传输/输出失败：技术失败，不产生答案，也不伪装成缺证
                 String code = e instanceof ReasonerFailure failure ? failure.code() : "REASONER_FAILURE";
                 for (var attempt : reasoner.drainAttempts())
-                    event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt));
+                    event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt), progress);
                 abort = abortCode == null ? null : abortCode.get();
-                if (abort != null) return aborted(input, messages, references, events, steps, abort);
-                event(events, "RUN_FAILED", input.runVersion(), Map.of("code", code));
+                if (abort != null) return aborted(input, messages, references, events, steps, abort, progress);
+                event(events, "RUN_FAILED", input.runVersion(), Map.of("code", code), progress);
                 return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                         List.copyOf(references.values()), events, steps, code);
             }
             for (var attempt : reasoner.drainAttempts())
-                event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt));
+                event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt), progress);
             // 单次模型请求可能跨过总时限，不能将迟到的工具、追问或答案交给后续处理。
             abort = abortCode == null ? null : abortCode.get();
             if (abort != null) {
-                event(events, "RUN_LATE_RESPONSE", input.runVersion(), Map.of("code", abort));
-                return aborted(input, messages, references, events, steps, abort);
+                event(events, "RUN_LATE_RESPONSE", input.runVersion(), Map.of("code", abort), progress);
+                return aborted(input, messages, references, events, steps, abort, progress);
             }
             // 模型调用期间可能撤销许可。执行动作前重新核验，核验耗时也计入总时限。
             var authorizedContext = skillStep.get().toolContext();
             abort = abortCode == null ? null : abortCode.get();
             if (abort != null) {
-                event(events, "RUN_LATE_RESPONSE", input.runVersion(), Map.of("code", abort));
-                return aborted(input, messages, references, events, steps, abort);
+                event(events, "RUN_LATE_RESPONSE", input.runVersion(), Map.of("code", abort), progress);
+                return aborted(input, messages, references, events, steps, abort, progress);
             }
             steps++;
             if (action instanceof CallTool call) {
@@ -314,16 +329,31 @@ public final class TaskOrchestrator {
                         "success", outcome.success(), "errorCode",
                         outcome.error() == null ? "" : outcome.error().code(),
                         "references", outcome.references().size(), "durationMs", toolDurationMs,
-                        "retryable", outcome.error() != null && outcome.error().retryable()));
+                        "retryable", outcome.error() != null && outcome.error().retryable()), progress);
                 continue;
             }
             if (action instanceof AskUser ask) {
+                // 追问会原样展示给用户（05-02 延期项）：夹带设备操作指令或确诊断言时拒绝该动作，
+                // 按有界重试交给模型纠正，超限明确失败，绝不把越界追问落库成待答问题。
+                if (AnswerGuard.unsafeFollowUp(ask.question(), ask.requestedFields())) {
+                    rejections++;
+                    feedback = "追问不得包含设备操作指令或已经确诊的断言：只能询问现场状态、测量值或补证信息";
+                    event(events, "ACTION_REJECTED", input.runVersion(),
+                            Map.of("code", "UNSAFE_QUESTION"), progress);
+                    if (rejections > 2) {
+                        event(events, "RUN_FAILED", input.runVersion(),
+                                Map.of("code", "UNSAFE_ANSWER"), progress);
+                        return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
+                                List.copyOf(references.values()), events, steps, "UNSAFE_ANSWER");
+                    }
+                    continue;
+                }
                 // 版本号由持久层按 run 的 question_version 递增，这里只给初值
                 var question = new AgentTaskInput.PendingQuestion(UUID.randomUUID(), 1, ask.question(),
                         ask.requestedFields(), Instant.now());
                 messages.add(new AgentTaskInput.Message("ASSISTANT", ask.question()));
                 event(events, "QUESTION_ASKED", input.runVersion(), Map.of(
-                        "pendingQuestionId", question.pendingQuestionId().toString(), "questionVersion", 1));
+                        "pendingQuestionId", question.pendingQuestionId().toString(), "questionVersion", 1), progress);
                 return new AgentRunOutcome(AgentStatus.WAITING_FOR_USER, null, question, messages,
                         List.copyOf(references.values()), events, steps, "AWAITING_USER_INPUT");
             }
@@ -337,9 +367,9 @@ public final class TaskOrchestrator {
                         case "UNCONFIRMED_FINDING" -> "：不得声称已确诊或当前设备的确定性故障，只能给出带来源的可能原因";
                         default -> "";
                     };
-                    event(events, "ANSWER_REJECTED", input.runVersion(), Map.of("code", verdict.code()));
+                    event(events, "ANSWER_REJECTED", input.runVersion(), Map.of("code", verdict.code()), progress);
                     if (rejections > 1) {
-                        event(events, "RUN_FAILED", input.runVersion(), Map.of("code", verdict.code()));
+                        event(events, "RUN_FAILED", input.runVersion(), Map.of("code", verdict.code()), progress);
                         return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                                 List.copyOf(references.values()), events, steps, verdict.code());
                     }
@@ -349,16 +379,16 @@ public final class TaskOrchestrator {
                 event(events, "ANSWER", input.runVersion(), Map.of(
                         "category", verdict.answer().category().name(),
                         "riskLevel", verdict.answer().riskLevel().name(),
-                        "references", verdict.answer().references().size()));
+                        "references", verdict.answer().references().size()), progress);
                 return new AgentRunOutcome(AgentStatus.COMPLETED, verdict.answer(), null, messages,
                         List.copyOf(references.values()), events, steps, "ANSWERED");
             }
             // legacy 动作或未知类型：不执行，计数后要求模型纠正
             rejections++;
             feedback = "不支持的动作类型：只能使用 CALL_TOOL、ASK_USER 或 ANSWER";
-            event(events, "ACTION_REJECTED", input.runVersion(), Map.of("code", "UNSUPPORTED_ACTION"));
+            event(events, "ACTION_REJECTED", input.runVersion(), Map.of("code", "UNSUPPORTED_ACTION"), progress);
             if (rejections > 2) {
-                event(events, "RUN_FAILED", input.runVersion(), Map.of("code", "MODEL_OUTPUT_INVALID"));
+                event(events, "RUN_FAILED", input.runVersion(), Map.of("code", "MODEL_OUTPUT_INVALID"), progress);
                 return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                         List.copyOf(references.values()), events, steps, "MODEL_OUTPUT_INVALID");
             }
@@ -366,9 +396,10 @@ public final class TaskOrchestrator {
     }
     private static EvidenceNeed need(String id,String description,NeedSource source,String ruleId) { return new EvidenceNeed(id,description,source,NeedStatus.OPEN,ruleId); }
     private AgentRunOutcome aborted(AgentTaskInput input, List<AgentTaskInput.Message> messages,
-                                    Map<String, Reference> references, List<RunEvent> events, int steps, String code) {
+                                    Map<String, Reference> references, List<RunEvent> events, int steps, String code,
+                                    java.util.function.Consumer<RunEvent> progress) {
         boolean cancelled = "CANCELLED".equals(code);
-        event(events, cancelled ? "RUN_CANCELLED" : "RUN_FAILED", input.runVersion(), Map.of("code", code));
+        event(events, cancelled ? "RUN_CANCELLED" : "RUN_FAILED", input.runVersion(), Map.of("code", code), progress);
         return new AgentRunOutcome(cancelled ? AgentStatus.CANCELLED : AgentStatus.FAILED,
                 null, null, messages, List.copyOf(references.values()), events, steps, code);
     }
@@ -378,7 +409,14 @@ public final class TaskOrchestrator {
         return Map.of("attempt", attempt, "model", attempt.model() == null ? reasoner.name() : attempt.model());
     }
     private static void event(List<RunEvent> events,String type,long version,Map<String,Object> data) {
-        events.add(new RunEvent(events.size()+1,Instant.now(),type,version,data));
+        event(events,type,version,data,null);
+    }
+    /** 记录事件并按需同步触发渐进持久回调（先内存事件、后回调，05-01 复验 §8.1）。 */
+    private static void event(List<RunEvent> events,String type,long version,Map<String,Object> data,
+                              java.util.function.Consumer<RunEvent> progress) {
+        var recorded=new RunEvent(events.size()+1,Instant.now(),type,version,data);
+        events.add(recorded);
+        if(progress!=null) progress.accept(recorded);
     }
     /** 推理器失败异常：code 为稳定的错误码（如 DASHSCOPE_API_KEY_MISSING），区别于普通运行异常。 */
     public static final class ReasonerFailure extends RuntimeException {

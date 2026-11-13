@@ -80,8 +80,10 @@ public final class FileUploadService implements AutoCloseable {
         if (file == null || file.isEmpty()) throw KnowledgeException.invalid("file is required");
         String filename = file.getOriginalFilename();
         String mime = file.getContentType() == null ? "" : file.getContentType().toLowerCase(Locale.ROOT);
-        if (filename == null || !filename.toLowerCase(Locale.ROOT).endsWith(".md")
-                || !MARKDOWN_MIME.contains(mime)) throw new KnowledgeException("UNSUPPORTED_FILE_TYPE", 415);
+        boolean pdf = filename != null && filename.toLowerCase(Locale.ROOT).endsWith(".pdf");
+        if (filename == null || (!pdf && (!filename.toLowerCase(Locale.ROOT).endsWith(".md")
+                || !MARKDOWN_MIME.contains(mime))))
+            throw new KnowledgeException("UNSUPPORTED_FILE_TYPE", 415);
         if (file.getSize() > KnowledgeImportService.MAX_DOCUMENT_BYTES)
             throw new KnowledgeException("DOCUMENT_TOO_LARGE", 413);
         byte[] bytes;
@@ -116,6 +118,13 @@ public final class FileUploadService implements AutoCloseable {
         } catch (RuntimeException e) {
             try { Files.deleteIfExists(target); } catch (IOException ignored) { }
             throw e;
+        }
+        if (pdf) {
+            // PDF 明确状态：保留文件记录供界面展示与审计，但不解析、不切片、不产生页码；
+            // 需要 OCR/版面解析能力后才可能转成可检索文档（05-02 记录为未实现能力，绝不伪造正文）。
+            jdbc.update("UPDATE dt_uploaded_file SET parse_status='OCR_REQUIRED',parse_error='PDF_NOT_SUPPORTED',"
+                    + "mime='application/pdf' WHERE id=? AND owner_id=? AND project_id=?", id, ownerId, projectId);
+            return require(ownerId, projectId, id);
         }
         dispatch(ownerId, projectId, id);
         return require(ownerId, projectId, id);
@@ -176,6 +185,12 @@ public final class FileUploadService implements AutoCloseable {
             var row = rows.getFirst();
             jdbc.update("UPDATE dt_uploaded_file SET parse_status='PROCESSING',parse_error=NULL "
                     + "WHERE id=? AND owner_id=? AND project_id=?", fileId, ownerId, projectId);
+            String originalName = String.valueOf(row.get("original_name"));
+            if (!originalName.toLowerCase(Locale.ROOT).endsWith(".md")) {
+                // 防御：PDF 等未支持格式不得进入 Markdown 解析，绝不生成伪造正文或页码
+                fail(ownerId, projectId, fileId, "PDF_NOT_SUPPORTED");
+                return;
+            }
             byte[] bytes = Files.readAllBytes(resolve((String) row.get("path_key")));
             var request = new KnowledgeImportService.ImportRequest((String) row.get("import_title"),
                     (String) row.get("import_domain"), (String) row.get("import_device_model"),
@@ -191,8 +206,10 @@ public final class FileUploadService implements AutoCloseable {
     }
 
     private void fail(String ownerId, String projectId, UUID fileId, String code) {
+        // PDF 等“需要 OCR/版面解析”的明确状态与普通解析失败分开：重试后仍保持该状态，不产生正文/页码
+        boolean requiresOcr = "OCR_REQUIRED".equals(code) || "PDF_NOT_SUPPORTED".equals(code);
         jdbc.update("UPDATE dt_uploaded_file SET parse_status=?,parse_error=? WHERE id=? AND owner_id=? AND project_id=?",
-                "OCR_REQUIRED".equals(code) ? "OCR_REQUIRED" : "FAILED", code, fileId, ownerId, projectId);
+                requiresOcr ? "OCR_REQUIRED" : "FAILED", code, fileId, ownerId, projectId);
     }
 
     private Path resolve(String pathKey) {

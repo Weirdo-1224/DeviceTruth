@@ -1,7 +1,8 @@
 name: devicetruth
 services:
   postgres:
-    profiles: [standalone-db]
+    # standalone-db 单独起库；product 由后端/前端整套启动共用同一个 PG
+    profiles: [standalone-db, product]
     image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
     pull_policy: never
     environment:
@@ -17,5 +18,57 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+  # 05-03：可启动产品（默认 profile=product 显式启用，仅本地演示）。
+  # 密钥只通过环境变量注入，不写入镜像层；数据与受控文件分别落在命名卷。
+  backend:
+    profiles: [product]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: devicetruth-backend:0.1.0
+    environment:
+      # application.properties 默认只绑回环（本地开发安全默认）；容器内必须显式放开给 docker 端口映射与 nginx
+      SERVER_ADDRESS: 0.0.0.0
+      SPRING_DATASOURCE_URL: ${DEVICETRUTH_SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/devicetruth}
+      SPRING_DATASOURCE_USERNAME: devicetruth
+      SPRING_DATASOURCE_PASSWORD: ${DEVICETRUTH_DB_PASSWORD:?Set DEVICETRUTH_DB_PASSWORD in your environment or ignored .env}
+      DEVICETRUTH_OWNER_ID: ${DEVICETRUTH_OWNER_ID:-local-owner}
+      DEVICETRUTH_PROJECT_ID: ${DEVICETRUTH_PROJECT_ID:-local-project}
+      DEVICETRUTH_AGENT_REASONER: ${DEVICETRUTH_AGENT_REASONER:-scripted}
+      DEVICETRUTH_AGENT_WORKER_ENABLED: "true"
+      DEVICETRUTH_EMBEDDING_PROVIDER: ${DEVICETRUTH_EMBEDDING_PROVIDER:-deterministic}
+      DEVICETRUTH_FILES_ROOT: /data/files
+      # 供应商密钥只在本机 shell/.env 提供，绝不进入镜像或前端
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${DEVICETRUTH_BACKEND_PORT:-8080}:8080"
+    volumes:
+      - devicetruth-files:/data
+    restart: unless-stopped
+
+  frontend:
+    profiles: [product]
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    image: devicetruth-frontend:0.1.0
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:${DEVICETRUTH_FRONTEND_PORT:-8081}:8081"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8081/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
 volumes:
   postgres-data:
+  devicetruth-files:

@@ -1,5 +1,9 @@
 > 2026-11-13 latest: 03-01 PASS; native advance-plan 1 -> 2 succeeded; next 03-02 NOT EXECUTED. Final tests 278/0/0/0, package/CLI PASS. No commit/push. Older pending statements below are historical.
 
+> 2026-11-13 最新接续：**05-01 已完成并技术验收**（授权范围仅 05-01；05-02/05-03 未授权，须等用户明示）。主代理定契约 `.planning/phases/05-workbench-quality/05-01-CONTRACT.md`，三个子代理并行（A 后端 SSE / B Vue 时间线 / C 集成与浏览器验收），主代理整合。实测：全量 350/0/0/1、前端 28/28+build、打包、verify_cli 通过；`AgentStreamTest` 7/7；浏览器三场景 PASS（证据 `outputs/validation/sse-browser-7e894c22cc0a/`）。**代码与验收记录未提交，留在工作区供审阅**。主代理修复了两处前端接线（终态 run 历史回读、视图不完整自动重跟）与浏览器脚本两处时序坑（SSE 代理须逐块转发；断连前须等浏览器收到带 id 事件）。未验证：真实模型长耗时流、订阅压测、真实认证（05-03）。先读 [05-01-SUMMARY](phases/05-workbench-quality/05-01-SUMMARY.md) 与 [05-01-CONTRACT](phases/05-workbench-quality/05-01-CONTRACT.md)。
+
+> 2026-11-14 最新接续：**Phase 5 三个计划全部完成并实测，阶段未关闭，等两项集中人工确认**。05-01（SSE/历史/时间线，含审查六项+追加六项修复）：全量 `mvn -o test` 360/0/0/1、前端 36/36+build、浏览器 A–E 5/5、verify_cli 通过。05-02：工作台（DiagnosisReport/EvidenceComparison/取消/Skill）+ 安全四项 + PDF 明确状态 + 14 例 E2E（离线 PASS6/覆盖4/未跑4；在线 PASS9/覆盖4/FAIL1=E2E-07 模型首轮未追问）。05-03：Dockerfile/compose/nginx/operations.md + **演练 PASS**（`outputs/validation/deployment-20261114014426`：启动→链路→重启持久→备份恢复 6 表行数一致→迁移失败阻断→forward-fix）。UAT 待确认：① 多人共享是否接真实认证；② E2E-07「首轮必须追问」是否硬约束。文档见 05-ACCEPTANCE/05-VERIFICATION/05-VALIDATION/05-UAT/ACCEPTANCE-RESULTS。全部改动未提交，留在工作区。
+
 # 新会话接续说明
 
 > **2026-11-13 最新接续：** Phase 3 总时限与用量修复、Chrome 恢复及在线多轮均已实测。Phase 4 两份计划完成，离线与真实 DeepSeek / DashScope 双域样本通过（保留原始报告和措辞复核）。原生阶段出口已通过，Phase 5 尚未开始。最近全量 343 项，342 通过、1 跳过。先读 [03-ACCEPTANCE](phases/03-durable-investigation/03-ACCEPTANCE.md) 与 [04-ACCEPTANCE](phases/04-skills-dual-domain/04-ACCEPTANCE.md) 的补验段。

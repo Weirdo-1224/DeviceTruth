@@ -115,13 +115,17 @@ class PersistentConversationTest {
         assertThat(Json.MAPPER.readTree(rest.getForObject(base + "/api/conversations/" + id + "/messages", String.class)))
                 .isEqualTo(before.path("messages"));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dt_run_event WHERE run_id=? AND type='RUN_QUEUED'", Integer.class, UUID.fromString(runId))).isEqualTo(1);
+        var migrations = jdbc.queryForList(
+                "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
+        assertThat(migrations).contains("1", "13", "16");
         app.close();
         app = open("owner-a", "project-a");
         base = base(app);
         jdbc = new JdbcTemplate(app.getBean(com.zaxxer.hikari.HikariDataSource.class));
         assertThat(detail(id)).isEqualTo(before);
         assertThat(Json.MAPPER.readTree(rest.getForObject(base + "/api/runs/" + runId, String.class))).isEqualTo(run);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class)).isEqualTo(15);
+        assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank",
+                String.class)).containsExactlyElementsOf(migrations);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE NOT success", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT extversion FROM pg_extension WHERE extname='vector'", String.class)).isEqualTo("0.8.7");
         assertThat(jdbc.queryForObject("SHOW server_version", String.class)).startsWith("16.15");
