@@ -12,8 +12,9 @@ import java.util.List;
 public final class AssetFacts {
     private AssetFacts() {}
 
-    /** 工具失败码：缺数据、过期、越权与歧义必须区分，不能混成“无证据”或“成功结论”。 */
-    public enum FailureCode { NOT_FOUND, DATA_STALE, PERMISSION_DENIED, AMBIGUOUS, INVALID_ARGUMENTS, INVALID_TOOL_OUTPUT }
+    /** 工具失败码：缺数据、越权与参数错误必须区分，不能混成“无证据”或“成功结论”。
+     * DATA_STALE / AMBIGUOUS 语义随 recordedAt 边界延后到 Phase 05（REQUIREMENTS.md TOOL-03 记部分实现），届时连同负例一并补回。 */
+    public enum FailureCode { NOT_FOUND, PERMISSION_DENIED, INVALID_ARGUMENTS, INVALID_TOOL_OUTPUT }
 
     /** 核实状态：资料记载（文档/改造/历史）与现场已核实分开表达。 */
     public enum VerificationStatus { DOCUMENTED, FIELD_VERIFIED }
