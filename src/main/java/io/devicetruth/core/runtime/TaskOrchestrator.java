@@ -239,7 +239,7 @@ public final class TaskOrchestrator {
             String abort = abortCode == null ? null : abortCode.get();
             if (abort != null) {
                 for (var attempt : reasoner.drainAttempts())
-                    event(events, "MODEL_ATTEMPT", input.runVersion(), Map.of("attempt", attempt));
+                    event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt));
                 if ("TOTAL_TIMEOUT".equals(abort)) {
                     event(events, "RUN_FAILED", input.runVersion(), Map.of("code", "TOTAL_TIMEOUT"));
                     return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
@@ -266,13 +266,13 @@ public final class TaskOrchestrator {
                 // 模型配置/传输/输出失败：技术失败，不产生答案，也不伪装成缺证
                 String code = e instanceof ReasonerFailure failure ? failure.code() : "REASONER_FAILURE";
                 for (var attempt : reasoner.drainAttempts())
-                    event(events, "MODEL_ATTEMPT", input.runVersion(), Map.of("attempt", attempt));
+                    event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt));
                 event(events, "RUN_FAILED", input.runVersion(), Map.of("code", code));
                 return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                         List.copyOf(references.values()), events, steps, code);
             }
             for (var attempt : reasoner.drainAttempts())
-                event(events, "MODEL_ATTEMPT", input.runVersion(), Map.of("attempt", attempt));
+                event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt));
             steps++;
             if (action instanceof CallTool call) {
                 attemptedTools.add(call.toolName());
@@ -340,6 +340,10 @@ public final class TaskOrchestrator {
         }
     }
     private static EvidenceNeed need(String id,String description,NeedSource source,String ruleId) { return new EvidenceNeed(id,description,source,NeedStatus.OPEN,ruleId); }
+    /** 模型尝试事件：尝试记录 + 模型版本名（白名单审计字段）。 */
+    private static Map<String,Object> modelAttempt(GeneralReasoner reasoner,Reasoner.Attempt attempt) {
+        return Map.of("attempt",attempt,"model",reasoner.name());
+    }
     private static void event(List<RunEvent> events,String type,long version,Map<String,Object> data) {
         events.add(new RunEvent(events.size()+1,Instant.now(),type,version,data));
     }

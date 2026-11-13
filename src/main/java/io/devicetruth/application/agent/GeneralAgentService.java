@@ -450,12 +450,12 @@ public final class GeneralAgentService {
     /** RUN_MODEL 白名单载荷：模型版本、第几次尝试、结果码与单次耗时；原始输出与 Prompt 不落库。 */
     private static Map<String, Object> modelEventPayload(Map<String, Object> data) {
         Map<String, Object> payload = new java.util.HashMap<>();
-        payload.put("model", "unknown");
+        payload.put("model", String.valueOf(data.getOrDefault("model", "unknown")));
         Object attempt = data.get("attempt");
-        if (attempt instanceof Map<?, ?> map) {
-            payload.put("attempt", map.get("number"));
-            payload.put("outcome", map.get("outcome"));
-            payload.put("durationMs", map.get("durationMs"));
+        if (attempt instanceof io.devicetruth.core.reasoning.Reasoner.Attempt record) {
+            payload.put("attempt", record.number());
+            payload.put("outcome", record.outcome());
+            payload.put("durationMs", record.durationMs());
         }
         return payload;
     }

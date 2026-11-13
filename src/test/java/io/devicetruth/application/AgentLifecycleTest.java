@@ -1,6 +1,7 @@
 package io.devicetruth.application;
 
 import com.zaxxer.hikari.HikariDataSource;
+import io.devicetruth.adapter.StructuredAgentReasoner;
 import io.devicetruth.adapter.persistence.AgentRunRepository;
 import io.devicetruth.adapter.persistence.ConversationRepository;
 import io.devicetruth.application.agent.GeneralAgentService;
@@ -17,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -395,6 +397,141 @@ class AgentLifecycleTest {
             service.recoverQueued();
             assertThat(service.run(runId).status()).isEqualTo("FAILED");
             assertThat(service.run(runId).failureCode()).isEqualTo("TOTAL_TIMEOUT");
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test void usageDurationAndToolCountsAreAuditableWithoutFabricatedNumbers() throws Exception {
+        var service = service(1, 1, null);
+        try {
+            UUID conversation = service.create().conversationId();
+            UUID runId = service.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车直流快充中断，没有故障码，先查什么资料？")).runId();
+            awaitTerminal(service, runId, "COMPLETED");
+            RunView view = service.run(runId);
+            assertThat(view.result()).isNotNull();
+            // 耗时与用量口径：累计执行时长>0，供应商无 usage 时 UNKNOWN，Token/成本为 null
+            assertThat(view.activeDurationMs()).isNotNull().isPositive();
+            assertThat(view.usageStatus()).isEqualTo("UNKNOWN");
+            // 工具事件可审计：单次耗时、成功标志与引用计数；技术字段不泄漏 Prompt/原文
+            var toolEvents = service.toolEvents(runId);
+            assertThat(toolEvents).isNotEmpty();
+            assertThat(toolEvents).allSatisfy(event -> {
+                assertThat(event.durationMs()).isGreaterThanOrEqualTo(0);
+                assertThat(event.toolName()).isNotBlank();
+            });
+            assertThat(toolEvents).anySatisfy(event -> {
+                assertThat(event.success()).isTrue();
+                assertThat(event.referenceCount()).isPositive();
+            });
+            // 预算回写与事件一致：steps/toolCalls/modelAttempts 与持久事件对得上，inputTokens 未编造
+            var budget = jdbc.queryForMap(
+                    "SELECT budget->'used' AS used FROM dt_agent_run WHERE id=?", runId).get("used");
+            String used = String.valueOf(budget);
+            int runToolEvents = jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_TOOL'", Integer.class, runId);
+            assertThat(used).contains("\"toolCalls\": " + runToolEvents);
+            assertThat(used).contains("\"modelAttempts\": 0"); // scripted 无模型尝试，记 0 而不是编造
+            assertThat(used).contains("\"inputTokens\": null");
+            assertThat(used).contains("\"cost\": null");
+            assertThat(jdbc.queryForObject(
+                    "SELECT (budget->'used'->>'steps')::int FROM dt_agent_run WHERE id=?", Integer.class, runId))
+                    .isEqualTo(runs.load(IDENTITY, runId, false).stepsUsed());
+            assertThat(jdbc.queryForObject(
+                    "SELECT started_at IS NOT NULL AND finished_at IS NOT NULL FROM dt_agent_run WHERE id=?",
+                    Boolean.class, runId)).isTrue();
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test void modelAttemptsAreRecordedWithBoundedRetryAndDuration() throws Exception {
+        // 恒输出非法 JSON 的模型：重试上限 2 次后明确 FAILED，每次尝试的耗时/结果码/版本可审计
+        StructuredAgentReasoner.Completion invalid = (system, input) -> "这不是合法 JSON";
+        var service = service(1, 1, new StructuredAgentReasoner("probe-model", invalid));
+        try {
+            UUID conversation = service.create().conversationId();
+            UUID runId = service.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车直流快充中断，没有故障码，先查什么资料？")).runId();
+            assertThat(awaitTerminal(service, runId, "FAILED")).isEqualTo("FAILED");
+            assertThat(service.run(runId).failureCode()).isEqualTo("MODEL_OUTPUT_INVALID_AFTER_RETRY");
+            assertThat(service.run(runId).result()).isNull();
+            var modelEvents = service.modelEvents(runId);
+            assertThat(modelEvents).hasSize(2); // 有界重试：恰好两次尝试
+            assertThat(modelEvents).extracting(AgentRunRepository.ModelEvent::attempt).containsExactly(1, 2);
+            assertThat(modelEvents).allSatisfy(event -> {
+                assertThat(event.model()).isEqualTo("probe-model");
+                assertThat(event.outcome()).isEqualTo("INVALID_JSON_OR_SCHEMA");
+                assertThat(event.durationMs()).isGreaterThanOrEqualTo(0);
+            });
+            // 技术错误不伪装成证据不足：失败事件带稳定码，没有答案事件
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_FAILED'"
+                            + " AND safe_payload->>'code'='MODEL_OUTPUT_INVALID_AFTER_RETRY'", Integer.class, runId))
+                    .isEqualTo(1);
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_ANSWER'", Integer.class, runId))
+                    .isZero();
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test void transientToolErrorIsRecordedAndRunStillCompletes() throws Exception {
+        // 瞬时工具错误：第一步调未注册工具（失败入审计），第二步如实作答；错误不伪装成成功证据
+        GeneralReasoner retrying = new GeneralReasoner() {
+            private boolean attemptedUnknown;
+            @Override public String name() { return "tool-error-probe"; }
+            @Override public ActionProposal propose(Context context) {
+                if (!attemptedUnknown) {
+                    attemptedUnknown = true;
+                    return new ActionProposal.CallTool("not_a_registered_tool", Map.of(), "探测未注册工具");
+                }
+                return new ActionProposal.Answer("KNOWLEDGE",
+                        "已授权资料中没有可引用的依据，无法给出有来源的结论。",
+                        List.of(), List.of("补充故障现象后再检索"), List.of("当前资料库缺少直接相关的章节"),
+                        List.of("知识库未命中时不得编造文档、页码或结论"), List.of());
+            }
+        };
+        var service = service(1, 1, retrying);
+        try {
+            UUID conversation = service.create().conversationId();
+            UUID runId = service.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车直流快充中断，没有故障码，先查什么资料？")).runId();
+            assertThat(awaitTerminal(service, runId, "COMPLETED")).isEqualTo("COMPLETED");
+            var toolEvents = service.toolEvents(runId);
+            assertThat(toolEvents).hasSize(1);
+            assertThat(toolEvents.getFirst().success()).isFalse();
+            assertThat(toolEvents.getFirst().errorCode()).isEqualTo("UNKNOWN_TOOL");
+            // 空检索答案没有伪造引用：守卫放行且引用为空
+            assertThat(service.run(runId).result().references()).isEmpty();
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test void modelTransportFailureIsRecordedAsStableCodeNotEvidenceLack() throws Exception {
+        GeneralReasoner failing = new GeneralReasoner() {
+            @Override public String name() { return "failing-model"; }
+            @Override public ActionProposal propose(Context context) {
+                throw new io.devicetruth.core.runtime.TaskOrchestrator.ReasonerFailure(
+                        "MODEL_TRANSPORT_OR_TIMEOUT");
+            }
+        };
+        var service = service(1, 1, failing);
+        try {
+            UUID conversation = service.create().conversationId();
+            UUID runId = service.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车直流快充中断，没有故障码，先查什么资料？")).runId();
+            assertThat(awaitTerminal(service, runId, "FAILED")).isEqualTo("FAILED");
+            RunView failed = service.run(runId);
+            assertThat(failed.failureCode()).isEqualTo("MODEL_TRANSPORT_OR_TIMEOUT");
+            assertThat(failed.result()).isNull();
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_FAILED'"
+                            + " AND safe_payload->>'code'='MODEL_TRANSPORT_OR_TIMEOUT'", Integer.class, runId))
+                    .isEqualTo(1);
         } finally {
             service.shutdown();
         }
