@@ -101,11 +101,23 @@ public class ServerConfiguration {
     @Bean
     @Profile("product")
     CapabilityGateway agentCapabilityGateway(KnowledgeTools knowledgeTools,
-            io.devicetruth.application.agent.AssetTools assetTools) {
+            io.devicetruth.application.agent.AssetTools assetTools,
+            io.devicetruth.application.agent.AgentReportTools reportTools) {
         var gateway = new CapabilityGateway();
         knowledgeTools.registerInto(gateway);
         assetTools.registerInto(gateway);
+        reportTools.registerInto(gateway);
         return gateway;
+    }
+
+    /** 通用调查报告工具：聚合当前 run 的持久白名单事实（引用/工具轨迹/预算/待答与答案摘要）。 */
+    @Bean
+    @Profile("product")
+    io.devicetruth.application.agent.AgentReportTools agentReportTools(HikariDataSource source) {
+        var jdbc = new JdbcTemplate(source);
+        return new io.devicetruth.application.agent.AgentReportTools(
+                new io.devicetruth.adapter.persistence.AgentRunRepository(jdbc),
+                new io.devicetruth.adapter.persistence.ConversationRepository(jdbc));
     }
 
     /**

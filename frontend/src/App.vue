@@ -4,6 +4,8 @@ import {
   ApiError,
   createConversation,
   describeFailure,
+  listAssets,
+  listConversations,
   readConversation,
   replyToQuestion,
   sendMessage,
@@ -16,12 +18,18 @@ import {
   type RunView
 } from './api'
 
+const STORAGE_KEY = 'devicetruth.conversation-id'
+
 const conversation = ref<ConversationView | null>(null)
+const conversations = ref<ConversationView[]>([])
+const assets = ref<string[]>([])
+const selectedAssetId = ref<string>('')
 const messages = ref<MessageView[]>([])
 const run = ref<RunView | null>(null)
 const draft = ref('')
 const replyDraft = ref('')
 const busy = ref(false)
+const resuming = ref(false)
 const uploading = ref(false)
 const errorText = ref('')
 const uploadedFile = ref<FileView | null>(null)
@@ -56,6 +64,63 @@ async function refresh(): Promise<void> {
   messages.value = detail.messages
   const latest = detail.runs.length > 0 ? detail.runs[detail.runs.length - 1] : null
   if (latest) run.value = latest
+  // 刷新/重开时如果最新 run 还在排队或执行，继续安全轮询；PG 是唯一权威，等待态也会随轮询恢复
+  if (latest && (latest.status === 'QUEUED' || latest.status === 'RUNNING') && !busy.value && !resuming.value) {
+    resuming.value = true
+    try {
+      await track(latest.runId)
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'RUN_WAIT_TIMEOUT') errorText.value = describeError(error)
+    } finally {
+      resuming.value = false
+    }
+  }
+}
+
+/** 切换历史会话：PG 权威，消息、待答问题与结果都能找回，不依赖原线程。 */
+async function openConversation(conversationId: string): Promise<void> {
+  if (!conversationId || conversationId === conversation.value?.conversationId) return
+  busy.value = true
+  errorText.value = ''
+  try {
+    const detail = await readConversation(conversationId)
+    conversation.value = detail.conversation
+    rememberConversation(detail.conversation.conversationId)
+    await refresh()
+  } catch (error) {
+    errorText.value = describeError(error)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function startNewConversation(): Promise<void> {
+  busy.value = true
+  errorText.value = ''
+  try {
+    const created = await createConversation()
+    conversation.value = created
+    rememberConversation(created.conversationId)
+    messages.value = []
+    run.value = null
+    await refreshHistory()
+  } catch (error) {
+    errorText.value = describeError(error)
+  } finally {
+    busy.value = false
+  }
+}
+
+function rememberConversation(conversationId: string): void {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, conversationId)
+  } catch {
+    // 本地存储不可用时仅影响“重开自动找回”，刷新恢复仍可用
+  }
+}
+
+async function refreshHistory(): Promise<void> {
+  conversations.value = await listConversations()
 }
 
 /** 轮询直到 WAITING_FOR_USER/COMPLETED/FAILED；运行结束后再从持久层刷新消息。 */
@@ -95,7 +160,13 @@ async function submit(): Promise<void> {
   errorText.value = ''
   try {
     const attachments = uploadedFile.value?.parseStatus === 'PARSED' ? [uploadedFile.value.fileId] : []
-    const accepted = await sendMessage(conversation.value.conversationId, draft.value, undefined, attachments)
+    const accepted = await sendMessage(
+      conversation.value.conversationId,
+      draft.value,
+      undefined,
+      attachments,
+      selectedAssetId.value || null
+    )
     draft.value = ''
     run.value = accepted
     await refresh()
@@ -136,7 +207,28 @@ async function answerQuestion(): Promise<void> {
 
 onMounted(async () => {
   try {
-    conversation.value = await createConversation()
+    // 先尝试从本地记录找回上次会话；找不回（或首次使用）就新建，历史列表始终可从服务器拉取
+    let remembered: string | null = null
+    try {
+      remembered = window.localStorage.getItem(STORAGE_KEY)
+    } catch {
+      remembered = null
+    }
+    if (remembered) {
+      try {
+        const detail = await readConversation(remembered)
+        conversation.value = detail.conversation
+        await refresh()
+      } catch {
+        conversation.value = await createConversation()
+        rememberConversation(conversation.value.conversationId)
+      }
+    } else {
+      conversation.value = await createConversation()
+      rememberConversation(conversation.value.conversationId)
+    }
+    assets.value = await listAssets()
+    await refreshHistory()
   } catch (error) {
     errorText.value = describeError(error)
   }
@@ -149,117 +241,154 @@ onMounted(async () => {
       <h1>DeviceTruth 设备检修助手</h1>
       <p class="hint">
         可以直接描述现象，不需要故障码；没有资产编号也可以先做资料问答。所有回答标注为 SIMULATED 演示数据，
-        知识引用只说明资料记载，不代表本台设备当前配置。
+        知识引用只说明资料记载，不代表本台设备当前配置。刷新或重开浏览器后会从历史列表找回本会话。
       </p>
     </header>
 
-    <p v-if="errorText" class="error" role="alert">{{ errorText }}</p>
-
-    <section class="status">
-      <span>运行状态：{{ statusLabel }}</span>
-      <button v-if="!busy && conversation" type="button" class="link" @click="refresh">刷新</button>
-    </section>
-
-    <section class="card upload">
-      <h2>上传 Markdown 资料</h2>
-      <input type="file" accept=".md,text/markdown" :disabled="uploading" @change="upload" />
-      <p v-if="uploading" class="hint">正在上传并导入，请稍候。</p>
-      <p v-if="uploadedFile" class="hint">
-        {{ uploadedFile.originalName }}：{{ uploadedFile.parseStatus }}
-        <span v-if="uploadedFile.parseStatus === 'PARSED'">，将随下一条问题作为检索范围线索。</span>
-        <span v-else-if="uploadedFile.failureCode">（{{ uploadedFile.failureCode }}）</span>
-      </p>
-    </section>
-
-    <section v-if="failureText" class="card failure" role="alert">
-      <h2>本次没有得到答案</h2>
-      <p>{{ failureText }}</p>
-      <p v-if="run?.failureCode" class="hint">原因码：{{ run.failureCode }}</p>
-    </section>
-
-    <section class="messages">
-      <p v-if="messages.length === 0" class="empty">还没有消息，先描述一下设备现象。</p>
-      <article v-for="message in messages" :key="message.messageId" :class="['bubble', message.role.toLowerCase()]">
-        <span class="role">{{ message.role === 'USER' ? '我' : '助手' }}</span>
-        <p>{{ message.content }}</p>
-      </article>
-    </section>
-
-    <section v-if="pendingQuestion" class="card question">
-      <h2>需要补充信息</h2>
-      <p>{{ pendingQuestion.question }}</p>
-      <p v-if="pendingQuestion.requestedFields.length > 0" class="hint">
-        需要：{{ pendingQuestion.requestedFields.join('、') }}
-      </p>
-      <textarea v-model="replyDraft" rows="3" placeholder="按问题补充，例如：直流快充，SOC 约 40%"></textarea>
-      <button type="button" :disabled="busy || replyDraft.trim().length === 0" @click="answerQuestion">
-        提交补充信息
-      </button>
-    </section>
-
-    <section v-if="answer" class="card answer">
-      <h2>回答（{{ answer.category }} · 风险 {{ answer.riskLevel }} · {{ answer.dataNature }}）</h2>
-      <p class="summary">{{ answer.summary }}</p>
-
-      <div v-if="answer.claims.length > 0">
-        <h3>依据</h3>
+    <div class="layout">
+      <aside class="history card">
+        <div class="history-head">
+          <h2>历史会话</h2>
+          <button type="button" class="link" :disabled="busy" @click="startNewConversation">新会话</button>
+        </div>
+        <p v-if="conversations.length === 0" class="hint">还没有历史会话。</p>
         <ul>
-          <li v-for="(claim, index) in answer.claims" :key="index">
-            {{ claim.text }}（{{ claim.certainty }}）
-            <span class="refs">{{ claim.referenceIds.map((id) => '#' + id.slice(0, 8)).join(' ') }}</span>
-          </li>
-        </ul>
-      </div>
-
-      <div v-if="answer.references.length > 0">
-        <h3>引用</h3>
-        <ul class="references">
-          <li v-for="reference in answer.references" :key="reference.referenceId">
+          <li v-for="item in conversations" :key="item.conversationId">
             <button
               type="button"
-              class="link citation"
-              @click="openReferenceId = openReferenceId === reference.referenceId ? null : reference.referenceId"
+              class="link conversation-link"
+              :class="{ active: item.conversationId === conversation?.conversationId }"
+              :disabled="busy"
+              @click="openConversation(item.conversationId)"
             >
-              《{{ reference.title }}》{{ reference.section ?? '' }}
-              <span v-if="reference.page">（第 {{ reference.page }} 页）</span>
+              {{ new Date(item.updatedAt).toLocaleString() }} 的会话
             </button>
-            · 版本 {{ reference.sourceVersion }} · {{ reference.dataNature }}
-            <p v-if="openReferenceId === reference.referenceId" class="excerpt">{{ reference.excerpt }}</p>
           </li>
         </ul>
-      </div>
+      </aside>
 
-      <div v-if="answer.suggestions.length > 0">
-        <h3>建议</h3>
-        <ul>
-          <li v-for="(suggestion, index) in answer.suggestions" :key="index">{{ suggestion }}</li>
-        </ul>
-      </div>
+      <section class="content">
+        <p v-if="errorText" class="error" role="alert">{{ errorText }}</p>
 
-      <div v-if="answer.limitations.length > 0 || answer.uncertainties.length > 0">
-        <h3>限制与不确定点</h3>
-        <ul>
-          <li v-for="(item, index) in [...answer.limitations, ...answer.uncertainties]" :key="index">{{ item }}</li>
-        </ul>
-      </div>
-    </section>
+        <section class="status">
+          <span>运行状态：{{ statusLabel }}</span>
+          <span v-if="resuming" class="hint">正在从服务器恢复进行中的调查…</span>
+          <button v-if="!busy && conversation" type="button" class="link" @click="refresh">刷新</button>
+        </section>
 
-    <section class="composer">
-      <textarea
-        v-model="draft"
-        rows="3"
-        :disabled="busy || pendingQuestion !== null"
-        placeholder="例如：新能源汽车充电中断，没有故障码，应该先查什么资料？"
-      ></textarea>
-      <button type="button" :disabled="!canSend || pendingQuestion !== null" @click="submit">发送</button>
-      <p v-if="pendingQuestion" class="hint">请先回答上面的问题，再继续新的描述。</p>
-    </section>
+        <section class="card picker">
+          <label>
+            关联设备（可选）：
+            <select v-model="selectedAssetId" :disabled="busy">
+              <option value="">不指定设备</option>
+              <option v-for="asset in assets" :key="asset" :value="asset">{{ asset }}</option>
+            </select>
+          </label>
+          <p class="hint">选择设备后，新问题会带上资产编号；不选择也可以先做资料问答。</p>
+        </section>
+
+        <section class="card upload">
+          <h2>上传 Markdown 资料</h2>
+          <input type="file" accept=".md,text/markdown" :disabled="uploading" @change="upload" />
+          <p v-if="uploading" class="hint">正在上传并导入，请稍候。</p>
+          <p v-if="uploadedFile" class="hint">
+            {{ uploadedFile.originalName }}：{{ uploadedFile.parseStatus }}
+            <span v-if="uploadedFile.parseStatus === 'PARSED'">，将随下一条问题作为检索范围线索。</span>
+            <span v-else-if="uploadedFile.failureCode">（{{ uploadedFile.failureCode }}）</span>
+          </p>
+        </section>
+
+        <section v-if="failureText" class="card failure" role="alert">
+          <h2>本次没有得到答案</h2>
+          <p>{{ failureText }}</p>
+          <p v-if="run?.failureCode" class="hint">原因码：{{ run.failureCode }}</p>
+        </section>
+
+        <section class="messages">
+          <p v-if="messages.length === 0" class="empty">还没有消息，先描述一下设备现象。</p>
+          <article v-for="message in messages" :key="message.messageId" :class="['bubble', message.role.toLowerCase()]">
+            <span class="role">{{ message.role === 'USER' ? '我' : '助手' }}</span>
+            <p>{{ message.content }}</p>
+          </article>
+        </section>
+
+        <section v-if="pendingQuestion" class="card question">
+          <h2>需要补充信息</h2>
+          <p>{{ pendingQuestion.question }}</p>
+          <p v-if="pendingQuestion.requestedFields.length > 0" class="hint">
+            需要：{{ pendingQuestion.requestedFields.join('、') }}
+          </p>
+          <textarea v-model="replyDraft" rows="3" placeholder="按问题补充，例如：直流快充，SOC 约 40%"></textarea>
+          <button type="button" :disabled="busy || replyDraft.trim().length === 0" @click="answerQuestion">
+            提交补充信息
+          </button>
+        </section>
+
+        <section v-if="answer" class="card answer">
+          <h2>回答（{{ answer.category }} · 风险 {{ answer.riskLevel }} · {{ answer.dataNature }}）</h2>
+          <p class="summary">{{ answer.summary }}</p>
+
+          <div v-if="answer.claims.length > 0">
+            <h3>依据</h3>
+            <ul>
+              <li v-for="(claim, index) in answer.claims" :key="index">
+                {{ claim.text }}（{{ claim.certainty }}）
+                <span class="refs">{{ claim.referenceIds.map((id) => '#' + id.slice(0, 8)).join(' ') }}</span>
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="answer.references.length > 0">
+            <h3>引用</h3>
+            <ul class="references">
+              <li v-for="reference in answer.references" :key="reference.referenceId">
+                <button
+                  type="button"
+                  class="link citation"
+                  @click="openReferenceId = openReferenceId === reference.referenceId ? null : reference.referenceId"
+                >
+                  《{{ reference.title }}》{{ reference.section ?? '' }}
+                  <span v-if="reference.page">（第 {{ reference.page }} 页）</span>
+                </button>
+                · 版本 {{ reference.sourceVersion }} · {{ reference.dataNature }}
+                <p v-if="openReferenceId === reference.referenceId" class="excerpt">{{ reference.excerpt }}</p>
+              </li>
+            </ul>
+          </div>
+
+          <div v-if="answer.suggestions.length > 0">
+            <h3>建议</h3>
+            <ul>
+              <li v-for="(suggestion, index) in answer.suggestions" :key="index">{{ suggestion }}</li>
+            </ul>
+          </div>
+
+          <div v-if="answer.limitations.length > 0 || answer.uncertainties.length > 0">
+            <h3>限制与不确定点</h3>
+            <ul>
+              <li v-for="(item, index) in [...answer.limitations, ...answer.uncertainties]" :key="index">{{ item }}</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="composer">
+          <textarea
+            v-model="draft"
+            rows="3"
+            :disabled="busy || pendingQuestion !== null"
+            placeholder="例如：新能源汽车充电中断，没有故障码，应该先查什么资料？"
+          ></textarea>
+          <button type="button" :disabled="!canSend || pendingQuestion !== null" @click="submit">发送</button>
+          <p v-if="pendingQuestion" class="hint">请先回答上面的问题，再继续新的描述。</p>
+        </section>
+      </section>
+    </div>
   </main>
 </template>
 
 <style scoped>
 .page {
-  max-width: 780px;
+  max-width: 1024px;
   margin: 0 auto;
   padding: 24px 16px 64px;
   font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
@@ -289,6 +418,50 @@ header h1 {
   font-size: 14px;
   color: #334e68;
   margin: 16px 0;
+}
+.layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.history {
+  flex: 0 0 220px;
+  position: sticky;
+  top: 16px;
+}
+.history-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.history ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.conversation-link {
+  font-size: 13px;
+  color: #334e68;
+}
+.conversation-link.active {
+  color: #2563eb;
+  font-weight: 600;
+}
+.content {
+  flex: 1;
+  min-width: 0;
+}
+.picker select {
+  margin-left: 8px;
+  padding: 4px 8px;
+  border: 1px solid #cbd2d9;
+  border-radius: 6px;
+  font: inherit;
 }
 .link {
   background: none;

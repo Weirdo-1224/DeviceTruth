@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ApiError,
   describeFailure,
+  listAssets,
+  listConversations,
   newRequestKey,
   readRun,
   readReferences,
@@ -277,5 +279,40 @@ describe('api 合同', () => {
     const second = newRequestKey()
     expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
     expect(first).not.toBe(second)
+  })
+
+  it('历史会话列表按服务器身份返回，用于刷新/重开后的恢复', async () => {
+    stubFetch(
+      jsonResponse([
+        { conversationId: CONVERSATION_ID, version: 3, createdAt: '2026-11-11T00:00:00Z', updatedAt: '2026-11-12T00:00:00Z' }
+      ])
+    )
+    const list = await listConversations()
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('/api/conversations')
+    expect(calls[0].init.method).toBe('GET')
+    expect(list).toHaveLength(1)
+    expect(list[0].conversationId).toBe(CONVERSATION_ID)
+  })
+
+  it('已登记资产清单由服务器提供，客户端不带身份参数', async () => {
+    stubFetch(jsonResponse(['CAR-B']))
+    const assets = await listAssets()
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('/api/assets')
+    expect(assets).toEqual(['CAR-B'])
+  })
+
+  it('选择设备后新问题带 selectedAssetId，不选择时不提交该字段', async () => {
+    stubFetch(jsonResponse(runView(), 202), jsonResponse(runView(), 202))
+    await sendMessage(CONVERSATION_ID, 'CAR-B 的充电配置是什么', 'key-asset', [], 'CAR-B')
+    expect(bodyOf(calls[0])).toEqual({
+      schemaVersion: 1,
+      userMessage: 'CAR-B 的充电配置是什么',
+      selectedAssetId: 'CAR-B'
+    })
+
+    await sendMessage(CONVERSATION_ID, '没有设备的通用问题', 'key-no-asset')
+    expect(bodyOf(calls[1])).toEqual({ schemaVersion: 1, userMessage: '没有设备的通用问题' })
   })
 })

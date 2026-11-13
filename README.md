@@ -18,7 +18,7 @@ DeviceTruth 是可运行的 Java 单 Agent Core。每步读取独立的结构化
 
 ### V1.0 M0 持久化接口
 
-新接口仅在独立HTTP服务启用`product`配置时提供。它保存用户原文、会话、任务与初始事件，并由有界 worker 推进：`QUEUED → RUNNING →（WAITING_FOR_USER → QUEUED → RUNNING）→ COMPLETED / FAILED`。worker 关闭（`DEVICETRUTH_AGENT_WORKER_ENABLED=false`）时只保留 M0 的 QUEUED 持久化合同。崩溃遗留队列、租约/CAS 与跨进程恢复仍由M2实现。legacy CLI和默认HTTP服务无需数据库，旧sessions/diagnoses接口继续保留。
+新接口仅在独立HTTP服务启用`product`配置时提供。它保存用户原文、会话、任务与初始事件，并由有界 worker 推进：`QUEUED → RUNNING →（WAITING_FOR_USER → QUEUED → RUNNING）→ COMPLETED / FAILED`。worker 关闭（`DEVICETRUTH_AGENT_WORKER_ENABLED=false`）时只保留 M0 的 QUEUED 持久化合同。崩溃遗留队列、租约/CAS 与跨进程恢复由 M2（03-02）实现：RUNNING 持执行租约并续租，重启后按租约过期+版本 CAS 回收恢复。legacy CLI和默认HTTP服务无需数据库，旧sessions/diagnoses接口继续保留。
 
 本机按用户指定复用`interview-postgres`，实测PostgreSQL 16.15 + pgvector 0.8.7，端口5432；DeviceTruth使用独立`devicetruth`数据库，不修改`interview_guide`。Flyway执行`V1`–`V7`迁移（会话/消息/任务、知识四表、embedding档案、历史向量隔离、消息与run关联、受控文件导入状态、文件与文档版本关联），重复启动只校验已有迁移，不重建业务表。JDBC/Flyway/Hikari版本由Spring Boot 3.5.16管理，分别为42.7.11/11.7.2/6.3.3。实现按[Spring Boot 3.5迁移文档](https://docs.spring.io/spring-boot/3.5/how-to/data-initialization.html)使用Flyway PostgreSQL模块；扩展参考[pgvector官方文档](https://github.com/pgvector/pgvector)。
 
@@ -105,7 +105,7 @@ mvn -q '-Dtest=EmbeddingClientTest' test
 
 ### V1.0 M1 通用 Agent 与 Vue 产品页（02-02，待独立Review）
 
-产品入口不再只登记 QUEUED：`application/agent/GeneralAgentService` 从 PG 重建上下文，用唯一主循环 `TaskOrchestrator.runAgent(...)` 单步推进。模型只能提出 `CALL_TOOL`/`ASK_USER`/`ANSWER` 三种动作；工具必须已通过 `agentCapabilityGateway` 注册（当前为 `search_knowledge`、`get_document_excerpt`）。
+产品入口不再只登记 QUEUED：`application/agent/GeneralAgentService` 从 PG 重建上下文，用唯一主循环 `TaskOrchestrator.runAgent(...)` 单步推进。模型只能提出 `CALL_TOOL`/`ASK_USER`/`ANSWER` 三种动作；工具必须已通过 `agentCapabilityGateway` 注册（当前为 `search_knowledge`、`get_document_excerpt`，03-01 追加 `get_asset`/`get_configuration`/`get_maintenance_history`，03-02 追加只读报告工具 `generate_diagnosis_report`）。
 
 `AnswerGuard` 只在服务器侧判定，规则比“过滤几个坏词”更严：
 
@@ -116,8 +116,9 @@ mvn -q '-Dtest=EmbeddingClientTest' test
 
 ```text
 POST /api/conversations/{id}/messages  → 202 QUEUED
-  → 服务启动时 recoverQueued() 接手上一进程遗留的 QUEUED（RUNNING 遗留留给 M2）
-  → worker: QUEUED → RUNNING → 检索 → ASK_USER → 事务写问题并置 WAITING_FOR_USER（释放线程）
+  → 服务启动时 recoverQueued() 对账上一进程：遗留 QUEUED 重新调度；
+    租约已过期的遗留 RUNNING 按持久检查点回收重跑（版本+租约 CAS，超限明确 FAILED），WAITING 保留
+  → worker: QUEUED → RUNNING（领取执行租约并周期续租）→ 检索 → ASK_USER → 事务写问题并置 WAITING_FOR_USER（释放线程）
   → 客户端带 replyTo{runId,pendingQuestionId,questionVersion} 补答 → 同 run 重新入队
   → RUNNING → 再检索 → ANSWER（AnswerGuard 校验）→ 事务写答案并置 COMPLETED
 执行/模型失败 → FAILED（无答案，RunView.failureCode 给出白名单原因码）
@@ -128,7 +129,7 @@ POST /api/conversations/{id}/messages  → 202 QUEUED
 
 `V5__agent_run_message_link.sql` 给 `dt_message` 增加可空 `run_id`（复合外键与CHECK），使补答后的上下文只包含本 run 的消息。该迁移只新增可空列，不回填历史数据。
 
-相关配置（`application-product.properties`）：`devicetruth.agent.reasoner=scripted|qwen|openai`（默认 scripted，离线确定性）、`devicetruth.agent.worker-enabled`（默认 true，false 时只保留 M0 的 QUEUED 合同）、`devicetruth.agent.max-concurrent-runs`、`devicetruth.agent.max-queue`。未知 reasoner 名称不会让容器启动失败，运行开始前以 `MODEL_CONFIGURATION_MISSING` 失败。
+相关配置（`application-product.properties`）：`devicetruth.agent.reasoner=scripted|qwen|openai`（默认 scripted，离线确定性）、`devicetruth.agent.worker-enabled`（默认 true，false 时只保留 M0 的 QUEUED 合同）、`devicetruth.agent.max-concurrent-runs`、`devicetruth.agent.max-queue`。未知 reasoner 名称不会让容器启动失败，运行开始前以 `MODEL_CONFIGURATION_MISSING` 失败。03-02 起：`devicetruth.agent.lease-seconds`（执行租约时长，默认 60）、`devicetruth.agent.max-recovery-attempts`（崩溃恢复重调度上限，默认 3，超限 `RECOVERY_ATTEMPT_LIMIT` 明确 FAILED，不留永久 RUNNING）。
 
 前端为 `frontend/`（Vue 3.5 + TypeScript + Vite，Node ≥20.19 / npm ≥10）：
 

@@ -154,7 +154,8 @@ const FAILURE_LABELS: Readonly<Record<string, string>> = {
   UNSAFE_ANSWER: '答案包含不安全的设备操作建议，已拒绝',
   INVALID_ANSWER: '答案格式不符合协议，已拒绝',
   PERSIST_FAILURE: '保存结果失败，请重试',
-  AGENT_RUN_FAILURE: '服务内部错误，请重试'
+  AGENT_RUN_FAILURE: '服务内部错误，请重试',
+  RECOVERY_ATTEMPT_LIMIT: '任务多次中断且恢复次数已达上限，已停止；请重新发起调查'
 }
 
 /** 失败说明：未知原因码原样显示码值（服务器已保证是白名单错误码）。 */
@@ -205,6 +206,16 @@ export function createConversation(): Promise<ConversationView> {
   return call<ConversationView>('/api/conversations', { method: 'POST', body: '{}' })
 }
 
+/** 历史会话列表：刷新/重开浏览器后凭它找回会话，不依赖原页面线程。 */
+export function listConversations(): Promise<ConversationView[]> {
+  return call<ConversationView[]>('/api/conversations', { method: 'GET' })
+}
+
+/** 已登记资产清单（服务器身份范围内）；下拉选择可空，不指定设备也能问答。 */
+export function listAssets(): Promise<string[]> {
+  return call<string[]>('/api/assets', { method: 'GET' })
+}
+
 export function readConversation(conversationId: string): Promise<ConversationDetail> {
   return call<ConversationDetail>('/api/conversations/' + encodeURIComponent(conversationId), { method: 'GET' })
 }
@@ -244,12 +255,13 @@ export async function waitForFile(fileId: string, timeoutMs = 60_000): Promise<F
   }
 }
 
-/** 发送一条新的自由消息：没有 replyTo，服务器据此开启新的 run。 */
+/** 发送一条新的自由消息：没有 replyTo，服务器据此开启新的 run。assetId 可空。 */
 export function sendMessage(
   conversationId: string,
   userMessage: string,
   requestKey = newRequestKey(),
-  attachmentIds: string[] = []
+  attachmentIds: string[] = [],
+  selectedAssetId: string | null = null
 ): Promise<RunView> {
   return call<RunView>(
     '/api/conversations/' + encodeURIComponent(conversationId) + '/messages',
@@ -258,7 +270,8 @@ export function sendMessage(
       body: JSON.stringify({
         schemaVersion: 1,
         userMessage,
-        ...(attachmentIds.length > 0 ? { attachments: attachmentIds.map((fileId) => ({ fileId })) } : {})
+        ...(attachmentIds.length > 0 ? { attachments: attachmentIds.map((fileId) => ({ fileId })) } : {}),
+        ...(selectedAssetId ? { selectedAssetId } : {})
       })
     },
     requestKey

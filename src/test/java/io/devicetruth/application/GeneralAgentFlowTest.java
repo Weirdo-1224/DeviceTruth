@@ -192,7 +192,8 @@ class GeneralAgentFlowTest {
         var catalog = gateway.toolCatalog(context(queuedRun("目录检查")));
         assertThat(catalog).extracting(ToolSpec::name)
                 .containsExactlyInAnyOrder("search_knowledge", "get_document_excerpt",
-                        "get_asset", "get_configuration", "get_maintenance_history"); // 03-01 追加资产事实工具
+                        "get_asset", "get_configuration", "get_maintenance_history",
+                        "generate_diagnosis_report"); // 03-02 追加通用调查报告工具
         assertThat(catalog).allMatch(ToolSpec::readOnly);
         ToolSpec search = catalog.stream().filter(spec -> "search_knowledge".equals(spec.name())).findFirst().orElseThrow();
         assertThat(search.requiredParameters()).containsExactly("query");
