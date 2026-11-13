@@ -3,30 +3,32 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 03
 current_phase_name: 设备事实与持久连续调查
-current_plan: 03-02
+current_plan: 3
 status: executing
-stopped_at: 03-01 passed; next 03-02 not executed
-last_updated: "2026-11-13T05:33:18.977Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-11-13T06:45:53.991Z"
 last_activity: 2026-11-13
-last_activity_desc: 03-01 passed; full regression 278/0/0/0, package and CLI passed
-state_head: c1b65b74b5c750a09f51b4f747c14d569db21244
+last_activity_desc: Phase 03 execution started
+state_head: cc0bee6bba62e5d55d67e4e5dbb9c1007786e5de
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 13
-  completed_plans: 6
+  completed_plans: 7
   percent: 20
 milestone_name: 通用设备检修 Agent
 total_phases: 5
 total_plans_in_phase: 3
-review_status: 03-01_passed
-execution_authorized: false
-last_execution_authorization: 2026-11-11用户明确授权修复02-03独立Review问题，保留既有修改且不自动commit/push；仅修复与记录，不推进完成状态或后续计划。
+review_status: 03-02_executed
+execution_authorized: true
+last_execution_authorization: 2026-11-13 GSD dispatch 明确执行 03-02（phase 03 plan 02），顺序执行于主工作树，要求逐任务原子提交并写 SUMMARY。
 ---
 
 # Project State
 
-> 2026-11-13 latest: 03-01 PASS after final fix, 278/0/0/0; native advance-plan succeeded 1 -> 2. Phase 03 open; 03-02 not executed. Prior review failures below are historical. Native progress writer reports 20% while plan count is 6/13 (46%); do not interpret the percentage as plan acceptance. No commit/push.
+> 2026-11-13 latest: **03-02 executed & committed**（3 任务 3 提交 + 文档提交；SUMMARY 见 [03-02-SUMMARY](phases/03-durable-investigation/03-02-SUMMARY.md)）。V12 执行租约 + RunRecoveryService 启动对账：崩溃遗留 RUNNING 按“租约过期 + version CAS”回收续跑，超限明确 FAILED/RECOVERY_ATTEMPT_LIMIT；补答同 run 跨进程续跑，引用与累计预算保留。新增 generate_diagnosis_report 只读报告工具；Vue 历史会话刷新/重开可恢复。全量 317/0/0/1（RunRecoveryTest 9 项、AgentReportToolTest 4 项、前端 18/18、package 与 verify_cli 通过）；真实 HTTP 演示两轮问答 + 杀进程重启恢复通过。浏览器人工演示（D6）与真实模型/embedding 未验证。当前计划指针 3/3，待 03-03 授权。注意：工作树有并行 04-01 未提交改动，未纳入本计划。
+
+> 2026-11-13 03-01 PASS after final fix, 278/0/0/0; native advance-plan succeeded 1 -> 2. Phase 03 open; 03-02 not executed. Prior review failures below are historical. Native progress writer reports 20% while plan count is 6/13 (46%); do not interpret the percentage as plan acceptance. No commit/push.
 
 > **2026-11-13 03-01 次轮 Review 仍不通过，2 项 P1 修复已落地待再复审：** ① 引用身份从"来源+记录时间"改为事实记录 ID（同来源同时间的多条事实各自成引用，跨资产/时点不复用；登记/查重/派生/回读一致，重复查询幂等）；② V11 配置唯一键补 `valid_from`，同来源同属性的历史版本不再被 ON CONFLICT 丢弃。新增 2 项回归（同来源同时多事实三引用、同属性历史双版本时点查询），`AssetToolTest` 23/23、全量 276/0/0、打包与 CLI 通过。仍未 commit、未标 DONE。详见 [03-01-SUMMARY](phases/03-durable-investigation/03-01-SUMMARY.md) §0.2。
 
@@ -49,16 +51,16 @@ last_execution_authorization: 2026-11-11用户明确授权修复02-03独立Revie
 See: .planning/PROJECT.md (updated 2026-11-09)
 
 **Core value:** 自由设备问题能开启有来源、可补证、可恢复的可信调查。
-**Current focus:** Phase 2按用户决定带遗留项关闭，GSD已进入Phase 03；03-01已实施并自测（269/0/0），待独立Review，未commit未标DONE。真实embedding检索与DeepSeek同run补答链路已实测；正文安全3项P1及1项P2、PDF/OCR及浏览器端到端验收转后续，未标技术通过。
+**Current focus:** Phase 03 — 设备事实与持久连续调查
 
 ## Current Position
 
-Phase: 03 of 5 (设备事实与持久连续调查)
-Current Plan: 03-02
+Phase: 03 (设备事实与持久连续调查) — EXECUTING
+Current Plan: 3
 Total Plans in Phase: 3
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
-Last activity: 2026-11-13 — Phase 03-01 implemented, three full-suite runs 269/0/0
+Last activity: 2026-11-13 — Phase 03 execution started
 
 Progress: [██░░░░░░░░] 20%
 
@@ -99,6 +101,12 @@ Progress: [██░░░░░░░░] 20%
 - M0已关闭；M1的02-01/02-02已完成并提交，02-03独立Review修复后自测、待复审。
 - 当前HEAD为08d8ea0（02-02提交）；02-03实现与交付记录保留在工作树，未commit/push。最新全量测试241/0/0/0。
 
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 03 P03-02 | 75min | 3 tasks | 17 files |
+
 ## Accumulated Context
 
 ### Decisions
@@ -117,6 +125,9 @@ Progress: [██░░░░░░░░] 20%
 - M1同run正常补答；M2才验收跨进程检查点、租约/CAS、幂等并发、累计预算可靠性。
 - 保留旧模型私有文件兼容：文件非空值优先、环境补缺；新PG/embedding只服务端环境注入。
 - 单体/单Agent/只读设备，PG与pgvector同实例，Vue从M1接入；未添加生产双栈。
+- [Phase 03]: 03-02: 迁移命名 V12 而非计划字面 V3_1（Flyway 版本排序约束，V3_1=3.1 会插入 V4 前）
+- [Phase 03]: 03-02: RUNNING 崩溃判活采用执行租约+心跳续租，恢复以 version+租约过期 CAS 回收；恢复重调度以 attempts 为界，超限 FAILED/RECOVERY_ATTEMPT_LIMIT
+- [Phase 03]: 03-02: generate_diagnosis_report 为零参数只读工具，聚合 run 持久白名单事实，跨身份 REPORT_UNAVAILABLE；Vue 历史恢复=localStorage 记忆+会话列表+刷新续轮询
 
 ### Pending Todos
 
@@ -152,7 +163,7 @@ interview_guide public表数量基线17；本轮仅在独立devicetruth/随机�
 
 ## Session Continuity
 
-Last session: 2026-11-13 (Asia/Shanghai)
-Stopped at: Phase 03-01 implemented and verified (269/0/0), awaiting independent review, uncommitted
+Last session: 2026-11-13T06:45:53.092Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: .planning/NEXT_SESSION.md
 Read first: AGENTS.md → STATE → 03-01-SUMMARY → 03-01-PLAN → 02-03-SUMMARY → PROJECT → ROADMAP

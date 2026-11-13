@@ -1,5 +1,7 @@
 # Requirements: DeviceTruth V1.0
 
+> 2026-11-13 03-02 实际进度（待独立复审）：AGENT-06/AGENT-07/STORE-04 在本计划边界内已有真实 PG 实现与测试依据（V12 执行租约、RunRecoveryService 启动对账、同 run 跨进程续跑、RunRecoveryTest 9 项）；TOOL-04 补齐 generate_diagnosis_report 只读报告工具（AgentReportToolTest 4 项）；WEB-02 历史会话/设备选择/刷新恢复已实现并有前端合同测试，浏览器人工演示未执行保持部分实现。真实模型/embedding 仍未验证；模拟数据链路不冒称现场。原生命令无法识别中文四态需求表，本节按实际验证手动更新，不以自动标记代替。
+
 > 2026-11-12 用户接受本轮检索与多轮 Review，正文安全留待后续；TRUST-05 仍部分实现，危险建议、缺现场证据确诊、追问安全与否定表述误拒均保留问题记录。真实embedding固定样本及真实模型补答链路已有实测，正文安全仍NOT_RUN。
 
 > 2026-11-12：02-03 Review经用户接受；验收脚本对无资产正文安全保留NOT_RUN，真实供应商证据仍缺失，不据此提升EVAL-02等需求状态。详见[SUMMARY](phases/02-open-rag/02-03-SUMMARY.md)。
@@ -26,8 +28,8 @@
 | AGENT-03 | 追问持久化为 WAITING_FOR_USER，可续跑 | §4.4 | **与设计冲突** | E07：RequestInformation 分支直接 COMPLETED / NEED_EVIDENCE；E09 无等待状态 | 02 / 02-02 | M1：runId/pendingQuestionId/questionVersion 绑定补答，释放线程后同 run 读取持久消息/引用并继续检索或回答；M2 在 03-02/03-03 强化跨进程恢复、幂等与并发 |
 | AGENT-04 | 步数、重复、时间和成本预算及有界错误重试 | §4.3、§7.2、§11.2 | **部分实现** | E07：步数/重复检测；E01：45 秒单调用、非法 JSON 一次纠正；无全程时间/Token 成本账 | 03 / 03-03 | 恢复不清零累计预算，超时/取消可终止；缺失用量标 unknown |
 | AGENT-05 | 风险分级结束策略，低风险不强制固定结案 | §4.5、D-07 | **与设计冲突** | E10：DecisionGuard.evaluate / investigationNeeds 强制规则与全资产历史/发现/取回 | 02 / 02-02 | 普通知识回答无需完整维修史；关键配置判断仍检查身份/时点/冲突 |
-| AGENT-06 | 任务摘要、待答问题、引用与工具输出可重建 | §4.3–4.4 | **部分实现** | E07、E11：DiagnosisState / StateManager 有事实与版本，但 run 内新建、无恢复入口 | 03 / 03-02 | 从 PG 快照重建上下文，过期证据重验，不依赖原线程 |
-| AGENT-07 | Hypothesis 为可选调查笔记 | §4.3、§0.2 | **部分实现** | E07、E10：可建 OPEN / INVALIDATED，SUPPORTED 无主源码赋值，决策引用允许为空 | 03 / 03-02 | 保留候选原因及依据但不作为全任务准入/结案前置；不专建完整假设引擎 |
+| AGENT-06 | 任务摘要、待答问题、引用与工具输出可重建 | §4.3–4.4 | **已实现** | E07、E11：DiagnosisState/StateManager 有事实与版本但 run 内新建；03-02（待复审）：V12 租约 + RunRecoveryService 对账，新进程从 PG 重建消息/引用/预算并续跑同一 run，旧版本/跨身份/伪造引用负例通过（RunRecoveryTest 9 项，真实PG） | 03 / 03-02 | 从 PG 快照重建上下文，过期证据重验，不依赖原线程 |
+| AGENT-07 | Hypothesis 为可选调查笔记 | §4.3、§0.2 | **已实现** | E07、E10：可建 OPEN/INVALIDATED 但不作主源码赋值；03-02（待复审）：通用 Agent 路径无假设准入/结案前置，hypothesis 仅 legacy 可选笔记，未专建假设引擎，符合“可选笔记”边界 | 03 / 03-02 | 保留候选原因及依据但不作为全任务准入/结案前置；不专建完整假设引擎 |
 | AGENT-08 | 知识建议、可能原因、确认结论与人工处理分明 | §2、§4.5 | **与设计冲突** | E10：结果围绕规则 Outcome；E12：未采纳规则摘要固定且不公开问题描述 | 02 / 02-02 | 开放报告包含不确定性、安全追问与引用；技术失败不当诊断 |
 | DATA-01 | PG 资产/组件主数据、型号与身份 | §5.2 | **部分实现** | 03-01 reviewed 2026-11-13: PG asset/component registry and CAR-B verified; industrial fixtures deferred. | 03 / 03-01 | 授权资产 API 返回身份/组件；汽车与工厂数据独立 |
 | DATA-02 | 配置/维修结构化查询，不以 RAG 代替现场事实 | §5.3 | **部分实现** | 03-01 reviewed 2026-11-13: Structured configuration/maintenance tools verified; documentation does not imply field confirmation. | 03 / 03-01 | get_configuration / history 从结构化记录返回，可追溯而不预填结论 |
@@ -38,7 +40,7 @@
 | STORE-01 | PostgreSQL + pgvector 单实例与 Flyway | §5.1、§5.6、D-03 | **已实现** | 01-02：复用interview实例PG16.15/pgvector0.8.7；ProductConfiguration、V1迁移和真实空库/重复启动验证，CLI隔离通过 | 01 / 01-02 | 空库及重复启动可迁移，CLI 离线无需数据库 |
 | STORE-02 | conversation / message / run / event 权威持久化 | §5.2 | **已实现** | 01-02的M0切片：新product API从PG原子写/读会话、原文、QUEUED及初始事件；进程重启读回。运行中工具/等待事件后续实现，legacy内存API保留 | 01 / 01-02 | 提交消息与登记任务原子落 PG，读取不以内存为唯一来源 |
 | STORE-03 | 证据引用和上传文件元数据持久化 | §5.2、§5.5 | **部分实现** | 02-01：文件元数据及引用四表、版本/章节/切片原文读取和隔离后历史引用已通过真实PG；受控原文件字节存储由02-03补齐 | 02 / 02-01 | 引用可还原 document/version/locator/chunk，原始文件在受控目录 |
-| STORE-04 | 重启后任务恢复或明确失败、无幽灵队列 | §4.4、E2E-08 | **未实现** | E09、E11：局部状态/进程内队列，启动不扫描遗留任务 | 03 / 03-02 | WAITING 保留；QUEUED 重调度；RUNNING 按持久检查点恢复或明确 FAILED |
+| STORE-04 | 重启后任务恢复或明确失败、无幽灵队列 | §4.4、E2E-08 | **已实现** | E09、E11：局部状态/进程内队列，启动不扫描遗留任务；03-02（待复审）：启动对账接手 QUEUED、回收租约过期 RUNNING（version+租约 CAS）、超限 FAILED/RECOVERY_ATTEMPT_LIMIT，并发对账不重复、无孤儿队列（RunRecoveryTest，真实PG） | 03 / 03-02 | WAITING 保留；QUEUED 重调度；RUNNING 按持久检查点恢复或明确 FAILED |
 | STORE-05 | 参数化查询、外键/唯一约束与关键索引 | §5.6 | **已实现** | 01-02：JdbcTemplate绑定参数；归属复合外键、消息请求键/序号和run事件序号唯一约束；回滚/重复/并发/跨归属负例真实PG通过 | 01 / 01-02 | 消息幂等键、run_id+seq 唯一，SQL 无模型自由文本拼接 |
 | STORE-06 | 备份/恢复、迁移失败与回退演练 | §5.6 | **未实现** | E01：无数据库运维资产与演练 | 05 / 05-03 | 独立测试库实际恢复可读历史与引用；破坏性迁移有回退方案 |
 | KNOW-01 | MD/TXT/PDF 上传、解析与异步导入 | §2、§5.5 | **未实现** | E05：无 files/import API、解析依赖与导入任务 | 02 / 02-03 | 三格式可导入，扫描无文本明确报需 OCR，不伪造正文 |
@@ -52,7 +54,7 @@
 | TOOL-01 | 复用注册白名单、只读与作用域校验 | §6.1、§9 | **部分实现** | E17：CapabilityGateway 有 5 工具和 scope 校验，scope 仍绑定 DiagnosisRequest | 02 / 02-02 | 新 ToolContext 支持无资产问答、服务器确定权限 |
 | TOOL-02 | 支持自然语言查询及嵌套过滤 DTO/Schema | §6.1 | **已实现** | 02-01：KnowledgeTools自然语言query及受限嵌套filters DTO/schema和严格标识校验实测通过；工具接Runtime目录另属02-02 | 02 / 02-01 | 逐工具 schema 校验，query 可含中文；标识字段保留严格验证 |
 | TOOL-03 | 明确 NOT_FOUND / DATA_STALE / DENIED / AMBIGUOUS 错误 | §6.1 | **部分实现** | 03-01 reviewed 2026-11-13: NOT_FOUND/DENIED/INVALID verified; DATA_STALE/AMBIGUOUS remain partial. | 03 / 03-01 | 保留工具失败语义与 retryable，不混同无证据或成功结论 |
-| TOOL-04 | 检索、资产/配置/历史、原文、追问、报告工具齐备 | §6.1 | **部分实现** | E17：只有 profile/history/evidence/rules；无 search_knowledge/excerpt/暂停/通用报告 | 03 / 03-02 | 基础工具通过统一注册表可发现，权限和引用均受控 |
+| TOOL-04 | 检索、资产/配置/历史、原文、追问、报告工具齐备 | §6.1 | **已实现** | E17：旧仅 profile/history/evidence/rules；02-01/02-02/03-01 已补 search_knowledge/get_document_excerpt/三资产工具；03-02（待复审）：补齐 generate_diagnosis_report 只读报告工具并注册进产品网关（AgentReportToolTest 4 项）；追问以 ASK_USER 等价动作承载 | 03 / 03-02 | 基础工具通过统一注册表可发现，权限和引用均受控 |
 | SKILL-01 | SKILL.md 发现、元数据与按需读取 | §6.2 | **未实现** | E13：仅加载 automotive-demo/rules.json；无 SKILL.md 或解析器 | 04 / 04-01 | 发现汽车/工厂两个 Skill，不把 rules.json 认成 Skill |
 | SKILL-02 | 领域适配、版本与工具授权绑定 | §6.2、§5.2 第二批 | **未实现** | E17：工具 domain 可限定但没有 Skill 绑定/版本或 installation | 04 / 04-01 | Skill 可引用已注册工具，不能安装脚本或扩权；记录版本 |
 | SKILL-03 | Skill / RAG / 设备数据三者职责独立 | §6.3 | **未实现** | E13：规则包存在但尚无标准 Skill 与 RAG 的协作链 | 04 / 04-02 | 指引不写现场答案，知识不被当资产事实 |
@@ -64,7 +66,7 @@
 | TRUST-05 | 按风险检查答案与关键配置确认 | §4.5、D-07 | **部分实现** | 02-02已接入AnswerGuard，但独立探针确认危险建议和未经核验结论仍可放行，追问绕过守卫；用户决定记录后通过计划，问题未关闭 | 02 / 02-02 | 知识/可能性可回答；无现场核验不输出已确认；不执行危险设备控制 |
 | TRUST-06 | 服务器密钥配置、脱敏、上传与数据隔离 | §12 | **部分实现** | E18：模型配置不进响应；E19：现存私有文件优先于环境，需规划统一配置策略 | 01 / 01-01 | 不读出/提交真实密钥；PG/embedding 凭据服务端注入并保留脱敏 |
 | WEB-01 | Vue3 + TypeScript 最小自由对话页 | §7.1、D-08 | **部分实现** | E20：原生 static/index.html 可聊天/轮询，无 Vue/TS/package.json | 02 / 02-02 | M1 Vue 能发送无故障码问题、看答案/追问/引用 |
-| WEB-02 | 历史会话、设备选择与刷新恢复 | §7.1–7.2 | **部分实现** | E05、E20：可读内存消息，页面持 sessionId；无会话列表/持久历史 | 03 / 03-02 | 刷新/重开同用户可恢复会话与等待问题，选设备可空 |
+| WEB-02 | 历史会话、设备选择与刷新恢复 | §7.1–7.2 | **部分实现** | E05、E20：原仅内存消息+页面持 sessionId；03-02（待复审）：Vue 历史会话列表、localStorage 重开找回、刷新/重开后待答与进行中 run 恢复轮询、可选设备下拉（selectedAssetId 可空），api 合同测试 18 项与构建通过；浏览器人工演示未执行 | 03 / 03-02 | 刷新/重开同用户可恢复会话与等待问题，选设备可空 |
 | WEB-03 | SSE 实时白名单事件和历史回放 | §7.2–7.3 | **未实现** | E05、E12：只有结束后 GET events；无 SseEmitter/EventSource | 05 / 05-01 | 断线以 seq 续传、无重复展示，历史以 PG 为准 |
 | WEB-04 | 上传、导入状态与引用原文查看 | §7.1 | **未实现** | E20：无上传/知识/原文 UI | 02 / 02-03 | 显示解析成功/失败，点击引用定位原页或章节 |
 | WEB-05 | 调查报告、工具轨迹与事实冲突对照 | §7.1、M4 | **部分实现** | E20：旧结果和结束后事件可展示；无通用报告/冲突对照 | 05 / 05-02 | 报告区分事实/候选原因/建议/人工事项并可追溯 |
