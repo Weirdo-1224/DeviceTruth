@@ -38,7 +38,8 @@ import static org.assertj.core.api.Assertions.*;
 /**
  * 03-03-T1：幂等、容量、取消与总时限的真实 PG 验证。
  * 覆盖：重复提交不重复执行、队列拒绝不留幽灵任务、QUEUED/WAITING/RUNNING 三态取消、
- * 终态再取消 409、取消后迟到模型响应只记录不提交、累计执行时长超限明确 FAILED/TOTAL_TIMEOUT。
+ * 终态再取消 409、取消后迟到模型响应只记录不提交、累计执行时长超限明确 FAILED/TOTAL_TIMEOUT、
+ * 步数预算耗尽 FAILED/BUDGET_EXHAUSTED、等待时长不计入总时限且恢复不清零累计执行时长。
  */
 class AgentLifecycleTest {
     @org.junit.jupiter.api.io.TempDir static Path fileRoot;
@@ -508,6 +509,107 @@ class AgentLifecycleTest {
             assertThat(service.run(runId).result().references()).isEmpty();
         } finally {
             service.shutdown();
+        }
+    }
+
+    // ---------- Nyquist 审计补漏（AGENT-04 步数/时长预算口径） ----------
+
+    @Test
+    void stepBudgetExhaustionFailsRunWithStableCodeAndNoAnswer() throws Exception {
+        // AGENT-04 步数预算：模型只调工具不作答、持续到步数上限时必须 FAILED/BUDGET_EXHAUSTED，
+        // 稳定错误码入审计事件，绝不产出答案或停留在 RUNNING
+        UUID runId = transactions.execute(status -> {
+            var conversation = conversations.create(IDENTITY, Instant.now());
+            var messageId = conversations.append(IDENTITY, conversation.conversationId(), UUID.randomUUID(),
+                    "充电中断，没有故障码", null, Instant.now(), Instant.now());
+            return runs.enqueue(IDENTITY, conversation.conversationId(), messageId, Instant.now(), Instant.now())
+                    .runId();
+        });
+        // 收紧步数预算到 2：两步工具调用后必然耗尽，无需依赖默认预算
+        jdbc.update("UPDATE dt_agent_run SET budget=jsonb_set(budget,'{limits,maxSteps}','2',true) WHERE id=?",
+                runId);
+        GeneralReasoner looping = new GeneralReasoner() {
+            @Override public String name() { return "looping-tools"; }
+            @Override public ActionProposal propose(Context context) {
+                return new ActionProposal.CallTool("search_knowledge", Map.of("query", "充电中断"),
+                        "持续检索直到预算耗尽");
+            }
+        };
+        var service = service(1, 1, looping);
+        try {
+            service.recoverQueued();
+            assertThat(awaitTerminal(service, runId, "FAILED")).isEqualTo("FAILED");
+            assertThat(service.run(runId).failureCode()).isEqualTo("BUDGET_EXHAUSTED");
+            assertThat(service.run(runId).result()).isNull();
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_FAILED'"
+                            + " AND safe_payload->>'code'='BUDGET_EXHAUSTED'", Integer.class, runId)).isEqualTo(1);
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_ANSWER'",
+                    Integer.class, runId)).isZero();
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test
+    void waitingWallClockDoesNotConsumeTotalActiveDurationBudget() throws Exception {
+        // AGENT-04 预算口径：总时限只计累计执行时长，等待用户的时间不计入。
+        // 预算收紧到 1000ms 后等待 2.5s（远超预算）：若等待被计费，补答调度即应 TOTAL_TIMEOUT。
+        var budgetedRuns = new AgentRunRepository(jdbc, 1000);
+        var service = new GeneralAgentService(conversations, budgetedRuns, transactions, IDENTITY, gateway,
+                ScriptedAgentReasoner::new, 1, 1, true, null, LEASE_SECONDS, 3);
+        try {
+            UUID conversation = service.create().conversationId();
+            RunView accepted = service.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车充电中断，没有故障码，先查什么资料？"));
+            RunView waiting = awaitQuestion(service, accepted.runId(), 1);
+            Thread.sleep(2500);
+            // 等待期间不得被总时限杀死的 run：仍是 WAITING
+            assertThat(service.run(accepted.runId()).status()).isEqualTo("WAITING_FOR_USER");
+            RunView acceptedReply = service.submit(conversation, UUID.randomUUID(),
+                    replyInput("直流快充，SOC 约 40%", waiting));
+            assertThat(acceptedReply.runId()).isEqualTo(accepted.runId());
+            assertThat(awaitTerminal(service, accepted.runId(), "COMPLETED")).isEqualTo("COMPLETED");
+            // 完成后的累计执行时长仍低于预算：2.5s 的等待没有被计入
+            assertThat(service.run(accepted.runId()).activeDurationMs()).isLessThan(1000);
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test
+    void resumedRunWithExhaustedActiveDurationBudgetFailsInsteadOfContinuing() throws Exception {
+        // AGENT-04 恢复不清零：等待中的 run 累计执行时长已达上限时，补答恢复不得清零续跑，
+        // 新段领取时即明确 FAILED/TOTAL_TIMEOUT，而不是接着执行
+        var service = service(1, 1, null);
+        UUID conversation;
+        RunView waiting;
+        try {
+            conversation = service.create().conversationId();
+            RunView accepted = service.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车充电中断，没有故障码，先查什么资料？"));
+            waiting = awaitQuestion(service, accepted.runId(), 1);
+        } finally {
+            service.shutdown();
+        }
+        // 直接把累计执行时长推到行内预算上限（等价于此前各段已耗尽预算）
+        long limit = runs.load(IDENTITY, waiting.runId(), false).maxActiveDurationMs();
+        jdbc.update("UPDATE dt_agent_run SET active_duration_ms=? WHERE id=?", limit, waiting.runId());
+        var resumed = service(1, 1, null);
+        try {
+            resumed.submit(conversation, UUID.randomUUID(), replyInput("直流快充，SOC 约 40%", waiting));
+            assertThat(awaitTerminal(resumed, waiting.runId(), "FAILED")).isEqualTo("FAILED");
+            assertThat(resumed.run(waiting.runId()).failureCode()).isEqualTo("TOTAL_TIMEOUT");
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_FAILED'"
+                            + " AND safe_payload->>'code'='TOTAL_TIMEOUT'", Integer.class, waiting.runId()))
+                    .isEqualTo(1);
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_ANSWER'",
+                    Integer.class, waiting.runId())).isZero();
+        } finally {
+            resumed.shutdown();
         }
     }
 
