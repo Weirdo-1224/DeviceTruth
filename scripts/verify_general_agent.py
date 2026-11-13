@@ -1,4 +1,4 @@
-"""Real product API acceptance for M1 RAG. Online mode never falls back to fake providers."""
+"""Real product API acceptance for M1 RAG and M2 investigation. Online mode never falls back to fake providers."""
 import argparse
 import json
 import os
@@ -14,6 +14,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parent.parent
 EVAL = ROOT / "datasets" / "eval" / "m1-rag"
+MANUAL = ROOT / "datasets" / "knowledge" / "charging-system-manual.md"
 JAR = ROOT / "target" / "devicetruth-core-0.1.0.jar"
 EXPECTED_SECTION = "直流快充中断"
 EXPECTED_CONTENT = "直流快充过程中充电中止时，先读取充电桩故障日志"
@@ -377,18 +378,104 @@ def agent_smoke(main, suite, output):
     return report
 
 
+def import_manual(server):
+    content = MANUAL.read_text("utf-8")
+    result = expect(server.request("POST", "/api/knowledge/documents", {
+        "title": "充电系统检修手册（演示资料）", "domain": "automotive-demo", "version": "2026.1",
+        "filename": "manual.md", "mimeType": "text/markdown", "content": content,
+        "dataNature": "SIMULATED"}), 201)
+    return result["document"]
+
+
+def investigation(main, output):
+    """M2 调查链路验收（scripted + 确定性 embedding，不依赖真实模型密钥）：
+    多轮补证闭环、持久请求键幂等、取消终态与迟到响应拒绝、耗时/用量审计不编造。"""
+    import_manual(main)
+    evidence = {}
+    # 1) 多轮调查：追问→等待→同 run 补答→完成，答案引用可回溯，工具事件带耗时
+    conversation = expect(main.request("POST", "/api/conversations", {}), 201)
+    cid = conversation["conversationId"]
+    accepted = expect(main.request("POST", f"/api/conversations/{cid}/messages", {
+        "schemaVersion": 1, "userMessage": "新能源汽车充电中断，没有故障码，先查什么资料？"},
+        {"Idempotency-Key": str(uuid.uuid4())}), 202)
+    run_id = accepted["runId"]
+    first = await_run(main, run_id)
+    multi_turn_ok = first["status"] == "WAITING_FOR_USER" and bool(first.get("pendingQuestion"))
+    question = first.get("pendingQuestion") or {}
+    replied = expect(main.request("POST", f"/api/conversations/{cid}/messages", {
+        "schemaVersion": 1, "userMessage": "直流快充，SOC 约 40%",
+        "replyTo": {"runId": run_id, "pendingQuestionId": question.get("pendingQuestionId"),
+                    "questionVersion": question.get("questionVersion")}},
+        {"Idempotency-Key": str(uuid.uuid4())}), 202)
+    same_run = replied["runId"] == run_id
+    completed = await_run(main, run_id)
+    references = expect(main.request("GET", f"/api/runs/{run_id}/references"), 200)
+    tool_events = expect(main.request("GET", f"/api/runs/{run_id}/tool-events"), 200)
+    answer = completed.get("result") or {}
+    collected = {ref.get("referenceId") for ref in references}
+    used_ids = [ref.get("referenceId") for ref in answer.get("references", [])]
+    citation_ok = bool(used_ids) and all(ref_id in collected for ref_id in used_ids)
+    audit_ok = (completed.get("status") == "COMPLETED" and bool(answer)
+                and all(event.get("durationMs", -1) >= 0 for event in tool_events)
+                and completed.get("activeDurationMs", 0) > 0
+                and completed.get("usageStatus") == "UNKNOWN")
+    evidence["multiTurn"] = {"sameRun": same_run, "waiting": multi_turn_ok, "citations": citation_ok,
+                             "audit": audit_ok, "toolEvents": len(tool_events)}
+    # 2) 幂等：同 Idempotency-Key 重复提交 → 409 DUPLICATE_REQUEST，不产生第二个 run
+    conv2 = expect(main.request("POST", "/api/conversations", {}), 201)
+    cid2 = conv2["conversationId"]
+    payload = {"schemaVersion": 1, "userMessage": "同键重复提交同一问题"}
+    dup_key = str(uuid.uuid4())
+    expect(main.request("POST", f"/api/conversations/{cid2}/messages", payload,
+                        {"Idempotency-Key": dup_key}), 202)
+    dup_status, dup_body = main.request("POST", f"/api/conversations/{cid2}/messages", payload,
+                                        {"Idempotency-Key": dup_key})
+    detail = expect(main.request("GET", f"/api/conversations/{cid2}"), 200)
+    evidence["idempotency"] = {"http": dup_status, "code": (dup_body or {}).get("code"),
+                               "runs": len(detail.get("runs", []))}
+    idempotent_ok = dup_status == 409 and (dup_body or {}).get("code") == "DUPLICATE_REQUEST" \
+        and len(detail.get("runs", [])) == 1
+    # 3) 取消：WAITING 取消 → CANCELLED；补答 409；再取消 409 RUN_ALREADY_TERMINAL
+    conv3 = expect(main.request("POST", "/api/conversations", {}), 201)
+    cid3 = conv3["conversationId"]
+    accepted3 = expect(main.request("POST", f"/api/conversations/{cid3}/messages", {
+        "schemaVersion": 1, "userMessage": "新能源汽车充电中断，没有故障码，先查什么资料？"},
+        {"Idempotency-Key": str(uuid.uuid4())}), 202)
+    run3 = accepted3["runId"]
+    waiting3 = await_run(main, run3)
+    cancel_status, cancelled = main.request("POST", f"/api/runs/{run3}/cancel")
+    q3 = waiting3.get("pendingQuestion") or {}
+    reply_status, reply_body = main.request("POST", f"/api/conversations/{cid3}/messages", {
+        "schemaVersion": 1, "userMessage": "取消后的补答不应被接受",
+        "replyTo": {"runId": run3, "pendingQuestionId": q3.get("pendingQuestionId"),
+                    "questionVersion": q3.get("questionVersion")}},
+        {"Idempotency-Key": str(uuid.uuid4())})
+    recancel_status, recancel_body = main.request("POST", f"/api/runs/{run3}/cancel")
+    cancel_ok = (cancel_status == 200 and (cancelled or {}).get("status") == "CANCELLED"
+                 and reply_status == 409 and (reply_body or {}).get("code") == "STALE_OR_UNRELATED_REPLY"
+                 and recancel_status == 409 and (recancel_body or {}).get("code") == "RUN_ALREADY_TERMINAL")
+    evidence["cancel"] = {"cancelHttp": cancel_status, "status": (cancelled or {}).get("status"),
+                          "replyHttp": reply_status, "replyCode": (reply_body or {}).get("code"),
+                          "recancelHttp": recancel_status, "recancelCode": (recancel_body or {}).get("code")}
+    passed = multi_turn_ok and same_run and completed.get("status") == "COMPLETED" and citation_ok \
+        and audit_ok and idempotent_ok and cancel_ok
+    return {"status": "PASS" if passed else "FAIL", "suite": "investigation",
+            "evidence": evidence, "realModel": "NOT_RUN", "ui": "NOT_RUN", "pdf": "NOT_RUN"}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suite", choices=["m1-retrieval", "rag-smoke", "multi-turn-basic"], required=True)
+    parser.add_argument("--suite", choices=["m1-retrieval", "rag-smoke", "multi-turn-basic", "investigation"],
+                        required=True)
     parser.add_argument("--embedding", choices=["real", "deterministic"], required=True)
-    parser.add_argument("--reasoner", choices=["qwen", "openai"], default="qwen")
+    parser.add_argument("--reasoner", choices=["qwen", "openai", "scripted"], default="qwen")
     args = parser.parse_args()
     output = ROOT / "outputs" / "validation" / "general-agent" / f"{args.suite}-{uuid.uuid4().hex}"
     output.mkdir(parents=True, exist_ok=True)
     report = {"status": "NOT_RUN", "suite": args.suite, "embedding": args.embedding, "reasoner": args.reasoner}
     servers = []
     try:
-        if args.suite != "m1-retrieval" and args.embedding != "real":
+        if args.suite not in {"m1-retrieval", "investigation"} and args.embedding != "real":
             raise RuntimeError("BLOCKED_BY_ENV: online Agent acceptance requires --embedding=real")
         if not JAR.exists():
             raise RuntimeError("BLOCKED_BY_ENV: package the current JAR first")
@@ -404,6 +491,8 @@ def main():
             other_project = Server(owner, "other-project", args.embedding, "scripted", False, output)
             servers.extend([other_owner, other_project])
             report = retrieval(main_server, other_owner, other_project, output, args.embedding)
+        elif args.suite == "investigation":
+            report = investigation(main_server, output)
         else:
             report = agent_smoke(main_server, args.suite, output)
         report.update({"embedding": args.embedding, "reasoner": args.reasoner})

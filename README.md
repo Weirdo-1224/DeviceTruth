@@ -18,7 +18,7 @@ DeviceTruth 是可运行的 Java 单 Agent Core。每步读取独立的结构化
 
 ### V1.0 M0 持久化接口
 
-新接口仅在独立HTTP服务启用`product`配置时提供。它保存用户原文、会话、任务与初始事件，并由有界 worker 推进：`QUEUED → RUNNING →（WAITING_FOR_USER → QUEUED → RUNNING）→ COMPLETED / FAILED`。worker 关闭（`DEVICETRUTH_AGENT_WORKER_ENABLED=false`）时只保留 M0 的 QUEUED 持久化合同。崩溃遗留队列、租约/CAS 与跨进程恢复由 M2（03-02）实现：RUNNING 持执行租约并续租，重启后按租约过期+版本 CAS 回收恢复。legacy CLI和默认HTTP服务无需数据库，旧sessions/diagnoses接口继续保留。
+新接口仅在独立HTTP服务启用`product`配置时提供。它保存用户原文、会话、任务与初始事件，并由有界 worker 推进：`QUEUED → RUNNING →（WAITING_FOR_USER → QUEUED → RUNNING）→ COMPLETED / FAILED / CANCELLED`。worker 关闭（`DEVICETRUTH_AGENT_WORKER_ENABLED=false`）时只保留 M0 的 QUEUED 持久化合同。崩溃遗留队列、租约/CAS 与跨进程恢复由 M2（03-02）实现：RUNNING 持执行租约并续租，重启后按租约过期+版本 CAS 回收恢复；幂等、取消与总时限由 M2（03-03）实现：持久请求键重复提交 409 不重复执行，`POST /api/runs/{id}/cancel` 取消（QUEUED/WAITING 立即 CANCELLED，RUNNING 协作式收尾，终态再取消 409），累计执行时长超限明确 FAILED/TOTAL_TIMEOUT，取消/超时后迟到的模型响应只记 `RUN_LATE_RESPONSE` 事件不覆盖终态。legacy CLI和默认HTTP服务无需数据库，旧sessions/diagnoses接口继续保留。
 
 本机按用户指定复用`interview-postgres`，实测PostgreSQL 16.15 + pgvector 0.8.7，端口5432；DeviceTruth使用独立`devicetruth`数据库，不修改`interview_guide`。Flyway执行`V1`–`V7`迁移（会话/消息/任务、知识四表、embedding档案、历史向量隔离、消息与run关联、受控文件导入状态、文件与文档版本关联），重复启动只校验已有迁移，不重建业务表。JDBC/Flyway/Hikari版本由Spring Boot 3.5.16管理，分别为42.7.11/11.7.2/6.3.3。实现按[Spring Boot 3.5迁移文档](https://docs.spring.io/spring-boot/3.5/how-to/data-initialization.html)使用Flyway PostgreSQL模块；扩展参考[pgvector官方文档](https://github.com/pgvector/pgvector)。
 
@@ -129,7 +129,7 @@ POST /api/conversations/{id}/messages  → 202 QUEUED
 
 `V5__agent_run_message_link.sql` 给 `dt_message` 增加可空 `run_id`（复合外键与CHECK），使补答后的上下文只包含本 run 的消息。该迁移只新增可空列，不回填历史数据。
 
-相关配置（`application-product.properties`）：`devicetruth.agent.reasoner=scripted|qwen|openai`（默认 scripted，离线确定性）、`devicetruth.agent.worker-enabled`（默认 true，false 时只保留 M0 的 QUEUED 合同）、`devicetruth.agent.max-concurrent-runs`、`devicetruth.agent.max-queue`。未知 reasoner 名称不会让容器启动失败，运行开始前以 `MODEL_CONFIGURATION_MISSING` 失败。03-02 起：`devicetruth.agent.lease-seconds`（执行租约时长，默认 60）、`devicetruth.agent.max-recovery-attempts`（崩溃恢复重调度上限，默认 3，超限 `RECOVERY_ATTEMPT_LIMIT` 明确 FAILED，不留永久 RUNNING）。
+相关配置（`application-product.properties`）：`devicetruth.agent.reasoner=scripted|qwen|openai`（默认 scripted，离线确定性）、`devicetruth.agent.worker-enabled`（默认 true，false 时只保留 M0 的 QUEUED 合同）、`devicetruth.agent.max-concurrent-runs`、`devicetruth.agent.max-queue`。未知 reasoner 名称不会让容器启动失败，运行开始前以 `MODEL_CONFIGURATION_MISSING` 失败。03-02 起：`devicetruth.agent.lease-seconds`（执行租约时长，默认 60）、`devicetruth.agent.max-recovery-attempts`（崩溃恢复重调度上限，默认 3，超限 `RECOVERY_ATTEMPT_LIMIT` 明确 FAILED，不留永久 RUNNING）。03-03 起：`devicetruth.agent.max-active-duration-ms`（总时限=累计执行时长上限，默认 120000，不含等待用户的时间，写入每个 run 的 `budget.limits.maxActiveDurationMs`，恢复不清零）。运行审计：工具事件带单次耗时（`GET /api/runs/{id}/tool-events`），模型尝试带版本/重试/耗时（`GET /api/runs/{id}/model-events`），预算回写 `used.steps/activeDurationMs/modelAttempts/toolCalls`；供应商未返回 usage 时 Token/成本为 null、`usageStatus=UNKNOWN`，不编造数值。
 
 前端为 `frontend/`（Vue 3.5 + TypeScript + Vite，Node ≥20.19 / npm ≥10）：
 
