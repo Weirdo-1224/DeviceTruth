@@ -38,7 +38,7 @@
 7. **开发策略**：先离线完整机制，再接真实 Qwen Reasoner；Spring AI Alibaba、UI、多 Agent 不属于 V0.1。
 8. **验收**：A/B/C/D/E、错误证据/越权、状态修订、扰动、最小跨领域测试、真实模型 smoke 独立验收。
 9. **安全范围**：模拟数据和模拟规程，所有工具只读；不控制真实设备；不收集或输出密钥。
-10. **单步 SDK 边界**：使用 Model.stream、空工具列表和 JSON 响应；不使用 ReActAgent.call 内层循环。SDK 每次尝试 maxAttempts=1、45 秒超时；非法协议只额外重试一次。依据见 docs/research/agentscope-spike.md，在线尚未验证。
+10. **单步 SDK 边界**：使用 Model.stream、空工具列表和 JSON 响应；不使用 ReActAgent.call 内层循环。SDK 每次尝试 maxAttempts=1、45 秒超时；非法协议只额外重试一次。依据见 docs/research/notes/agentscope-spike.md，在线尚未验证。
 11. **防止过早裁决**：Guard 要求完整历史、无过滤 evidence.search 及获取全部已发现记录，再核验规则/引用；同级当前冲突不能被第一条确认或较晚 recordedAt 覆盖。
 12. **协议细化**：决策显式含 claimedHypothesisIds/adviceLevel；仅允许 SIMULATION_ONLY；未知字段、类型转换、重复 JSON 键、数字枚举均拒绝。预算参数、evidence.json 和上述细化已同步 spec/task/README，未削减 MUST。
 13. **兼容服务入口（2026-11-05）**：原实现只支持 DashScope，用户要求增加 OpenAI 协议并保留千问；采用同版本 AgentScope OpenAI 扩展，复用 Model API 和共享 StructuredReasoner，避免另写 HTTP/重试实现。新增环境变量及 CLI，不改变证据/状态/Guard 契约。baseUrl 显式包含服务要求的前缀，仅追加 /chat/completions；本机 HTTP 测试与真实在线验收分开。
@@ -174,7 +174,7 @@ H. 阅读 spec §10 Definition of Done，所有 MUST 项完成后才可宣告整
 - Workspace JDK: Microsoft 21.0.13.0.2+1, official aka.ms download, archive SHA256 c5706a9cf482ef1a0622a86eea5b13d557b07f04554572af061e2d02b58c0f99. No global installation/settings changed.
 - Executed with process-local JAVA_HOME/PATH: mvn -q dependency:resolve (exit 0); mvn -q test (exit 0); mvn -q package (exit 0); java -jar target/devicetruth-core-0.1.0.jar --help (exit 0). First build downloaded dependencies; project .m2 is ignored.
 - Reports: ApplicationTest 1, AgentScopeStepTest 2, ProtocolTest 4, GatewayTest 3; 10 total, zero failures/errors. JAR help printed SIMULATED and reasoner options. SDK default logging was noisy; added own logback.xml.
-- T02 decision: Model.stream(messages, empty tools, GenerateOptions JSON object) returns a single proposal boundary. ReActAgent.call enters internal reasoning/acting iterations, and maxIters may still summarize with another model call. Do not use it for outer controlled steps. API source/probe documented in docs/research/agentscope-spike.md. Offline one-subscription test passed; real Qwen call BLOCKED_BY_ENV (missing key).
+- T02 decision: Model.stream(messages, empty tools, GenerateOptions JSON object) returns a single proposal boundary. ReActAgent.call enters internal reasoning/acting iterations, and maxIters may still summarize with another model call. Do not use it for outer controlled steps. API source/probe documented in docs/research/notes/agentscope-spike.md. Offline one-subscription test passed; real Qwen call BLOCKED_BY_ENV (missing key).
 - T03: immutable protocol/state objects, sealed five actions, ID/time validation and strict JSON rejection tested.
 - T04/T05: SIMULATED JSON A-D and A/B rules, replaceable repositories, five raw read-only capabilities; unknown/missing args, traversal, cross-asset/forged IDs, write capability and adapter failure tested.
 - A subsequent attempt to dot-source scripts/use-java21.ps1 failed under Windows execution policy; Maven then used Java 17 and failed release 21 (exit 1). Corrective action: use inline process-local JAVA_HOME/PATH instead; no policy change. New full test run is in progress, not yet verified.

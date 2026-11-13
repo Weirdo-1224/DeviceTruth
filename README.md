@@ -12,7 +12,7 @@ DeviceTruth 是可运行的 Java 单 Agent Core。每步读取独立的结构化
 
 **资料与规则均为 `SIMULATED`，仅用于工程验收，不能指导实际车辆或工业设备维护。** 离线验收及 OpenAI 兼容接口的真实场景 B 已通过（6 步、DEMO-D-120B，共 2 次独立运行）；全部 MUST 任务已完成，整体 DONE。千问 DashScope 适配路径尚未被真实执行过，属已知残留风险，记录在 state.md 的设计决定 16，不是阻塞项。最新命令、报告路径与进度见 [state.md](docs/DeviceTruth_Core_V0.1_Spec_Pack/state.md)。
 
-技术版本锁定为 Java 21、Maven 3.9+、Spring Boot 3.5.16、AgentScope Java 2.0.4。AgentScope 使用 `agentscope-core`、DashScope 和 OpenAI 模型扩展，不引入 harness 或另一个编排框架。版本依据 Maven Central 元数据与官方源码验证，见 [API Spike](docs/research/agentscope-spike.md)。新增扩展首次构建需要下载依赖。
+技术版本锁定为 Java 21、Maven 3.9+、Spring Boot 3.5.16、AgentScope Java 2.0.4。AgentScope 使用 `agentscope-core`、DashScope 和 OpenAI 模型扩展，不引入 harness 或另一个编排框架。版本依据 Maven Central 元数据与官方源码验证，见 [API Spike](docs/research/notes/agentscope-spike.md)。新增扩展首次构建需要下载依赖。
 
 ## 启动与构建
 

@@ -5,8 +5,11 @@ outputs/validation/
 outputs/files/
 outputs/phase04-local-*/
 outputs/review-*.json
+outputs/logs/
 .tools/
 .m2/
+.codeartsdoer/
+.gsd/
 .env
 /devicetruth.local.properties
 *.log

@@ -206,7 +206,7 @@ Guard 最低校验：
 - 千问和 OpenAI 兼容模式共用 `StructuredReasoner` 的五类动作协议、严格解析和有限重试，不改变 Core。OpenAI 缺配置使用 `OPENAI_API_KEY_MISSING` / `OPENAI_BASE_URL_MISSING` / `OPENAI_MODEL_MISSING`，非法地址为 `OPENAI_CONFIGURATION_INVALID`；均为技术性 `FAILED`，不降级 scripted。配置值与服务端错误正文不落报告。
 - 本地私有文件用 UTF-8 Java properties，字段与环境变量同名；非空文件值优先，环境变量补缺，文件不存在仍可用环境变量。预填 DeepSeek 基础地址与模型，用户只需填 Key；保留千问 Key 字段。`ModelConfiguration` 在首次在线推理时按工作目录加载文件，不可读/解析失败返回 `MODEL_CONFIGURATION_UNREADABLE`，不输出原始异常。修改配置后重启运行，无需重新打包；在线验收脚本复用 JAR 配置解析，不自行重复解析私有文件。
 - 精确 AgentScope Java API **以选定版本的官方源码和可编译示例为准**；若无法获得可靠的单步结构化推理 API，先做隔离 PoC，在 `state.md` 记录决定，再实现适配器。不要编造接口/类名。
-- T00/T02 已核实并锁定 Spring Boot **3.5.16**、AgentScope Java **2.0.4**。采用 `Model.stream(...)`、空工具列表和 JSON 对象响应，再由本地严格协议解析；明确关闭 SDK 自动重试（每次模型尝试最多一次请求，45 秒超时）。源码与编译验证见 `docs/research/agentscope-spike.md`；真实模型调用仍需独立验收。
+- T00/T02 已核实并锁定 Spring Boot **3.5.16**、AgentScope Java **2.0.4**。采用 `Model.stream(...)`、空工具列表和 JSON 对象响应，再由本地严格协议解析；明确关闭 SDK 自动重试（每次模型尝试最多一次请求，45 秒超时）。源码与编译验证见 `docs/research/notes/agentscope-spike.md`；真实模型调用仍需独立验收。
 - Spring AI Alibaba **不进入 V0.1 执行链**；不禁止以后引入，但当前避免双编排引擎。
 - JSON 用 Jackson；校验用 Jakarta Validation / 手工 guard；测试 JUnit 5 + AssertJ（按版本可用性选择）。
 - 密钥可来自项目根目录被忽略的 `devicetruth.local.properties` 或环境变量；私密文件不得提交、打包或写入报告；Mock 数据统一标注 `SIMULATED`。2026-11-05 用户明确要求文件配置，替代此前“仅环境变量”的限制。
