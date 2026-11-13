@@ -95,7 +95,7 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
         冲突 <strong :class="{ conflict: asset.conflict === 'CONFLICT' }">{{ asset.conflict === 'CONFLICT' ? '存在' : '无' }}</strong>
       </p>
       <p v-if="groups.length === 0" class="hint">未读取到该资产的配置记录。</p>
-      <table v-else class="facts">
+      <div v-else class="table-scroll"><table class="facts">
         <thead>
           <tr>
             <th>组件 / 属性</th>
@@ -124,7 +124,7 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
             </tr>
           </template>
         </tbody>
-      </table>
+      </table></div>
       <p v-if="asset.requiredChecks.length > 0" class="hint">
         还需核验：{{ asset.requiredChecks.join('；') }}
       </p>
@@ -143,6 +143,10 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
 </template>
 
 <style scoped>
+.comparison { padding: 16px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.table-scroll { overflow-x: auto; }
+.facts { min-width: 560px; }
+
 .comparison h2 {
   font-size: 16px;
   margin: 0 0 8px;

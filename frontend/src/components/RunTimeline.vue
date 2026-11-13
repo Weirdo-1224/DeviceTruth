@@ -119,7 +119,7 @@ function describeEvent(event: RunEvent): string {
     <h2>
       运行时间线
       <span v-if="live" class="live-badge">实时</span>
-      <span v-else class="ended-badge">已结束</span>
+      <span v-else class="ended-badge">未连接实时流</span>
     </h2>
     <ul class="timeline-list">
       <li v-for="event in events" :key="event.seq" class="timeline-item">
@@ -133,6 +133,10 @@ function describeEvent(event: RunEvent): string {
 </template>
 
 <style scoped>
+.timeline { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 16px 0; }
+.timeline h2 { font-size: 15px; margin: 0 0 12px; }
+.timeline-item { overflow-wrap: anywhere; }
+
 .timeline h2 {
   display: flex;
   align-items: center;

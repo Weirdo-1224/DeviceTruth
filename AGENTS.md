@@ -11,10 +11,22 @@ DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI
 - `core/evidence/`、`core/state/`、`core/decision/`：`EvidenceManager` 重建事实并使旧依赖失效，`StateManager` 提交状态版本，`DecisionGuard` 校验 legacy 决策，`AnswerGuard` 校验通用答案的引用子集、风险与“无资产不得确诊”。
 - `core/contract/`：`Models` 为 legacy 诊断协议值；`AgentTaskInput`/`AgentResult` 为通用 Agent 的输入与答案（事实/可能性/建议/人工项、引用、风险、dataNature）。
 - `adapter/`：`JsonRepositories` 读取数据，`QwenReasoner`、`OpenAiReasoner`（OpenAI 兼容，可指向 DeepSeek）、`AgentScopeStep` 对接模型，`StructuredAgentReasoner`/`AgentModelConnections` 提供通用 Agent 的单步协议与供应商连接，`RunReportWriter` 保存报告，`persistence/` 读写 PG。
-- `server/`、`api/`、`application/`：`DeviceTruthServerApplication` 起 HTTP 服务，`ConversationController` 暴露会话/诊断接口，`AgentConversationController` 暴露产品会话/run/引用接口，`DiagnosisRunService` 有界异步执行 Core，`application/agent/GeneralAgentService` 提供 QUEUED→RUNNING→WAITING_FOR_USER→…→COMPLETED/FAILED 的持久状态机与有界 worker。
-- `knowledge/`：`KnowledgeImportService` 负责 MD/TXT 章节切片与向量化落库，`DocumentParser` 严格解析上传 Markdown，`FileUploadService` 负责受控原文件存储、有界异步导入与失败重试，`KnowledgeSearchService` 做归属过滤、向量/关键词/RRF 混合召回与引用登记，`KnowledgeTools` 暴露 `search_knowledge`/`get_document_excerpt` 服务端合同并通过 `registerInto` 注册进产品 Agent 网关，`EmbeddingClient` 适配真实供应商或离线确定性向量；`api/KnowledgeController`、`api/FileController` 分别暴露 `/api/knowledge/*` 与 `/api/files`。PDF 尚未实现。
-- `frontend/`：Vue3 + TypeScript + Vite 最小产品页（`src/api.ts` 冻结消息/补答/上传/事件流合同与安全轮询，`src/timeline.ts` 为 SSE 时间线控制器，`src/components/RunTimeline.vue` 展示运行事件，断线按 `Last-Event-ID` 续传并按 seq 去重，`src/App.vue` 展示 Markdown 导入状态、持久消息、追问、答案与可展开章节引用）。
-- `skill/`：标准 Skill 加载域（尚未接入 Runtime）。`SkillRegistry` 用 `SkillRegistry.load(root, limits)` 扫描根目录下含 `SKILL.md` 的一层子目录，严格解析 frontmatter 元数据并登记版本与 references 清单，`SkillContextLoader` 按需读取正文与单篇 reference；路径穿越、大小、UTF-8 与 YAML 子集格式问题统一抛 `SkillException`。Skill 内容是不可信材料，工具授权、运行时激活与 `skill_installation` 持久化仍未实现（计划 04-01 集成）。
+- `server/`、`api/`、`application/`：HTTP 服务与产品 Agent。
+  - `DeviceTruthServerApplication` 起服务；`ConversationController` 为 legacy 会话/诊断接口。
+  - `AgentConversationController` 暴露产品会话/run/引用/明细/事件/SSE 流（`GET /api/runs/{id}/events`、`/stream`）与取消。
+  - `application/agent/GeneralAgentService`：QUEUED→RUNNING→WAITING_FOR_USER→…→COMPLETED/FAILED/CANCELLED 持久状态机与有界 worker。
+  - `RunRecoveryService`：执行租约 + 版本 CAS 的崩溃恢复；`RunEventStreamService`：先历史后订阅再补读的有界事件流；`SafeAgentEventViews`：事件白名单映射。
+  - `AssetTools`（`get_asset`/`get_configuration`/`get_maintenance_history`）、`ObservationTools`（`get_observations` 只读授权资产的模拟观测）、`AgentReportTools`（`generate_diagnosis_report`）注册进产品 Agent 网关。
+- `knowledge/`：知识导入与检索。
+  - `KnowledgeImportService` 负责 MD/TXT 章节切片与向量化落库；`DocumentParser` 严格解析上传 Markdown。
+  - `FileUploadService` 负责受控原文件存储、有界异步导入与失败重试。
+  - `KnowledgeSearchService` 做归属过滤、向量/关键词/RRF 混合召回与引用登记；`KnowledgeTools` 暴露 `search_knowledge`/`get_document_excerpt` 服务端合同并注册进产品 Agent 网关。
+  - `EmbeddingClient` 适配真实供应商或离线确定性向量；`api/KnowledgeController`、`api/FileController` 分别暴露 `/api/knowledge/*` 与 `/api/files`。PDF 尚未实现。
+- `frontend/`：Vue3 + TypeScript + Vite 产品页（`src/api.ts` 冻结消息/补答/上传/事件流合同与安全轮询，`src/timeline.ts` 为 SSE 时间线控制器，`src/components/RunTimeline.vue` 展示运行事件，断线按 `Last-Event-ID` 续传并按 seq 去重，`DiagnosisReport.vue`/`EvidenceComparison.vue` 提供诊断报告与证据对比工作台（含取消 run 与 Skill 展示），`src/App.vue` 展示 Markdown 导入状态、持久消息、追问、答案与可展开章节引用）。
+- `skill/`：标准 Skill 加载与运行时域。
+  - `SkillRegistry.load(root, limits)` 扫描根目录下含 `SKILL.md` 的一层子目录，严格解析 frontmatter 元数据并登记版本与 references 清单；`SkillContextLoader` 按需读取正文与单篇 reference；路径穿越、大小、UTF-8 与 YAML 子集格式问题统一抛 `SkillException`。
+  - `SkillRuntime`（04-01 起接入产品 Runtime）注册 `activate_skill`/`read_skill_reference` 工具，按 run 记录选中的 Skill 与版本（`GET /api/runs/{id}/skill`）；安装状态与工具绑定经 V14 `dt_skill_installation` 持久化、重启保留。
+  - 根目录由 `DEVICETRUTH_SKILLS_ROOT` 指定（默认启动目录下 `skills/`）；`DEVICETRUTH_SKILLS_INSTALLATIONS` 配置默认安装、`DEVICETRUTH_SKILLS_ALLOWED_TOOLS` 配置服务器工具上限。Skill 内容是不可信材料。
 
 测试位于 `src/test/java/io/devicetruth/`；`src/main/resources/` 保存 `application.properties`（默认推理器与路由模式）、`logback.xml` 和 `static/index.html` 演示前端。`datasets/` 保存模拟场景和资料（含 `datasets/knowledge/` 演示手册），`skills/automotive-demo/rules.json` 保存规则，两者随 JAR 打包。
 

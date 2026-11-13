@@ -81,7 +81,7 @@ function referenceLabel(referenceId: string): string {
         <li v-for="(claim, index) in facts" :key="index">
           <span class="certainty supported">{{ certaintyLabel(claim.certainty) }}</span>
           {{ claim.text }}
-          <span class="refs">{{ claim.referenceIds.map(referenceLabel).join(' ') }}</span>
+          <button v-for="id in claim.referenceIds" :key="id" type="button" class="citation-ref" @click="emit('toggle-reference', id)">{{ referenceLabel(id) }}</button>
         </li>
       </ul>
     </div>
@@ -92,7 +92,7 @@ function referenceLabel(referenceId: string): string {
         <li v-for="(claim, index) in possibleCauses" :key="index">
           <span class="certainty possible">{{ certaintyLabel(claim.certainty) }}</span>
           {{ claim.text }}
-          <span class="refs">{{ claim.referenceIds.map(referenceLabel).join(' ') }}</span>
+          <button v-for="id in claim.referenceIds" :key="id" type="button" class="citation-ref" @click="emit('toggle-reference', id)">{{ referenceLabel(id) }}</button>
         </li>
       </ul>
     </div>
@@ -133,6 +133,11 @@ function referenceLabel(referenceId: string): string {
 </template>
 
 <style scoped>
+.report { border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin: 16px 0; overflow-wrap: anywhere; }
+.citation-ref { border: 0; border-radius: 4px; background: var(--soft); color: #4754bd; padding: 2px 6px; margin-left: 4px; cursor: pointer; font-size: 12px; }
+.link { border: 0; background: none; color: #4754bd; padding: 0; cursor: pointer; text-align: left; }
+.hint { color: var(--muted); font-size: 13px; }
+
 .report h2 {
   font-size: 16px;
   margin: 0 0 8px;
