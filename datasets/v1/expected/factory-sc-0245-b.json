@@ -1,0 +1,450 @@
+{
+  "caseId": "SC-0245-B",
+  "dataNature": "SIMULATED",
+  "assetId": "SC-0245-B",
+  "equipmentModel": "XLP-200",
+  "componentId": "CTRL-01",
+  "attribute": "moduleVersion",
+  "values": {
+    "factory": "D-120A",
+    "retrofit": "D-120B",
+    "template": "D-120A"
+  },
+  "contract": {
+    "tool": "get_configuration",
+    "requiredArguments": ["attribute"],
+    "optionalArguments": ["assetId", "componentId", "asOf"],
+    "timeRule": "valid_from <= asOf AND (valid_to IS NULL OR valid_to > asOf)；recorded_at 不参与过滤",
+    "verificationRule": "只有 source_type=FIELD_CONFIRMATION 且 observed_at 非空的记录是 FIELD_VERIFIED；其余一律 DOCUMENTED",
+    "installationRule": "每个 组件+属性 分组都存在有效 FIELD_VERIFIED 且最高权威取值唯一时才是 FIELD_CONFIRMED，否则 UNCONFIRMED",
+    "conflictRule": "分组内优先只看 FIELD_VERIFIED 记录，否则看全部记录；最高权威取值多于一个即 CONFLICT",
+    "citationRule": "真实 run 内每条返回的配置记录登记一条引用：sourceType=CONFIGURATION、sourceId=证据记录 ID、sourceVersion=recordedAt、title=配置记录 CTRL-01.moduleVersion、excerpt 见下；无 run 的只读 HTTP 查询不登记引用",
+    "citationReadBack": "GET /api/runs/{id}/references",
+    "limitNote": "M1 起 TaskOrchestrator 以三参 review 调用 AnswerGuard，fieldVerified 恒为 false：即使 installationStatus=FIELD_CONFIRMED，答案层仍不得出现确诊表述。"
+  },
+  "variants": [
+    {
+      "id": "base",
+      "datasetPath": "datasets/v1/factory/sc-0245-b.json",
+      "fieldVerification": "MISSING",
+      "purpose": "主案例：出厂配置 → 改造记录 → 站点旧模板仍写旧型号，从未做过现场核验。用于 E2E-05 与 DATA-04 的主判定。",
+      "records": [
+        {
+          "sourceId": "SC0245B-BOM-2024",
+          "sourceType": "FACTORY",
+          "value": "D-120A",
+          "validFrom": "2024-03-12T00:00:00Z",
+          "validTo": "2025-09-15T00:00:00Z",
+          "recordedAt": "2024-03-12T02:00:00Z",
+          "observedAt": null,
+          "verificationStatus": "DOCUMENTED",
+          "authority": 10
+        },
+        {
+          "sourceId": "SC0245B-RETROFIT-2025",
+          "sourceType": "REPLACEMENT",
+          "value": "D-120B",
+          "validFrom": "2025-09-15T00:00:00Z",
+          "validTo": null,
+          "recordedAt": "2025-09-22T08:30:00Z",
+          "observedAt": null,
+          "verificationStatus": "DOCUMENTED",
+          "authority": 10
+        },
+        {
+          "sourceId": "SC0245B-TEMPLATE-2026",
+          "sourceType": "CONFIGURATION",
+          "value": "D-120A",
+          "validFrom": "2026-02-01T00:00:00Z",
+          "validTo": null,
+          "recordedAt": "2026-02-03T02:30:00Z",
+          "observedAt": null,
+          "verificationStatus": "DOCUMENTED",
+          "authority": 5
+        }
+      ],
+      "queryPoints": [
+        {
+          "id": "base-P1-before-retrofit",
+          "purpose": "改造前的时点：只有出厂记录有效",
+          "asOf": "2024-06-01T00:00:00Z",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "NONE",
+            "dataNature": "SIMULATED",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-BOM-2024"],
+            "citations": [
+              {
+                "sourceId": "SC0245B-BOM-2024",
+                "sourceVersion": "2024-03-12T02:00:00Z",
+                "title": "配置记录 CTRL-01.moduleVersion",
+                "excerpt": "attribute=moduleVersion;value=D-120A;source=FACTORY;verification=DOCUMENTED;validFrom=2024-03-12T00:00:00Z;validTo=2025-09-15T00:00:00Z"
+              }
+            ]
+          }
+        },
+        {
+          "id": "base-P2-boundary-before",
+          "purpose": "失效区间边界：valid_to 前 1 秒出厂记录仍有效",
+          "asOf": "2025-09-14T23:59:59Z",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "NONE",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-BOM-2024"]
+          }
+        },
+        {
+          "id": "base-P3-boundary-at",
+          "purpose": "失效区间边界：valid_to 等于时点时出厂记录已失效（左闭右开）",
+          "asOf": "2025-09-15T00:00:00Z",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "NONE",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-RETROFIT-2025"]
+          }
+        },
+        {
+          "id": "base-P4-after-retrofit",
+          "purpose": "改造后、旧模板出现前：只有改造记录有效，仍不是现场已核实",
+          "asOf": "2025-10-01T00:00:00Z",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "NONE",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-RETROFIT-2025"],
+            "citations": [
+              {
+                "sourceId": "SC0245B-RETROFIT-2025",
+                "sourceVersion": "2025-09-22T08:30:00Z",
+                "title": "配置记录 CTRL-01.moduleVersion",
+                "excerpt": "attribute=moduleVersion;value=D-120B;source=REPLACEMENT;verification=DOCUMENTED;validFrom=2025-09-15T00:00:00Z"
+              }
+            ]
+          }
+        },
+        {
+          "id": "base-P5-current",
+          "purpose": "主判定时点：改造记录与旧模板同时有效，模板权威级别更低，结论未核实",
+          "asOf": "2026-11-13T00:00:00Z",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "NONE",
+            "dataNature": "SIMULATED",
+            "requiredChecks": 1,
+            "requiredChecksContains": "现场核验",
+            "entries": ["SC0245B-RETROFIT-2025", "SC0245B-TEMPLATE-2026"],
+            "citations": [
+              {
+                "sourceId": "SC0245B-RETROFIT-2025",
+                "sourceVersion": "2025-09-22T08:30:00Z",
+                "title": "配置记录 CTRL-01.moduleVersion",
+                "excerpt": "attribute=moduleVersion;value=D-120B;source=REPLACEMENT;verification=DOCUMENTED;validFrom=2025-09-15T00:00:00Z"
+              },
+              {
+                "sourceId": "SC0245B-TEMPLATE-2026",
+                "sourceVersion": "2026-02-03T02:30:00Z",
+                "title": "配置记录 CTRL-01.moduleVersion",
+                "excerpt": "attribute=moduleVersion;value=D-120A;source=CONFIGURATION;verification=DOCUMENTED;validFrom=2026-02-01T00:00:00Z"
+              }
+            ]
+          },
+          "expectedAnswer": {
+            "verificationMode": "online-model",
+            "allowedCategories": ["KNOWLEDGE", "POSSIBLE_CAUSES", "HUMAN_REVIEW"],
+            "mustDistinguish": {
+              "documentedLatest": "D-120B",
+              "templateStillSays": "D-120A",
+              "fieldVerification": "MISSING"
+            },
+            "mustIncludeKeywords": ["D-120B", "现场核验"],
+            "mustNotUseKeywords": ["已确认", "已确诊", "当前装机为", "已经更换为"],
+            "mustRequestFieldVerification": true,
+            "serverLimitationsContains": ["请求中的资产编号尚未经服务器核验，不能作为当前配置的依据"],
+            "mustNotDo": [
+              "把旧模板的 D-120A 当成本台设备当前配置",
+              "把改造记录的 D-120B 当成现场已确认装机",
+              "只引用一条记录而隐去另一条"
+            ]
+          }
+        },
+        {
+          "id": "base-P6-later",
+          "purpose": "时间继续推移：旧模板不会自动失效，也不能借此升级为装机结论",
+          "asOf": "2027-01-01T00:00:00Z",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "NONE",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-RETROFIT-2025", "SC0245B-TEMPLATE-2026"]
+          }
+        }
+      ],
+      "maintenanceQueryPoints": [
+        {
+          "id": "base-M1-current",
+          "asOf": "2026-11-13T00:00:00Z",
+          "expected": {
+            "entries": ["SC0245B-RETROFIT-2025"],
+            "operation": "REPLACEMENT",
+            "beforeValue": null,
+            "afterValue": "D-120B",
+            "verificationStatus": "DOCUMENTED",
+            "citations": [
+              {
+                "sourceId": "SC0245B-RETROFIT-2025",
+                "title": "维修记录 CTRL-01.REPLACEMENT",
+                "excerpt": "operation=REPLACEMENT;before=null;after=D-120B;source=REPLACEMENT;verification=DOCUMENTED;validFrom=2025-09-15T00:00:00Z"
+              }
+            ]
+          }
+        },
+        {
+          "id": "base-M2-before-retrofit",
+          "asOf": "2024-06-01T00:00:00Z",
+          "expected": {
+            "entries": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "three-source-conflict",
+      "datasetPath": "datasets/v1/factory/variants/sc-0245-b-three-source-conflict.json",
+      "fieldVerification": "MISSING",
+      "purpose": "三源同级冲突：改造后未回写出厂记录失效，出厂 BOM 与改造记录同为最高权威且取值分叉，站点旧模板仍在。",
+      "differenceFromBase": "出厂记录的 validTo 由 2025-09-15T00:00:00Z 改为 null（改造后未回写失效）",
+      "queryPoints": [
+        {
+          "id": "conflict-P1-before-retrofit",
+          "asOf": "2024-06-01T00:00:00Z",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "NONE",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-BOM-2024"]
+          }
+        },
+        {
+          "id": "conflict-P2-after-retrofit",
+          "asOf": "2025-10-01T00:00:00Z",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "CONFLICT",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-BOM-2024", "SC0245B-RETROFIT-2025"]
+          }
+        },
+        {
+          "id": "conflict-P3-current",
+          "asOf": "2026-11-13T00:00:00Z",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "CONFLICT",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-BOM-2024", "SC0245B-RETROFIT-2025", "SC0245B-TEMPLATE-2026"],
+            "citations": 3
+          },
+          "expectedAnswer": {
+            "verificationMode": "online-model",
+            "allowedCategories": ["POSSIBLE_CAUSES", "HUMAN_REVIEW"],
+            "mustStateConflict": true,
+            "mustNotPickOneAsTruth": true,
+            "mustIncludeKeywords": ["冲突", "现场核验"],
+            "mustNotUseKeywords": ["已确认", "已确诊", "按最新记录应为"],
+            "serverLimitationsContains": ["请求中的资产编号尚未经服务器核验，不能作为当前配置的依据"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "field-verified",
+      "datasetPath": "datasets/v1/factory/variants/sc-0245-b-field-verified.json",
+      "fieldVerification": "PRESENT_WITH_VALIDITY",
+      "purpose": "现场核验存在且带有效期：核验窗口内可确认装机，窗口外必须重新核验。",
+      "differenceFromBase": "新增 FIELD_CONFIRMATION 记录 SC0245B-FIELD-2026-11（D-120B，observedAt 2026-11-10T01:15:00Z，validTo 2027-05-10T00:00:00Z）",
+      "queryPoints": [
+        {
+          "id": "field-P1-before-observation",
+          "asOf": "2026-11-09T00:00:00Z",
+          "purpose": "核验尚未发生：仍按资料记载处理",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "NONE",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-RETROFIT-2025", "SC0245B-TEMPLATE-2026"]
+          }
+        },
+        {
+          "id": "field-P2-after-observation",
+          "asOf": "2026-11-10T02:00:00Z",
+          "purpose": "核验已发生且在有效期内：可确认当前装机为 D-120B",
+          "expected": {
+            "installationStatus": "FIELD_CONFIRMED",
+            "conflict": "NONE",
+            "requiredChecks": 0,
+            "entries": ["SC0245B-RETROFIT-2025", "SC0245B-TEMPLATE-2026", "SC0245B-FIELD-2026-11"],
+            "citations": [
+              {
+                "sourceId": "SC0245B-FIELD-2026-11",
+                "sourceVersion": "2026-11-10T02:05:00Z",
+                "title": "配置记录 CTRL-01.moduleVersion",
+                "excerpt": "attribute=moduleVersion;value=D-120B;source=FIELD_CONFIRMATION;verification=FIELD_VERIFIED;validFrom=2026-11-10T01:15:00Z;validTo=2027-05-10T00:00:00Z"
+              }
+            ]
+          }
+        },
+        {
+          "id": "field-P3-current",
+          "asOf": "2026-11-13T00:00:00Z",
+          "purpose": "主判定时点：现场核验仍有效",
+          "expected": {
+            "installationStatus": "FIELD_CONFIRMED",
+            "conflict": "NONE",
+            "requiredChecks": 0,
+            "entries": ["SC0245B-RETROFIT-2025", "SC0245B-TEMPLATE-2026", "SC0245B-FIELD-2026-11"]
+          },
+          "expectedAnswer": {
+            "verificationMode": "online-model",
+            "allowedCategories": ["KNOWLEDGE", "POSSIBLE_CAUSES", "HUMAN_REVIEW"],
+            "toolFactToQuote": "installationStatus=FIELD_CONFIRMED，value=D-120B，validTo=2027-05-10T00:00:00Z",
+            "answerLevelNote": "当前 Runtime 的 AnswerGuard 收到恒为 false 的 fieldVerified，答案层仍不得出现 CONFIRMED_FINDING 或确诊表述；答案层接线属于 04-02 集成范围。",
+            "answerLevelStatus": "BLOCKED_BY_RUNTIME_WIRING"
+          }
+        },
+        {
+          "id": "field-P4-boundary-expiry",
+          "asOf": "2027-05-10T00:00:00Z",
+          "purpose": "核验有效期右边界：valid_to 等于时点即失效",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "NONE",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-RETROFIT-2025", "SC0245B-TEMPLATE-2026"]
+          }
+        },
+        {
+          "id": "field-P5-after-expiry",
+          "asOf": "2027-06-01T00:00:00Z",
+          "purpose": "核验过期：必须重新核验，不能沿用旧核实结论",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "NONE",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-RETROFIT-2025", "SC0245B-TEMPLATE-2026"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "field-contradiction",
+      "datasetPath": "datasets/v1/factory/variants/sc-0245-b-field-contradiction.json",
+      "fieldVerification": "PRESENT_BUT_CONTRADICTORY",
+      "purpose": "两次现场核验互相矛盾：不得挑一条当结论，必须显式列出冲突并要求复检。",
+      "differenceFromBase": "新增两条 FIELD_CONFIRMATION：SC0245B-FIELD-2026-11-A（D-120A，observedAt 01:15）、SC0245B-FIELD-2026-11-B（D-120B，observedAt 01:20），有效期同至 2027-05-10T00:00:00Z",
+      "queryPoints": [
+        {
+          "id": "contra-P1-before-observation",
+          "asOf": "2026-11-09T00:00:00Z",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "NONE",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-RETROFIT-2025", "SC0245B-TEMPLATE-2026"]
+          }
+        },
+        {
+          "id": "contra-P2-single-observation",
+          "asOf": "2026-11-10T01:17:00Z",
+          "purpose": "口径边界：只有第一条核验在业务有效时间内；查询按业务有效时间过滤，recorded_at 不参与过滤，因此这不等于“当时已记录”",
+          "expected": {
+            "installationStatus": "FIELD_CONFIRMED",
+            "conflict": "NONE",
+            "requiredChecks": 0,
+            "entries": ["SC0245B-RETROFIT-2025", "SC0245B-TEMPLATE-2026", "SC0245B-FIELD-2026-11-A"]
+          }
+        },
+        {
+          "id": "contra-P3-current",
+          "asOf": "2026-11-13T00:00:00Z",
+          "purpose": "主判定时点：两条现场核验同时有效且取值分叉",
+          "expected": {
+            "installationStatus": "UNCONFIRMED",
+            "conflict": "CONFLICT",
+            "requiredChecks": 1,
+            "entries": ["SC0245B-RETROFIT-2025", "SC0245B-TEMPLATE-2026", "SC0245B-FIELD-2026-11-A", "SC0245B-FIELD-2026-11-B"]
+          },
+          "expectedAnswer": {
+            "verificationMode": "online-model",
+            "allowedCategories": ["POSSIBLE_CAUSES", "HUMAN_REVIEW"],
+            "mustStateConflict": true,
+            "mustNotPickOneAsTruth": true,
+            "mustRequestRecheck": true,
+            "mustIncludeKeywords": ["冲突", "复检"],
+            "mustNotUseKeywords": ["已确认", "已确诊"]
+          }
+        }
+      ]
+    }
+  ],
+  "negativePoints": [
+    {
+      "id": "neg-missing-attribute",
+      "tool": "get_configuration",
+      "arguments": {"assetId": "SC-0245-B", "componentId": "CTRL-01"},
+      "expectedFailure": "INVALID_ARGUMENTS",
+      "note": "模型必须指明属性，不允许一次拉全量配置；参数错误不得退化为默认查询"
+    },
+    {
+      "id": "neg-cross-asset",
+      "tool": "get_configuration",
+      "arguments": {"assetId": "CAR-B", "componentId": "CTRL-01", "attribute": "moduleVersion", "asOf": "2026-11-13T00:00:00Z"},
+      "expectedFailure": "ASSET_NOT_FOUND",
+      "note": "只导入 SC-0245-B 时不得串读 legacy CAR 夹具；跨资产与未登记统一为同一错误码"
+    },
+    {
+      "id": "neg-unregistered-attribute",
+      "tool": "get_configuration",
+      "arguments": {"assetId": "SC-0245-B", "componentId": "CTRL-01", "attribute": "firmwareVersion", "asOf": "2026-11-13T00:00:00Z"},
+      "expected": {
+        "installationStatus": "UNCONFIRMED",
+        "conflict": "NONE",
+        "entries": [],
+        "requiredChecks": 1,
+        "requiredChecksContains": "现场核验"
+      },
+      "note": "未登记的属性返回空列表与核验要求，不编造取值"
+    }
+  ],
+  "assetQuery": {
+    "tool": "get_asset",
+    "arguments": {"assetId": "SC-0245-B"},
+    "expected": {
+      "componentIds": ["CTRL-01"],
+      "dataNature": "SIMULATED"
+    },
+    "note": "设备型号 XLP-200 只出现在指引资料的适用范围内，未被登记为资产事实；如需查询型号，要在集成阶段新增资产属性，并同时提供对应的现场核验记录，否则会因“每个分组都需确认”使 installationStatus 恒为 UNCONFIRMED。"
+  },
+  "verification": {
+    "offlineCheckable": [
+      "每个变体文件可通过 Json.MAPPER 解析为 Dataset 并通过 EvidenceRecord 合同校验",
+      "AssetSnapshotImporter.fromEvidence 的映射结果与上面每条记录的 validFrom/validTo/verificationStatus 一致",
+      "每个 queryPoint 的 entries / installationStatus / conflict / requiredChecks 与 AssetTools 实际输出一致",
+      "每条 citation 的 title 与 excerpt 与 AssetTools.summary 实际输出一致",
+      "negativePoints 的错误码"
+    ],
+    "requiresIntegration": [
+      "SC-0245-B 需要新的夹具加载路径（现有 AssetSnapshotImporter.fixtureFolder 只接受单字母夹具）",
+      "get_configuration 进入产品网关、PG 导入与真实 run 引用登记（04-02-T2）"
+    ],
+    "onlineModelOnly": [
+      "各变体的 expectedAnswer（措辞、是否显式说明冲突、是否请求现场核验）"
+    ],
+    "blockedByEnv": [
+      "真实模型双域对照",
+      "真实 PostgreSQL 导入与引用回读"
+    ]
+  }
+}

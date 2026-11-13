@@ -1,0 +1,91 @@
+{
+  "dataNature": "SIMULATED",
+  "assetId": "SC-0245-B",
+  "records": [
+    {
+      "evidenceId": "SC0245B-BOM-2024",
+      "assetId": "SC-0245-B",
+      "sourceType": "FACTORY",
+      "sourceRef": "simulated:SC-0245-B/EX-FACTORY-BOM-2024-03",
+      "recordedAt": "2024-03-12T02:00:00Z",
+      "effectiveAt": "2024-03-12T00:00:00Z",
+      "observedAt": null,
+      "validTo": "2025-09-15T00:00:00Z",
+      "authority": 10,
+      "payload": {
+        "subject": "CTRL-01",
+        "predicate": "moduleVersion",
+        "value": "D-120A"
+      },
+      "integrityStatus": "VERIFIED"
+    },
+    {
+      "evidenceId": "SC0245B-RETROFIT-2025",
+      "assetId": "SC-0245-B",
+      "sourceType": "REPLACEMENT",
+      "sourceRef": "simulated:SC-0245-B/WO-RETROFIT-2025-0915",
+      "recordedAt": "2025-09-22T08:30:00Z",
+      "effectiveAt": "2025-09-15T00:00:00Z",
+      "observedAt": null,
+      "validTo": null,
+      "authority": 10,
+      "payload": {
+        "subject": "CTRL-01",
+        "predicate": "moduleVersion",
+        "value": "D-120B"
+      },
+      "integrityStatus": "VERIFIED"
+    },
+    {
+      "evidenceId": "SC0245B-TEMPLATE-2026",
+      "assetId": "SC-0245-B",
+      "sourceType": "CONFIGURATION",
+      "sourceRef": "simulated:SC-0245-B/TEMPLATE-SITE-DEFAULT-2026-02",
+      "recordedAt": "2026-02-03T02:30:00Z",
+      "effectiveAt": "2026-02-01T00:00:00Z",
+      "observedAt": null,
+      "validTo": null,
+      "authority": 5,
+      "payload": {
+        "subject": "CTRL-01",
+        "predicate": "moduleVersion",
+        "value": "D-120A"
+      },
+      "integrityStatus": "VERIFIED"
+    },
+    {
+      "evidenceId": "SC0245B-FIELD-2026-11-A",
+      "assetId": "SC-0245-B",
+      "sourceType": "FIELD_CONFIRMATION",
+      "sourceRef": "simulated:SC-0245-B/FIELD-CHECK-2026-11-10-A",
+      "recordedAt": "2026-11-10T02:05:00Z",
+      "effectiveAt": "2026-11-10T01:15:00Z",
+      "observedAt": "2026-11-10T01:15:00Z",
+      "validTo": "2027-05-10T00:00:00Z",
+      "authority": 10,
+      "payload": {
+        "subject": "CTRL-01",
+        "predicate": "moduleVersion",
+        "value": "D-120A"
+      },
+      "integrityStatus": "VERIFIED"
+    },
+    {
+      "evidenceId": "SC0245B-FIELD-2026-11-B",
+      "assetId": "SC-0245-B",
+      "sourceType": "FIELD_CONFIRMATION",
+      "sourceRef": "simulated:SC-0245-B/FIELD-CHECK-2026-11-10-B",
+      "recordedAt": "2026-11-10T03:40:00Z",
+      "effectiveAt": "2026-11-10T01:20:00Z",
+      "observedAt": "2026-11-10T01:20:00Z",
+      "validTo": "2027-05-10T00:00:00Z",
+      "authority": 10,
+      "payload": {
+        "subject": "CTRL-01",
+        "predicate": "moduleVersion",
+        "value": "D-120B"
+      },
+      "integrityStatus": "VERIFIED"
+    }
+  ]
+}
