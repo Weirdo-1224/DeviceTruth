@@ -55,7 +55,7 @@
 | KNOW-08 | 空检索、错误引用、过期版本与资料冲突 | §11 E2E-02/10 | **未实现** | E14：只有结构证据失效，尚无文档版本/引用检查 | 02 / 02-03 | 无命中不编造；过期资料说明版本/适用范围；伪造引用拒绝 |
 | TOOL-01 | 复用注册白名单、只读与作用域校验 | §6.1、§9 | **部分实现** | E17：CapabilityGateway 有 5 工具和 scope 校验，scope 仍绑定 DiagnosisRequest | 02 / 02-02 | 新 ToolContext 支持无资产问答、服务器确定权限 |
 | TOOL-02 | 支持自然语言查询及嵌套过滤 DTO/Schema | §6.1 | **已实现** | 02-01：KnowledgeTools自然语言query及受限嵌套filters DTO/schema和严格标识校验实测通过；工具接Runtime目录另属02-02 | 02 / 02-01 | 逐工具 schema 校验，query 可含中文；标识字段保留严格验证 |
-| TOOL-03 | 明确 NOT_FOUND / DATA_STALE / DENIED / AMBIGUOUS 错误 | §6.1 | **部分实现** | 03-01 reviewed 2026-11-13: NOT_FOUND/DENIED/INVALID verified; DATA_STALE/AMBIGUOUS remain partial. | 03 / 03-01 | 保留工具失败语义与 retryable，不混同无证据或成功结论 |
+| TOOL-03 | 明确 NOT_FOUND / DATA_STALE / DENIED / AMBIGUOUS 错误 | §6.1 | **部分实现** | 03-01 reviewed 2026-11-13: NOT_FOUND/DENIED/INVALID verified; DATA_STALE/AMBIGUOUS remain partial（2026-11-13 阶段关闭决定：明确转 Phase 05 质量交付阶段补全，见 03-VERIFICATION.md gap 1）。 | 03 / 03-01 | 保留工具失败语义与 retryable，不混同无证据或成功结论 |
 | TOOL-04 | 检索、资产/配置/历史、原文、追问、报告工具齐备 | §6.1 | **已实现** | E17：旧仅 profile/history/evidence/rules；02-01/02-02/03-01 已补 search_knowledge/get_document_excerpt/三资产工具；03-02（待复审）：补齐 generate_diagnosis_report 只读报告工具并注册进产品网关（AgentReportToolTest 4 项）；追问以 ASK_USER 等价动作承载 | 03 / 03-02 | 基础工具通过统一注册表可发现，权限和引用均受控 |
 | SKILL-01 | SKILL.md 发现、元数据与按需读取 | §6.2 | **未实现** | E13：仅加载 automotive-demo/rules.json；无 SKILL.md 或解析器 | 04 / 04-01 | 发现汽车/工厂两个 Skill，不把 rules.json 认成 Skill |
 | SKILL-02 | 领域适配、版本与工具授权绑定 | §6.2、§5.2 第二批 | **未实现** | E17：工具 domain 可限定但没有 Skill 绑定/版本或 installation | 04 / 04-01 | Skill 可引用已注册工具，不能安装脚本或扩权；记录版本 |

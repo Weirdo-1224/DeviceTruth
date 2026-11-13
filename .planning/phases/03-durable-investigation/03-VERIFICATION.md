@@ -1,7 +1,7 @@
 ---
 phase: 03-durable-investigation
-verified: 2026-11-13T08:39:58Z
-status: gaps_found
+verified: 2026-11-13T08:49:26Z
+status: passed
 score: 8/9 must-haves verified
 covered_files: [
   ".planning/phases/03-durable-investigation/03-01-PLAN.md",
@@ -23,6 +23,7 @@ covered_files: [
   "src/main/java/io/devicetruth/application/agent/GeneralAgentService.java",
   "src/main/java/io/devicetruth/application/agent/RunRecoveryService.java",
   "src/main/java/io/devicetruth/core/runtime/TaskOrchestrator.java",
+  "src/main/java/io/devicetruth/core/contract/AssetFacts.java",
   "src/main/resources/db/migration/V12__run_checkpoints.sql",
   "src/main/resources/db/migration/V13__run_lifecycle.sql",
   "src/main/resources/db/migration/V8__asset_registry_history.sql",
@@ -30,19 +31,21 @@ covered_files: [
   "src/test/java/io/devicetruth/application/AssetToolTest.java",
   "src/test/java/io/devicetruth/application/RunRecoveryTest.java"
 ]
-covered_digest: "v4:sha256:bc456fe91d8a400be0bf0849671236a3f56adcfeb16a1f13a500447cf3ecd786"
+covered_digest: "v4:sha256:0f8ad00c3766d1f4b0e0f81761fe0650f3afbed44ca3b7a0c5db1843f8ea1080"
 behavior_unverified: 1
-gaps:
-  - truth: "TOOL-03 工具错误语义明确 NOT_FOUND / DATA_STALE / DENIED / AMBIGUOUS"
-    status: partial
-    reason: "NOT_FOUND（ASSET_NOT_FOUND）/PERMISSION_DENIED/INVALID_ARGUMENTS 已实现并有真实 PG 负例测试；DATA_STALE 与 AMBIGUOUS 仅存在于 AssetFacts.FailureCode 枚举声明（src/main/java/io/devicetruth/core/contract/AssetFacts.java:16），工具路径从不产生这两个码：AssetTools.code() 只映射 ASSET_NOT_FOUND/PERMISSION_DENIED/INVALID_ARGUMENTS/TOOL_FAILURE（AssetTools.java:454-458），AssetRegistryRepository 查询只做有效期过滤、无数据过期判定。REQUIREMENTS.md 已诚实记录为部分实现，但执行方记录的 deferral 未排入任何后续阶段（Phase 4/5 需求均不含此两项）。"
-    artifacts:
-      - path: "src/main/java/io/devicetruth/application/agent/AssetTools.java"
-        issue: "code() 不产生 DATA_STALE/AMBIGUOUS；局限性文本中亦无对应稳定码出口"
-      - path: "src/main/java/io/devicetruth/core/contract/AssetFacts.java"
-        issue: "FailureCode 枚举含 DATA_STALE/AMBIGUOUS 但为死代码路径"
-    missing:
-      - "为迟到记录/数据过期语义实现 DATA_STALE 出口及负例测试，或在 REQUIREMENTS.md 正式降级该两项（加 override）并清理死枚举"
+overrides_applied: 1
+re_verification:
+  previous_status: gaps_found
+  previous_score: 8/9
+  gaps_closed:
+    - "TOOL-03 死枚举 DATA_STALE/AMBIGUOUS 清理：提交 4cfb625 删除 AssetFacts.FailureCode 两枚枚举值并更新注释为'语义随 recordedAt 边界延后到 Phase 05'；REQUIREMENTS.md TOOL-03 行已更新为明确转 Phase 05 质量交付。复核方式：git show 4cfb625 diff 逐行核对 + 全仓 grep 确认无残留代码引用（DATA_STALE 仅余 AssetFacts.java:16 注释说明；AMBIGUOUS 剩余命中均为 legacy 路由 ASSET_AMBIGUOUS 字符串，与工具 FailureCode 无关）+ mvn -q compile 通过（枚举删除若有悬挂引用必然编译失败）+ 修复方回归 AssetToolTest 25/25、AgentLifecycleTest 15/15 真实 PG 绿"
+  gaps_remaining: []
+  regressions: []
+overrides:
+  - must_have: "TOOL-03 工具错误语义明确 NOT_FOUND / DATA_STALE / DENIED / AMBIGUOUS"
+    reason: "NOT_FOUND/DENIED/INVALID 已覆盖本阶段工具负例并有真实 PG 负例测试；DATA_STALE/AMBIGUOUS 语义随 recordedAt 边界延后到 Phase 05 质量交付阶段连同负例补回（REQUIREMENTS.md TOOL-03 行已更新），死枚举经 4cfb625 清理、无误导性死代码（用户 2026-11-13 关闭 Phase 03 决定，复核确认）"
+    accepted_by: "user close decision via orchestrator"
+    accepted_at: "2026-11-13T08:49:26Z"
 human_verification:
   - test: "浏览器人工演示：两轮问答（追问→补答）→刷新页面→重启浏览器，确认历史会话、待答问题与结果可找回且补答沿同一 run 继续"
     expected: "刷新/重开后无需原页面线程即可看到历史消息、待答问题并可继续补答；进行中 run 恢复轮询"
@@ -66,9 +69,9 @@ behavior_unverified_items:
 # Phase 03: durable-investigation Verification Report
 
 **Phase Goal:** 把同一任务的补证、资产时序查询、刷新/重启恢复、预算和取消贯通为完整调查。
-**Verified:** 2026-11-13T08:39:58Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Verified:** 2026-11-13T08:49:26Z
+**Status:** passed
+**Re-verification:** Yes — after gap closure（gap 1 由 4cfb625 修复，详见 Gap Closure）
 
 ## Goal Achievement
 
@@ -140,7 +143,7 @@ Phase plans 未声明 probe 脚本；CLI/investigation 套件（`scripts/verify_
 | DATA-02 | 03-01 | 配置/维修结构化查询，不以 RAG 代替现场事实 | ✓ SATISFIED（边界内） | AssetTools 三工具 + `limitations()` 明示 RAG_NOT_FACT/USER_STATEMENT_ONLY（AssetTools.java:358-360）；AssetToolTest#maintenanceHistoryRespectsTimePoint |
 | DATA-03 | 03-01 | 有效期/记录时间/观测时间与来源类型 | ✓ SATISFIED（边界内） | V8 时点列 + CHECK(recorded_at >= COALESCE(observed_at, valid_from))；AssetToolTest#fixtureImportKeepsIdentitySourceAndIsSimulated、#userStatementIsDocumentedNotFieldVerified、#recordsOutsideValidityWindowAreNotReturned；recordedAt 边界语义仍部分（REQUIREMENTS 如实记录） |
 | STORE-04 | 03-02 | 重启后任务恢复或明确失败、无幽灵队列 | ✓ SATISFIED | V12 + RunRecoveryService + RunRecoveryTest 9 项（回收/并发对账/无孤儿/超限 FAILED） |
-| TOOL-03 | 03-01 | 明确 NOT_FOUND/DATA_STALE/DENIED/AMBIGUOUS 错误 | ✗ PARTIAL（gap） | NOT_FOUND（ASSET_NOT_FOUND）/DENIED/INVALID_ARGUMENTS 实现并有负例测试（AssetToolTest#invalidArgumentsAndUnauthorizedToolAreRejectedDistinctly 等）；**DATA_STALE/AMBIGUOUS 仅枚举声明（AssetFacts.java:16），工具路径不产生（AssetTools.java:454-458）** → 见 Gaps |
+| TOOL-03 | 03-01 | 明确 NOT_FOUND/DATA_STALE/DENIED/AMBIGUOUS 错误 | ✓ RESOLVED（override + 4cfb625 清理） | NOT_FOUND（ASSET_NOT_FOUND）/DENIED/INVALID_ARGUMENTS 实现并有负例测试（AssetToolTest#invalidArgumentsAndUnauthorizedToolAreRejectedDistinctly 等）；DATA_STALE/AMBIGUOUS 语义延后 Phase 05 已接受为 override（见 frontmatter overrides），死枚举经 4cfb625 删除、全仓 grep + `mvn -q compile` 复核无残留引用 |
 | TOOL-04 | 03-02 | 检索/资产/原文/追问/报告工具齐备 | ✓ SATISFIED | `generate_diagnosis_report` 只读白名单聚合（AgentReportTools.java:46-96），ServerConfiguration.java:109 注册进产品网关；AgentReportToolTest 4 项（含跨身份 REPORT_UNAVAILABLE） |
 | TRUST-02 | 03-01 | 来源/归属/时间/冲突与引用完整性 | ✓ SATISFIED（边界内） | 引用身份=事实记录 ID + 实际查询资产/时点 + 摘要（AssetTools.java:261-293）；AssetToolTest#referencesPersistFactExcerptAndActualQueryScope、#configurationReferencesKeepEachQueryTimeAndRemainIdempotent、#sameSourceSameAttributeHistoryIsKeptAndQueryFollowsValidity |
 | TRUST-04 | 03-01 | 身份与跨会话资产/文档授权 | ✓ SATISFIED（边界内） | ResourceAuthorizationTest 8 项；服务器固定身份、客户端不可扩权；真实多人认证 → 人工（05-03） |
@@ -155,7 +158,7 @@ Phase plans 未声明 probe 脚本；CLI/investigation 套件（`scripts/verify_
 | File | Line | Pattern | Severity | Impact |
 | ---- | ---- | ------- | -------- | ------ |
 | — | — | TBD/FIXME/XXX/PLACEHOLDER/not yet implemented | — | 阶段修改的主代码文件中无命中（全 src/main/java 扫描）；无空返回桩；无 console.log 式实现 |
-| src/main/java/io/devicetruth/core/contract/AssetFacts.java | 16 | 死枚举值（DATA_STALE/AMBIGUOUS 无生产者） | ⚠️ Warning | 与 TOOL-03 gap 同因；不阻塞主链路但属未完成语义的残留声明 |
+| src/main/java/io/devicetruth/core/contract/AssetFacts.java | 16 | 死枚举值（DATA_STALE/AMBIGUOUS 无生产者） | ⚠️ Warning（已解决） | 首轮发现的残留声明已由 4cfb625 删除并改注释为延后说明；复核 grep 仅余注释文字，无代码引用 |
 
 ### Human Verification Required
 
@@ -179,21 +182,17 @@ Phase plans 未声明 probe 脚本；CLI/investigation 套件（`scripts/verify_
    **Expected:** 全部拒绝；身份来自真实认证而非 session UUID。
    **Why human:** 本阶段为服务器固定本地身份（AR-03-01 接受的计划内风险）。
 
-### Gaps Summary
+### Gap Closure（2026-11-13 复审）
 
-阶段核心目标（补证跨进程续跑、资产时序查询、刷新/重启恢复、预算与取消贯通）在代码与真实 PG 行为测试中全部成立，本验证人独立实跑 4 个关键行为测试通过。唯一需求级缺口：**TOOL-03 的 DATA_STALE/AMBIGUOUS 两个错误码仅有枚举声明、工具路径不产生**——计划 03-01 任务书明确要求四码语义，实现只交付 NOT_FOUND/DENIED/INVALID 并有测试；REQUIREMENTS.md 如实记为部分实现，但该 deferral 未排入 Phase 4/5 任何需求。修复方向二选一：实现迟到记录/数据过期语义及负例测试，或正式降级这两项并清理死枚举。
+首轮唯一需求级缺口 **TOOL-03 的 DATA_STALE/AMBIGUOUS 死枚举** 已关闭：
 
-**This looks intentional.** To accept this deviation, add to VERIFICATION.md frontmatter:
+- **修复提交 `4cfb625`**：删除 `AssetFacts.FailureCode` 中无生产者的 DATA_STALE/AMBIGUOUS 枚举值，注释更新为"语义随 recordedAt 边界延后到 Phase 05（REQUIREMENTS.md TOOL-03 记部分实现），届时连同负例一并补回"；REQUIREMENTS.md TOOL-03 行同步更新为明确转 Phase 05 质量交付。
+- **复核方式（本验证人执行）**：`git show 4cfb625` diff 逐行核对（仅 AssetFacts.java 一文件、3 增 2 删）；全仓 grep 确认无残留代码引用——`DATA_STALE` 仅余 AssetFacts.java:16 注释说明文字，`AMBIGUOUS` 剩余命中均为 legacy 路由 `ASSET_AMBIGUOUS` 字符串（ConversationFlowService/DeterministicTaskRouter/RouteValidator/TaskRouterTest，与工具 FailureCode 无关）；`mvn -q compile` 通过（枚举删除若有悬挂引用必然编译失败）；修复方回归 AssetToolTest 25/25、AgentLifecycleTest 15/15（真实 PG）绿。
+- **决策痕迹**：该延后以前文 overrides 记录保留（用户 2026-11-13 关闭 Phase 03 决定），两项语义的补回归属 Phase 05，届时需连同负例一并验收。
 
-```yaml
-overrides:
-  - must_have: "TOOL-03 工具错误语义明确 NOT_FOUND / DATA_STALE / DENIED / AMBIGUOUS"
-    reason: "NOT_FOUND/DENIED/INVALID 已覆盖本阶段工具负例；DATA_STALE/AMBIGUOUS 语义随 recordedAt 边界一并延后，REQUIREMENTS.md 已记部分实现"
-    accepted_by: "{name}"
-    accepted_at: "{ISO timestamp}"
-```
+阶段核心目标（补证跨进程续跑、资产时序查询、刷新/重启恢复、预算与取消贯通）在代码与真实 PG 行为测试中全部成立；首次验证时本验证人独立实跑 4 个关键行为测试通过，本轮修复未触碰任何实现行为（仅删死枚举），无回归风险。其余结论与首轮一致：8/9 truths verified，1 项（浏览器刷新找回）保持 present-behavior-unverified 并保留在人工验证清单。
 
 ---
 
-_Verified: 2026-11-13T08:39:58Z_
+_Verified: 2026-11-13T08:49:26Z_
 _Verifier: the agent (gsd-verifier)_
