@@ -59,15 +59,16 @@ public final class StructuredAgentReasoner implements GeneralReasoner {
     @Override public ActionProposal propose(Context context) {
         String input = Json.write(context);
         for (int attempt = 1; attempt <= 2; attempt++) {
+            long startedNanos = System.nanoTime();
             String response;
             try {
                 response = completion.complete(PROTOCOL
                         + (attempt == 2 ? "\n上一次输出不是合法的 JSON/不符合模式。请纠正，只返回一个合法动作。" : ""), input);
             } catch (ReasonerFailure e) {
-                attempts.add(new Reasoner.Attempt(attempt, e.code()));
+                attempts.add(new Reasoner.Attempt(attempt, e.code(), elapsedMs(startedNanos)));
                 throw e;
             } catch (RuntimeException e) {
-                attempts.add(new Reasoner.Attempt(attempt, "MODEL_TRANSPORT_OR_TIMEOUT"));
+                attempts.add(new Reasoner.Attempt(attempt, "MODEL_TRANSPORT_OR_TIMEOUT", elapsedMs(startedNanos)));
                 throw new ReasonerFailure("MODEL_TRANSPORT_OR_TIMEOUT");
             }
             try {
@@ -76,12 +77,14 @@ public final class StructuredAgentReasoner implements GeneralReasoner {
                 if (!(action instanceof ActionProposal.CallTool || action instanceof ActionProposal.AskUser
                         || action instanceof ActionProposal.Answer))
                     throw new IllegalArgumentException("Unsupported action type");
-                attempts.add(new Reasoner.Attempt(attempt, "VALID_PROPOSAL"));
+                attempts.add(new Reasoner.Attempt(attempt, "VALID_PROPOSAL", elapsedMs(startedNanos)));
                 return action;
             } catch (Exception e) {
-                attempts.add(new Reasoner.Attempt(attempt, "INVALID_JSON_OR_SCHEMA"));
+                attempts.add(new Reasoner.Attempt(attempt, "INVALID_JSON_OR_SCHEMA", elapsedMs(startedNanos)));
             }
         }
         throw new ReasonerFailure("MODEL_OUTPUT_INVALID_AFTER_RETRY");
     }
+
+    private static long elapsedMs(long startedNanos) { return (System.nanoTime() - startedNanos) / 1_000_000; }
 }

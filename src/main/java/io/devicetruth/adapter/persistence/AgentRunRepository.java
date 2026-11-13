@@ -25,14 +25,16 @@ public final class AgentRunRepository {
     /** 运行记录：主循环需要的全部持久事实，均由 PG 重建，不依赖原 Java 线程。 */
     public record RunRecord(UUID runId, UUID conversationId, UUID goalMessageId, String status, long version,
                             Instant requestedAt, Instant asOf, UUID pendingQuestionId, int questionVersion,
-                            String selectedAssetId, String goalText, int stepsUsed, int maxSteps, int attempts) {}
-    public record ToolEvent(int sequence, String toolName, boolean success, String errorCode, int referenceCount) {}
+                            String selectedAssetId, String goalText, int stepsUsed, int maxSteps, int attempts,
+                            long activeDurationMs, long maxActiveDurationMs, boolean cancelRequested) {}
+    public record ToolEvent(int sequence, String toolName, boolean success, String errorCode, int referenceCount,
+                            long durationMs) {}
     /** 恢复扫描命中的遗留 RUNNING：只带对账需要的字段，不重建完整运行上下文。 */
     public record ExpiredRun(UUID runId, UUID conversationId, long version, int attempts) {}
 
     private static final String VIEW_SQL = """
             SELECT r.id, r.conversation_id, r.goal_message_id, r.status, r.version, r.requested_at, r.as_of,
-                   r.pending_question,
+                   r.pending_question, r.active_duration_ms, r.budget->>'usageStatus' AS usage_status,
                    (SELECT e.safe_payload FROM dt_run_event e
                      WHERE e.run_id = r.id AND e.type = 'RUN_ANSWER' ORDER BY e.seq DESC LIMIT 1) AS answer_payload,
                    (SELECT e.safe_payload->>'code' FROM dt_run_event e
@@ -45,7 +47,8 @@ public final class AgentRunRepository {
             r.getObject("id", UUID.class), r.getObject("conversation_id", UUID.class),
             r.getObject("goal_message_id", UUID.class), r.getString("status"), r.getLong("version"),
             r.getTimestamp("requested_at").toInstant(), r.getTimestamp("as_of").toInstant(), "SIMULATED",
-            pendingQuestion(r), answer(r), r.getString("failure_code"));
+            pendingQuestion(r), answer(r), r.getString("failure_code"),
+            r.getLong("active_duration_ms"), r.getString("usage_status"));
 
     private static PendingQuestion pendingQuestion(ResultSet row) throws SQLException {
         String payload = row.getString("pending_question");
@@ -68,18 +71,30 @@ public final class AgentRunRepository {
     }
 
     private final JdbcTemplate jdbc;
+    /** 总时限（累计执行时长上限，毫秒）：入队时写入 budget.limits.maxActiveDurationMs，恢复不清零。 */
+    private final long maxActiveDurationMs;
 
-    public AgentRunRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public AgentRunRepository(JdbcTemplate jdbc) { this(jdbc, 120_000); }
+
+    public AgentRunRepository(JdbcTemplate jdbc, long maxActiveDurationMs) {
+        this.jdbc = jdbc;
+        if (maxActiveDurationMs < 1) throw new IllegalArgumentException("maxActiveDurationMs must be positive");
+        this.maxActiveDurationMs = maxActiveDurationMs;
+    }
 
     public RunView enqueue(ServerIdentity identity, UUID conversationId, UUID messageId, Instant now, Instant asOf) {
         UUID runId = UUID.randomUUID();
+        String budget = "{\"limits\":{\"maxSteps\":12,\"maxRepeatedActions\":2,\"maxActiveDurationMs\":"
+                + maxActiveDurationMs + ",\"maxTokens\":null,\"maxCost\":null},"
+                + "\"used\":{\"steps\":0,\"modelAttempts\":0,\"toolCalls\":0,\"activeDurationMs\":0,"
+                + "\"inputTokens\":null,\"outputTokens\":null,\"cost\":null},\"usageStatus\":\"UNKNOWN\"}";
         jdbc.update("""
                 INSERT INTO dt_agent_run(id,conversation_id,owner_id,project_id,goal_message_id,status,
                     requested_at,as_of,budget,created_at,updated_at)
-                VALUES (?,?,?,?,?,'QUEUED',?,?,
-                    '{"limits":{"maxSteps":12,"maxRepeatedActions":2,"maxActiveDurationMs":120000,"maxTokens":null,"maxCost":null},"used":{"steps":0,"modelAttempts":0,"toolCalls":0,"activeDurationMs":0,"inputTokens":null,"outputTokens":null,"cost":null},"usageStatus":"UNKNOWN"}'::jsonb,?,?)
+                VALUES (?,?,?,?,?,'QUEUED',?,?,CAST(? AS jsonb),?,?)
                 """, runId, conversationId, identity.ownerId(), identity.projectId(), messageId,
-                java.sql.Timestamp.from(now), java.sql.Timestamp.from(asOf), java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(asOf), budget,
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
         appendEvent(identity, runId, conversationId, "RUN_QUEUED", Map.of("status", "QUEUED"), now);
         return require(identity, runId);    }
 
@@ -111,7 +126,9 @@ public final class AgentRunRepository {
                        (r.budget->'used'->>'steps')::int AS steps_used,
                        (r.budget->'limits'->>'maxSteps')::int AS max_steps,
                        m.selected_asset_id, m.content AS goal_text,
-                       r.attempts
+                       r.attempts, r.active_duration_ms,
+                       COALESCE((r.budget->'limits'->>'maxActiveDurationMs')::bigint, 0) AS max_active_duration_ms,
+                       r.cancel_requested_at IS NOT NULL AS cancel_requested
                 FROM dt_agent_run r
                 JOIN dt_message m ON m.id = r.goal_message_id
                 WHERE r.id = ? AND r.owner_id = ? AND r.project_id = ?
@@ -121,7 +138,9 @@ public final class AgentRunRepository {
                         r.getTimestamp("requested_at").toInstant(), r.getTimestamp("as_of").toInstant(),
                         r.getObject("pending_question_id", UUID.class), r.getInt("question_version"),
                         r.getString("selected_asset_id"), r.getString("goal_text"),
-                        r.getInt("steps_used"), r.getInt("max_steps"), r.getInt("attempts")),
+                        r.getInt("steps_used"), r.getInt("max_steps"), r.getInt("attempts"),
+                        r.getLong("active_duration_ms"), r.getLong("max_active_duration_ms"),
+                        r.getBoolean("cancel_requested")),
                 runId, identity.ownerId(), identity.projectId());
         if (rows.isEmpty()) throw io.devicetruth.application.agent.GeneralAgentService.denied();
         return rows.getFirst();
@@ -131,15 +150,18 @@ public final class AgentRunRepository {
      * QUEUED → RUNNING：领取执行租约并累计尝试次数。
      * 已被其他 worker 接手（状态或版本变化）时返回 0，调用方必须放弃执行；
      * 租约到期前其他进程不会回收这个 RUNNING，防双 worker 重复推进。
+     * started_at 只记第一段执行的开始（COALESCE），恢复重跑不清零已累计的时长与步数。
      */
     public int markRunning(ServerIdentity identity, RunRecord run, String leaseOwner, Instant leaseExpiresAt,
                            Instant now) {
         return update("""
                 UPDATE dt_agent_run SET status='RUNNING', version=version+1, updated_at=?,
-                    lease_owner=?, lease_expires_at=?, lease_heartbeat_at=?, attempts=attempts+1
+                    lease_owner=?, lease_expires_at=?, lease_heartbeat_at=?, attempts=attempts+1,
+                    started_at=COALESCE(started_at, ?)
                 WHERE id=? AND owner_id=? AND project_id=? AND status='QUEUED' AND version=?
                 """, java.sql.Timestamp.from(now), leaseOwner, java.sql.Timestamp.from(leaseExpiresAt),
-                java.sql.Timestamp.from(now), run.runId(), identity.ownerId(), identity.projectId(), run.version());
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now), run.runId(),
+                identity.ownerId(), identity.projectId(), run.version());
     }
 
     /** 运行中续租：只有持有者且仍处于 RUNNING 时才生效，worker 崩溃后租约自然过期。 */
@@ -192,9 +214,15 @@ public final class AgentRunRepository {
         return updated;
     }
 
+    /** 终态统一回写：累计步数、执行时长、模型尝试与工具调用计数；Token/成本只在供应商真实返回时写。 */
+    private static final String USAGE_SET_SQL = "budget=jsonb_set(jsonb_set(jsonb_set(jsonb_set("
+            + "budget,'{used,steps}',to_jsonb(?::int),true),'{used,activeDurationMs}',to_jsonb(?::bigint),true),"
+            + "'{used,modelAttempts}',to_jsonb(?::int),true),'{used,toolCalls}',to_jsonb(?::int),true)";
+
     /** RUNNING → WAITING_FOR_USER：问题、版本、累计步数与引用计数同一事务写入后释放 worker。 */
     public int waitForUser(ServerIdentity identity, RunRecord run, PendingQuestion question, int stepsUsed,
-                           int referenceCount, Instant now) {
+                           int referenceCount, long activeDurationMs, int modelAttempts, int toolCalls,
+                           Instant now) {
         String payload;
         try {
             payload = Json.write(question);
@@ -204,37 +232,105 @@ public final class AgentRunRepository {
         return update("""
                 UPDATE dt_agent_run SET status='WAITING_FOR_USER', version=version+1, updated_at=?,
                     pending_question_id=?, question_version=?, pending_question=CAST(? AS jsonb),
-                    context_summary=?, budget=jsonb_set(budget,'{used,steps}',to_jsonb(?::int),true),
+                    context_summary=?, %s,
+                    active_duration_ms=active_duration_ms+?, finished_at=?,
                     lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
                 WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING'
-                """, java.sql.Timestamp.from(now), question.pendingQuestionId(), question.questionVersion(), payload,
-                "steps=" + stepsUsed + ";references=" + referenceCount, stepsUsed,
+                """.formatted(USAGE_SET_SQL), java.sql.Timestamp.from(now), question.pendingQuestionId(),
+                question.questionVersion(), payload,
+                "steps=" + stepsUsed + ";references=" + referenceCount, stepsUsed, activeDurationMs,
+                modelAttempts, toolCalls, activeDurationMs, java.sql.Timestamp.from(now),
                 run.runId(), identity.ownerId(), identity.projectId());
     }
 
     /** RUNNING → COMPLETED：答案写入 RUN_ANSWER 事件，界面与报告都从持久事件读回。 */
-    public int complete(ServerIdentity identity, RunRecord run, AgentResult answer, int stepsUsed, Instant now) {
+    public int complete(ServerIdentity identity, RunRecord run, AgentResult answer, int stepsUsed,
+                        long activeDurationMs, int modelAttempts, int toolCalls, Instant now) {
         int updated = update("""
                 UPDATE dt_agent_run SET status='COMPLETED', version=version+1, updated_at=?,
-                    budget=jsonb_set(budget,'{used,steps}',to_jsonb(?::int),true),
+                    %s,
+                    active_duration_ms=active_duration_ms+?, finished_at=?,
                     lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
                 WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING'
-                """, java.sql.Timestamp.from(now), stepsUsed, run.runId(), identity.ownerId(), identity.projectId());
+                """.formatted(USAGE_SET_SQL), java.sql.Timestamp.from(now), stepsUsed, activeDurationMs,
+                modelAttempts, toolCalls, activeDurationMs, java.sql.Timestamp.from(now),
+                run.runId(), identity.ownerId(), identity.projectId());
         if (updated == 1) appendEvent(identity, run.runId(), run.conversationId(), "RUN_ANSWER", answer, now);
         return updated;
     }
 
     /** 任意非终态 → FAILED：技术失败没有答案，只保留稳定原因码。 */
-    public int fail(ServerIdentity identity, RunRecord run, String code, int stepsUsed, Instant now) {
+    public int fail(ServerIdentity identity, RunRecord run, String code, int stepsUsed,
+                    long activeDurationMs, int modelAttempts, int toolCalls, Instant now) {
         int updated = update("""
                 UPDATE dt_agent_run SET status='FAILED', version=version+1, updated_at=?,
-                    budget=jsonb_set(budget,'{used,steps}',to_jsonb(?::int),true),
+                    %s,
+                    active_duration_ms=active_duration_ms+?, finished_at=?,
                     lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
                 WHERE id=? AND owner_id=? AND project_id=? AND status IN ('QUEUED','RUNNING')
-                """, java.sql.Timestamp.from(now), stepsUsed, run.runId(), identity.ownerId(), identity.projectId());
+                """.formatted(USAGE_SET_SQL), java.sql.Timestamp.from(now), stepsUsed, activeDurationMs,
+                modelAttempts, toolCalls, activeDurationMs, java.sql.Timestamp.from(now),
+                run.runId(), identity.ownerId(), identity.projectId());
         if (updated == 1)
             appendEvent(identity, run.runId(), run.conversationId(), "RUN_FAILED", Map.of("code", code), now);
         return updated;
+    }
+
+    /**
+     * 取消请求（03-03）：QUEUED/WAITING_FOR_USER 不持执行租约，立即迁移终态 CANCELLED；
+     * RUNNING 只落取消标记，由持有租约的 worker 在每步之间协作式收尾，迟到响应只记录不提交。
+     * 返回 1 表示请求已被接受（立即终态或已打标），0 表示 run 不存在或已是终态。
+     */
+    public int requestCancel(ServerIdentity identity, UUID runId, Instant now) {
+        UUID conversationId = jdbc.query("""
+                SELECT conversation_id FROM dt_agent_run
+                WHERE id=? AND owner_id=? AND project_id=?
+                """, (r, n) -> r.getObject("conversation_id", UUID.class),
+                runId, identity.ownerId(), identity.projectId()).stream().findFirst().orElse(null);
+        if (conversationId == null) return 0;
+        int immediate = update("""
+                UPDATE dt_agent_run SET status='CANCELLED', version=version+1, updated_at=?,
+                    cancel_requested_at=?, finished_at=?,
+                    pending_question_id=NULL, question_version=0, pending_question=NULL,
+                    lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
+                WHERE id=? AND owner_id=? AND project_id=? AND status IN ('QUEUED','WAITING_FOR_USER')
+                """, java.sql.Timestamp.from(now), java.sql.Timestamp.from(now), java.sql.Timestamp.from(now),
+                runId, identity.ownerId(), identity.projectId());
+        if (immediate == 1) {
+            appendEvent(identity, runId, conversationId, "RUN_CANCELLED", Map.of("phase", "IMMEDIATE"), now);
+            return 1;
+        }
+        return update("""
+                UPDATE dt_agent_run SET cancel_requested_at=?, updated_at=?
+                WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING' AND cancel_requested_at IS NULL
+                """, java.sql.Timestamp.from(now), java.sql.Timestamp.from(now),
+                runId, identity.ownerId(), identity.projectId());
+    }
+
+    /** RUNNING → CANCELLED：仅响应已打取消标记的运行，由 worker 收尾；终态 CAS 防迟到响应覆盖。 */
+    public int cancelRunning(ServerIdentity identity, RunRecord run, int stepsUsed, long activeDurationMs,
+                             int modelAttempts, int toolCalls, Instant now) {
+        int updated = update("""
+                UPDATE dt_agent_run SET status='CANCELLED', version=version+1, updated_at=?,
+                    %s,
+                    active_duration_ms=active_duration_ms+?, finished_at=?,
+                    lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
+                WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING' AND cancel_requested_at IS NOT NULL
+                """.formatted(USAGE_SET_SQL), java.sql.Timestamp.from(now), stepsUsed, activeDurationMs,
+                modelAttempts, toolCalls, activeDurationMs, java.sql.Timestamp.from(now),
+                run.runId(), identity.ownerId(), identity.projectId());
+        if (updated == 1)
+            appendEvent(identity, run.runId(), run.conversationId(), "RUN_CANCELLED", Map.of("phase", "WORKER"), now);
+        return updated;
+    }
+
+    /** worker 每步之间查询取消标记；终态行不再有标记可读（已被收尾语句保留）。 */
+    public boolean isCancelRequested(ServerIdentity identity, UUID runId) {
+        var rows = jdbc.queryForList("""
+                SELECT cancel_requested_at FROM dt_agent_run
+                WHERE id=? AND owner_id=? AND project_id=?
+                """, runId, identity.ownerId(), identity.projectId());
+        return !rows.isEmpty() && rows.getFirst().get("cancel_requested_at") != null;
     }
 
     /** WAITING_FOR_USER → QUEUED：只有问题 ID 与版本都匹配且尚未被消费时才成功，防止重复补答。 */
@@ -281,12 +377,31 @@ public final class AgentRunRepository {
                 SELECT seq,safe_payload->>'toolName' AS tool_name,
                        (safe_payload->>'success')::boolean AS success,
                        safe_payload->>'errorCode' AS error_code,
-                       COALESCE((safe_payload->>'references')::int,0) AS reference_count
+                       COALESCE((safe_payload->>'references')::int,0) AS reference_count,
+                       COALESCE((safe_payload->>'durationMs')::bigint,0) AS duration_ms
                 FROM dt_run_event
                 WHERE run_id=? AND owner_id=? AND project_id=? AND type='RUN_TOOL'
                 ORDER BY seq
                 """, (r, n) -> new ToolEvent(r.getInt("seq"), r.getString("tool_name"),
-                r.getBoolean("success"), r.getString("error_code"), r.getInt("reference_count")),
+                r.getBoolean("success"), r.getString("error_code"), r.getInt("reference_count"),
+                r.getLong("duration_ms")),
+                runId, identity.ownerId(), identity.projectId());
+    }
+
+    /** 模型尝试审计（03-03）：每步的重试次数、结果码、单次耗时与模型版本，白名单字段不落 Prompt/密钥。 */
+    public record ModelEvent(int sequence, String model, int attempt, String outcome, long durationMs) {}
+
+    public List<ModelEvent> modelEvents(ServerIdentity identity, UUID runId) {
+        return jdbc.query("""
+                SELECT seq, safe_payload->>'model' AS model,
+                       COALESCE((safe_payload->>'attempt')::int,0) AS attempt,
+                       COALESCE(safe_payload->>'outcome','') AS outcome,
+                       COALESCE((safe_payload->>'durationMs')::bigint,0) AS duration_ms
+                FROM dt_run_event
+                WHERE run_id=? AND owner_id=? AND project_id=? AND type='RUN_MODEL'
+                ORDER BY seq
+                """, (r, n) -> new ModelEvent(r.getInt("seq"), r.getString("model"), r.getInt("attempt"),
+                r.getString("outcome"), r.getLong("duration_ms")),
                 runId, identity.ownerId(), identity.projectId());
     }
 

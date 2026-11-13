@@ -73,7 +73,10 @@ public class ProductConfiguration {
             @Value("${devicetruth.agent.max-recovery-attempts:3}") int maxRecoveryAttempts) {
         var jdbc = new JdbcTemplate(source);
         var transactions = new TransactionTemplate(new DataSourceTransactionManager(source));
-        return new GeneralAgentService(new ConversationRepository(jdbc), new AgentRunRepository(jdbc), transactions,
+        return new GeneralAgentService(new ConversationRepository(jdbc),
+                new AgentRunRepository(jdbc, environment.getProperty("devicetruth.agent.max-active-duration-ms",
+                        Long.class, 120_000L)),
+                transactions,
                 identity, gateway, agentReasoners(agentReasonerName(environment, reasonerName)), maxConcurrentRuns,
                 maxQueue, workerEnabled, fileUploadService, leaseSeconds, maxRecoveryAttempts);
     }

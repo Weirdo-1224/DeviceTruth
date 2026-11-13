@@ -97,6 +97,10 @@ export interface RunView {
   result: AgentResult | null
   /** FAILED 时的稳定原因码；服务器只公开白名单错误码，不含异常正文或配置值。 */
   failureCode: string | null
+  /** 累计执行时长（毫秒，不含等待用户的时间）；03-03 起由持久层返回。 */
+  activeDurationMs?: number | null
+  /** 供应商用量可得性；无 usage 时为 UNKNOWN，Token/成本为 null，不编造数值。 */
+  usageStatus?: string | null
 }
 
 export interface ConversationDetail {

@@ -50,6 +50,13 @@ public final class RunRecoveryService {
         }
         for (UUID runId : queuedRuns) {
             try {
+                // 累计执行时长已超限的遗留 QUEUED 不再调度：明确 FAILED/TOTAL_TIMEOUT，绝不留幽灵任务
+                var record = runs.load(identity, runId, false);
+                if (record.activeDurationMs() >= record.maxActiveDurationMs()) {
+                    if (runs.fail(identity, record, "TOTAL_TIMEOUT", record.stepsUsed(), 0, 0, 0, Instant.now()) == 1)
+                        failed++;
+                    continue;
+                }
                 dispatcher.dispatch(runId);
                 queued++;
             } catch (RuntimeException e) {

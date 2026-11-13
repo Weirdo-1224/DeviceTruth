@@ -55,6 +55,18 @@ public class AgentConversationController {
         return service.toolEvents(id);
     }
 
+    /** 模型尝试审计：版本、重试次数、结果码与单次耗时；无密钥/Prompt/原始输出。 */
+    @GetMapping("/api/runs/{id}/model-events")
+    java.util.List<io.devicetruth.adapter.persistence.AgentRunRepository.ModelEvent> modelEvents(@PathVariable UUID id) {
+        return service.modelEvents(id);
+    }
+
+    /** 取消（03-03）：QUEUED/WAITING 立即 CANCELLED；RUNNING 协作式收尾；终态再取消 409。 */
+    @PostMapping("/api/runs/{id}/cancel")
+    ResponseEntity<RunView> cancel(@PathVariable UUID id) {
+        return ResponseEntity.ok(service.cancel(id));
+    }
+
     @ExceptionHandler(RequestFailure.class)
     ResponseEntity<Map<String, Object>> requestFailure(RequestFailure failure) {
         return error(failure.status(), failure.code());

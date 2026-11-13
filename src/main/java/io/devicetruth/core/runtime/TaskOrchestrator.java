@@ -42,8 +42,8 @@ public final class TaskOrchestrator {
     }
     /** 重复检测指纹：动作指纹 + 当时知识快照的组合，用于识别"原地空转"。 */
     private record Repetition(String knowledge,int count) {}
-    /** 通用 Agent 运行状态：等待用户补答不是终局，技术失败不产生答案。 */
-    public enum AgentStatus { WAITING_FOR_USER, COMPLETED, FAILED }
+    /** 通用 Agent 运行状态：等待用户补答不是终局，技术失败不产生答案；取消是显式终态，不伪装成失败。 */
+    public enum AgentStatus { WAITING_FOR_USER, COMPLETED, FAILED, CANCELLED }
     /** 通用 Agent 一轮运行的结果：状态、答案/待答问题、消息序列、引用、事件与步数。 */
     public record AgentRunOutcome(AgentStatus status, AgentResult answer, AgentTaskInput.PendingQuestion question,
                                   List<AgentTaskInput.Message> messages, List<Reference> references,
@@ -212,6 +212,18 @@ public final class TaskOrchestrator {
      */
     public AgentRunOutcome runAgent(AgentTaskInput input, CapabilityGateway gateway, ToolContext toolContext,
                                     List<Reference> seedReferences, GeneralReasoner reasoner) {
+        // 默认无休中止条件；带取消/总时限的执行走下面的重载。
+        return runAgent(input, gateway, toolContext, seedReferences, reasoner, () -> null);
+    }
+
+    /**
+     * 通用 Agent 主循环（带协作式中止）：每一步开头先问 abortCode——
+     * 返回非空即收尾（"CANCELLED" 为显式取消终态，"TOTAL_TIMEOUT" 记 FAILED），
+     * 已产生的模型/工具结果随终态一起由应用层按 CAS 提交，迟到响应不会覆盖既有终态。
+     */
+    public AgentRunOutcome runAgent(AgentTaskInput input, CapabilityGateway gateway, ToolContext toolContext,
+                                    List<Reference> seedReferences, GeneralReasoner reasoner,
+                                    java.util.function.Supplier<String> abortCode) {
         if (input == null || gateway == null || toolContext == null || reasoner == null)
             throw new IllegalArgumentException("input, gateway, toolContext and reasoner are required");
         var events = new ArrayList<RunEvent>();
@@ -223,6 +235,20 @@ public final class TaskOrchestrator {
         int steps = input.stepsUsed();
         int rejections = 0;
         while (true) {
+            // 协作式取消/总时限：模型每步之间检查，终态由持久层 CAS 收口
+            String abort = abortCode == null ? null : abortCode.get();
+            if (abort != null) {
+                for (var attempt : reasoner.drainAttempts())
+                    event(events, "MODEL_ATTEMPT", input.runVersion(), Map.of("attempt", attempt));
+                if ("TOTAL_TIMEOUT".equals(abort)) {
+                    event(events, "RUN_FAILED", input.runVersion(), Map.of("code", "TOTAL_TIMEOUT"));
+                    return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
+                            List.copyOf(references.values()), events, steps, "TOTAL_TIMEOUT");
+                }
+                event(events, "RUN_CANCELLED", input.runVersion(), Map.of("code", "CANCELLED"));
+                return new AgentRunOutcome(AgentStatus.CANCELLED, null, null, messages,
+                        List.copyOf(references.values()), events, steps, "CANCELLED");
+            }
             if (steps >= input.maxSteps()) {
                 event(events, "RUN_FAILED", input.runVersion(), Map.of("code", "BUDGET_EXHAUSTED"));
                 return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
@@ -250,7 +276,9 @@ public final class TaskOrchestrator {
             steps++;
             if (action instanceof CallTool call) {
                 attemptedTools.add(call.toolName());
+                long toolStartedNanos = System.nanoTime();
                 var outcome = gateway.executeTool(toolContext, call.toolName(), call.arguments());
+                long toolDurationMs = (System.nanoTime() - toolStartedNanos) / 1_000_000;
                 if (outcome.success()) {
                     for (Reference reference : outcome.references()) references.putIfAbsent(reference.referenceId(), reference);
                     feedback = null;
@@ -261,7 +289,7 @@ public final class TaskOrchestrator {
                 event(events, "TOOL_RESULT", input.runVersion(), Map.of("toolName", outcome.toolName(),
                         "success", outcome.success(), "errorCode",
                         outcome.error() == null ? "" : outcome.error().code(),
-                        "references", outcome.references().size()));
+                        "references", outcome.references().size(), "durationMs", toolDurationMs));
                 continue;
             }
             if (action instanceof AskUser ask) {
