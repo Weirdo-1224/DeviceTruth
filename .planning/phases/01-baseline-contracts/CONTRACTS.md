@@ -140,6 +140,8 @@ RUNNING --有效 ANSWER--> COMPLETED
 
 ## 8. 服务端配置与 legacy 兼容
 
+> 2026-11-12 用户调整：embedding 模型配置和密钥可复用已忽略的 `devicetruth.local.properties`；显式 embedding 环境变量优先于文件，PG 配置仍走服务端环境。以下原决策作为历史保留。
+
 - 新 PG 用 Spring 服务端环境注入 `SPRING_DATASOURCE_URL/USERNAME/PASSWORD`；embedding 用服务端 `DEVICETRUTH_EMBEDDING_BASE_URL/API_KEY/MODEL/DIMENSION/PROFILE_VERSION`（02-01 实现并验证 profile），不放浏览器、Skill、附件、报告或已提交配置；本计划不选 PG 镜像版本/向量维度。
 - 现有模型 `ModelConfiguration` 保留已授权的本地私有文件兼容：`devicetruth.local.properties` 非空值优先、环境补缺；仅 legacy 模型读取，文件可选，不打印/提交/打包。新 PG/embedding 配置不复用该文件；后续通用模型连接可复用现有供应商适配但不可扩大私有文件覆盖范围。本计划不读取真实私密值，不改加载优先级。
 - legacy CLI 保留 `DiagnosisRequest`、五动作、`DecisionGuard`、JSON fixtures 和原输出；E 只作测试。普通问答不经过 Catalog/全量调查门禁。

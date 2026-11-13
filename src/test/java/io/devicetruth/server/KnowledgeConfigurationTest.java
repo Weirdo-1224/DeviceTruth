@@ -12,8 +12,27 @@ import static org.assertj.core.api.Assertions.*;
 class KnowledgeConfigurationTest {
     private final ServerConfiguration configuration = new ServerConfiguration();
 
+    @Test void localEmbeddingSettingsAndSharedKeyAreUsedWhenEnvironmentIsEmpty() {
+        var local = java.util.Map.of("DEVICETRUTH_EMBEDDING_MODEL", "local-model",
+                "DEVICETRUTH_EMBEDDING_DIMENSION", "768", "DASHSCOPE_API_KEY", "local-key");
+        EmbeddingProfile profile = configuration.productEmbeddingProfile(new MockEnvironment(), local::get);
+        assertThat(profile.model()).isEqualTo("local-model");
+        assertThat(profile.dimension()).isEqualTo(768);
+        assertThat(profile.apiKey()).isEqualTo("local-key");
+    }
+
+    @Test void explicitEnvironmentOverridesLocalEmbeddingSettings() {
+        var local = java.util.Map.of("DEVICETRUTH_EMBEDDING_MODEL", "local-model",
+                "DEVICETRUTH_EMBEDDING_API_KEY", "local-key");
+        var environment = new MockEnvironment().withProperty("DEVICETRUTH_EMBEDDING_MODEL", "environment-model")
+                .withProperty("DEVICETRUTH_EMBEDDING_API_KEY", "environment-key");
+        EmbeddingProfile profile = configuration.productEmbeddingProfile(environment, local::get);
+        assertThat(profile.model()).isEqualTo("environment-model");
+        assertThat(profile.apiKey()).isEqualTo("environment-key");
+    }
+
     @Test void defaultsToQwenTextEmbeddingV4OnDashScope() {
-        EmbeddingProfile profile = configuration.productEmbeddingProfile(new MockEnvironment());
+        EmbeddingProfile profile = configuration.productEmbeddingProfile(new MockEnvironment(), name -> null);
         assertThat(profile.provider()).isEqualTo("openai");
         assertThat(profile.model()).isEqualTo("text-embedding-v4");
         assertThat(profile.dimension()).isEqualTo(1024);
@@ -27,14 +46,14 @@ class KnowledgeConfigurationTest {
         var environment = new MockEnvironment()
                 .withProperty("devicetruth.embedding.api-key", "  ")
                 .withProperty("DASHSCOPE_API_KEY", "dashscope-test-key");
-        assertThat(configuration.productEmbeddingProfile(environment).apiKey()).isEqualTo("dashscope-test-key");
+        assertThat(configuration.productEmbeddingProfile(environment, name -> null).apiKey()).isEqualTo("dashscope-test-key");
     }
 
     @Test void dedicatedEmbeddingKeyWinsOverDashScopeKey() {
         var environment = new MockEnvironment()
                 .withProperty("devicetruth.embedding.api-key", "dedicated-key")
                 .withProperty("DASHSCOPE_API_KEY", "dashscope-test-key");
-        assertThat(configuration.productEmbeddingProfile(environment).apiKey()).isEqualTo("dedicated-key");
+        assertThat(configuration.productEmbeddingProfile(environment, name -> null).apiKey()).isEqualTo("dedicated-key");
     }
 
     @Test void explicitModelDimensionAndRevisionAreHonoured() {
@@ -43,7 +62,7 @@ class KnowledgeConfigurationTest {
                 .withProperty("devicetruth.embedding.dimension", "768")
                 .withProperty("devicetruth.embedding.profile-revision", "2")
                 .withProperty("devicetruth.embedding.send-dimensions", "false");
-        EmbeddingProfile profile = configuration.productEmbeddingProfile(environment);
+        EmbeddingProfile profile = configuration.productEmbeddingProfile(environment, name -> null);
         assertThat(profile.model()).isEqualTo("text-embedding-v3");
         assertThat(profile.dimension()).isEqualTo(768);
         assertThat(profile.profileVersion()).isEqualTo("openai:text-embedding-v3@768-cosine-r2");
@@ -54,8 +73,8 @@ class KnowledgeConfigurationTest {
         var environment = new MockEnvironment()
                 .withProperty("devicetruth.embedding.provider", "deterministic")
                 .withProperty("devicetruth.embedding.model", "text-embedding-v4");
-        EmbeddingProfile deterministic = configuration.productEmbeddingProfile(environment);
-        EmbeddingProfile real = configuration.productEmbeddingProfile(new MockEnvironment());
+        EmbeddingProfile deterministic = configuration.productEmbeddingProfile(environment, name -> null);
+        EmbeddingProfile real = configuration.productEmbeddingProfile(new MockEnvironment(), name -> null);
         assertThat(deterministic.model()).isEqualTo("deterministic-char2");
         assertThat(deterministic.deterministic()).isTrue();
         assertThat(deterministic.profileVersion())

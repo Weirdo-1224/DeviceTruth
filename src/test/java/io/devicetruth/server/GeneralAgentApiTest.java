@@ -254,9 +254,17 @@ class GeneralAgentApiTest {
                 UUID.class, replyKey)).isEqualTo(runUuid);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM dt_message WHERE run_id=? AND role='ASSISTANT'",
                 Integer.class, runUuid)).isEqualTo(2);
-        // 两轮各检索一次：RUN_TOOL 事件来自工具结果的持久审计
+        // 两轮各检索一次：公开事件只含验收所需的白名单工具摘要
         assertThat(jdbc.queryForObject("SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_TOOL'",
                 Integer.class, runUuid)).isGreaterThanOrEqualTo(2);
+        var toolEvents = Json.MAPPER.readTree(rest.getForObject(base + "/api/runs/" + runId + "/tool-events", String.class));
+        assertThat(toolEvents.size()).isGreaterThanOrEqualTo(2);
+        assertThat(toolEvents).allSatisfy(event -> {
+            assertThat(event.path("toolName").asText()).isEqualTo("search_knowledge");
+            assertThat(event.path("success").asBoolean()).isTrue();
+            assertThat(event.path("referenceCount").asInt()).isPositive();
+            assertThat(event.has("payload")).isFalse();
+        });
         assertThat(jdbc.queryForObject("SELECT (budget->'used'->>'steps')::int FROM dt_agent_run WHERE id=?",
                 Integer.class, runUuid)).isGreaterThanOrEqualTo(4);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM dt_agent_run WHERE conversation_id=?",
@@ -325,6 +333,8 @@ class GeneralAgentApiTest {
         assertThat(denied.getBody()).contains("NOT_FOUND_OR_DENIED").doesNotContain("本项目独有");
         var deniedReferences = rest.getForEntity(otherBase + "/api/runs/" + runId + "/references", String.class);
         assertThat(deniedReferences.getStatusCode().value()).isEqualTo(404);
+        var deniedTools = rest.getForEntity(otherBase + "/api/runs/" + runId + "/tool-events", String.class);
+        assertThat(deniedTools.getStatusCode().value()).isEqualTo(404);
         var deniedConversation = rest.getForEntity(otherBase + "/api/conversations/" + conversationId, String.class);
         assertThat(deniedConversation.getStatusCode().value()).isEqualTo(404);
         var deniedReply = reply(otherBase, conversationId, "越权补答", Map.of("runId", runId,

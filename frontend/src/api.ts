@@ -52,6 +52,21 @@ export interface AgentResult {
   dataNature: string
 }
 
+export interface FileView {
+  fileId: string
+  originalName: string
+  mime: string
+  checksum: string
+  byteSize: number
+  parseStatus: 'UPLOADED' | 'PROCESSING' | 'PARSED' | 'FAILED' | 'OCR_REQUIRED'
+  failureCode: string | null
+  documentId: string | null
+  title: string | null
+  documentVersion: string | null
+  domain: string | null
+  createdAt: string
+}
+
 export interface ConversationView {
   conversationId: string
   version: number
@@ -160,7 +175,7 @@ export function newRequestKey(): string {
 async function call<T>(path: string, init: RequestInit, requestKey?: string): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
-  if (init.body !== undefined) headers.set('Content-Type', 'application/json')
+  if (init.body !== undefined && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   if (requestKey) headers.set('Idempotency-Key', requestKey)
   const response = await fetch(path, { ...init, headers })
   const text = await response.text()
@@ -202,13 +217,49 @@ export function readReferences(runId: string): Promise<Reference[]> {
   return call<Reference[]>('/api/runs/' + encodeURIComponent(runId) + '/references', { method: 'GET' })
 }
 
+export function uploadMarkdown(file: File, title?: string, version = '1.0'): Promise<FileView> {
+  const form = new FormData()
+  form.append('file', file)
+  if (title?.trim()) form.append('title', title.trim())
+  form.append('version', version)
+  form.append('domain', 'general')
+  return call<FileView>('/api/files', { method: 'POST', body: form })
+}
+
+export function readFile(fileId: string): Promise<FileView> {
+  return call<FileView>('/api/files/' + encodeURIComponent(fileId), { method: 'GET' })
+}
+
+export function retryFile(fileId: string): Promise<FileView> {
+  return call<FileView>('/api/files/' + encodeURIComponent(fileId) + '/retry', { method: 'POST' })
+}
+
+export async function waitForFile(fileId: string, timeoutMs = 60_000): Promise<FileView> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const file = await readFile(fileId)
+    if (['PARSED', 'FAILED', 'OCR_REQUIRED'].includes(file.parseStatus)) return file
+    if (Date.now() >= deadline) throw new ApiError('FILE_WAIT_TIMEOUT', 0, '等待文件导入超时')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+}
+
 /** 发送一条新的自由消息：没有 replyTo，服务器据此开启新的 run。 */
-export function sendMessage(conversationId: string, userMessage: string, requestKey = newRequestKey()): Promise<RunView> {
+export function sendMessage(
+  conversationId: string,
+  userMessage: string,
+  requestKey = newRequestKey(),
+  attachmentIds: string[] = []
+): Promise<RunView> {
   return call<RunView>(
     '/api/conversations/' + encodeURIComponent(conversationId) + '/messages',
     {
       method: 'POST',
-      body: JSON.stringify({ schemaVersion: 1, userMessage })
+      body: JSON.stringify({
+        schemaVersion: 1,
+        userMessage,
+        ...(attachmentIds.length > 0 ? { attachments: attachmentIds.map((fileId) => ({ fileId })) } : {})
+      })
     },
     requestKey
   )

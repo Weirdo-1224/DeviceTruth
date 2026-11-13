@@ -7,6 +7,8 @@ import {
   readReferences,
   replyToQuestion,
   sendMessage,
+  uploadMarkdown,
+  waitForFile,
   waitForRun,
   type RunView
 } from './api'
@@ -233,6 +235,41 @@ describe('api 合同', () => {
     expect((await readRun(RUN_ID)).status).toBe('RUNNING')
     expect(await readReferences(RUN_ID)).toEqual([])
     expect(calls.map((call) => call.url)).toEqual(['/api/runs/' + RUN_ID, '/api/runs/' + RUN_ID + '/references'])
+  })
+
+  it('Markdown 上传使用 multipart 且不覆盖浏览器边界 Content-Type', async () => {
+    stubFetch(jsonResponse({
+      fileId: 'file-1', originalName: 'manual.md', mime: 'text/markdown', checksum: 'a'.repeat(64),
+      byteSize: 20, parseStatus: 'PARSED', failureCode: null, documentId: 'doc-1', title: '手册',
+      documentVersion: '1.0', domain: 'general', createdAt: '2026-11-11T00:00:00Z'
+    }, 202))
+    const result = await uploadMarkdown(new File(['# 章节\n正文'], 'manual.md', { type: 'text/markdown' }))
+
+    expect(result.fileId).toBe('file-1')
+    expect(calls[0].url).toBe('/api/files')
+    expect(calls[0].init.body).toBeInstanceOf(FormData)
+    expect(new Headers(calls[0].init.headers).get('Content-Type')).toBeNull()
+    const form = calls[0].init.body as FormData
+    expect(form.get('version')).toBe('1.0')
+    expect(form.get('file')).toBeInstanceOf(File)
+  })
+
+  it('文件导入返回失败状态而不是伪装完成', async () => {
+    stubFetch(jsonResponse({ fileId: 'file-1', parseStatus: 'FAILED', failureCode: 'INVALID_TEXT_ENCODING' }))
+    const failed = await waitForFile('file-1')
+    expect(failed.parseStatus).toBe('FAILED')
+    expect(failed.failureCode).toBe('INVALID_TEXT_ENCODING')
+    expect(calls[0].url).toBe('/api/files/file-1')
+  })
+
+  it('发送消息只提交已授权文件 fileId 引用', async () => {
+    stubFetch(jsonResponse(runView(), 202))
+    await sendMessage(CONVERSATION_ID, '结合附件回答', 'key-attachment', ['file-1'])
+    expect(bodyOf(calls[0])).toEqual({
+      schemaVersion: 1,
+      userMessage: '结合附件回答',
+      attachments: [{ fileId: 'file-1' }]
+    })
   })
 
   it('每次请求都生成不同的幂等键', () => {

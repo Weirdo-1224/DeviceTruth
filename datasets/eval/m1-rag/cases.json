@@ -1,0 +1,80 @@
+[
+  {
+    "id": "semantic-dc-interrupt",
+    "kind": "positive",
+    "query": "直流快充过程中充电中止，应该先读取什么日志？",
+    "expected": {"document": "charging", "version": "2026.2", "sectionContains": "直流快充中断"}
+  },
+  {
+    "id": "semantic-temperature-power",
+    "kind": "positive",
+    "query": "电池温度过高时为什么会降低充电功率？",
+    "expected": {"document": "charging", "version": "2026.2", "sectionContains": "电池温度与功率"}
+  },
+  {
+    "id": "semantic-ac-start",
+    "kind": "positive",
+    "query": "交流慢充不能启动，要检查锁止和授权吗？",
+    "expected": {"document": "charging", "version": "2026.2", "sectionContains": "交流慢充无法启动"}
+  },
+  {
+    "id": "semantic-soc-clue",
+    "kind": "positive",
+    "query": "SOC 40% 充电中断能否直接认定电池故障？",
+    "expected": {"document": "charging", "version": "2026.2", "sectionContains": "SOC 中断线索"}
+  },
+  {
+    "id": "part-cp-900",
+    "kind": "partNumber",
+    "query": "CP-900 绝缘检查需要记录哪些测量条件？",
+    "expected": {"document": "parts", "version": "2026.2", "contentContains": "CP-900"}
+  },
+  {
+    "id": "part-jb-17",
+    "kind": "partNumber",
+    "query": "JB-17 锁止反馈检查",
+    "expected": {"document": "parts", "version": "2026.2", "contentContains": "JB-17"}
+  },
+  {
+    "id": "acl-cross-owner",
+    "kind": "empty",
+    "query": "CP-900 绝缘检查",
+    "targetIdentity": "otherOwner",
+    "filtersFrom": "otherOwner.parts",
+    "forbiddenDocument": "parts"
+  },
+  {
+    "id": "acl-cross-project",
+    "kind": "empty",
+    "query": "JB-17 锁止检查",
+    "targetIdentity": "otherProject",
+    "filtersFrom": "otherProject.parts",
+    "forbiddenDocument": "parts"
+  },
+  {
+    "id": "empty-unrelated",
+    "kind": "empty",
+    "query": "咖啡机滤网清洁日程",
+    "forbiddenDocument": "charging"
+  },
+  {
+    "id": "current-version-only",
+    "kind": "positive",
+    "query": "直流快充中断处置",
+    "filtersFrom": "main.chargingCurrent",
+    "expected": {"document": "charging", "version": "2026.2", "sectionContains": "直流快充中断"},
+    "forbiddenVersion": "2025.1"
+  },
+  {
+    "id": "forged-reference-id",
+    "kind": "error",
+    "operation": "excerptByReference",
+    "expectedError": "NOT_FOUND_OR_DENIED"
+  },
+  {
+    "id": "forged-document-locator",
+    "kind": "error",
+    "operation": "excerpt",
+    "expectedError": "NOT_FOUND_OR_DENIED"
+  }
+]

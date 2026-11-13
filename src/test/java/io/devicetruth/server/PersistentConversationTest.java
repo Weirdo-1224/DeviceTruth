@@ -121,7 +121,7 @@ class PersistentConversationTest {
         jdbc = new JdbcTemplate(app.getBean(com.zaxxer.hikari.HikariDataSource.class));
         assertThat(detail(id)).isEqualTo(before);
         assertThat(Json.MAPPER.readTree(rest.getForObject(base + "/api/runs/" + runId, String.class))).isEqualTo(run);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class)).isEqualTo(5);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class)).isEqualTo(7);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE NOT success", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT extversion FROM pg_extension WHERE extname='vector'", String.class)).isEqualTo("0.8.7");
         assertThat(jdbc.queryForObject("SHOW server_version", String.class)).startsWith("16.15");
@@ -246,8 +246,8 @@ class PersistentConversationTest {
         assertThat(post(path, input(" \n\t"), UUID.randomUUID()).getStatusCode().value()).isEqualTo(400);
         assertThat(post(path, input("缺少请求键"), null).getStatusCode().value()).isEqualTo(400);
         assertThat(post(path, Map.of("schemaVersion", 2, "userMessage", "bad version"), UUID.randomUUID()).getBody()).contains("SCHEMA_VERSION_UNSUPPORTED");
-        assertThat(post(path, Map.of("schemaVersion", 1, "userMessage", "文件尚未支持", "attachments", List.of(Map.of("fileId", "x"))), UUID.randomUUID()).getBody()).contains("REFERENCES_NOT_AVAILABLE");
-        assertThat(post(path, Map.of("schemaVersion", 1, "userMessage", "上下文尚未支持", "contextRefs", List.of(Map.of("kind", "DOCUMENT", "id", "x"))), UUID.randomUUID()).getBody()).contains("REFERENCES_NOT_AVAILABLE");
+        assertThat(post(path, Map.of("schemaVersion", 1, "userMessage", "文件引用非法", "attachments", List.of(Map.of("fileId", "x"))), UUID.randomUUID()).getBody()).contains("INVALID_ATTACHMENT");
+        assertThat(post(path, Map.of("schemaVersion", 1, "userMessage", "上下文引用非法", "contextRefs", List.of(Map.of("kind", "DOCUMENT", "id", "x"))), UUID.randomUUID()).getBody()).contains("INVALID_CONTEXT_REFERENCE");
         // 02-02 起补答已经支持；三元组不完整时按 REPLY_TARGET_REQUIRED 拒绝，仍不写消息、不建 run
         var incompleteReply = post(path, Map.of("schemaVersion", 1, "userMessage", "补答缺关联字段",
                 "replyTo", Map.of("runId", "x")), UUID.randomUUID());

@@ -1,46 +1,56 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: 02
-current_phase_name: 自由对话与知识检索
-current_plan: 3
-status: blocked
-stopped_at: 02-02 accepted with known issues; 02-03 not authorized
-last_updated: "2026-11-11T05:59:43.075Z"
-last_activity: 2026-11-11
-last_activity_desc: 02-02按用户决定带已知问题通过；独立全量229项通过，3项P1与1项P2未关闭；02-03未授权
-state_head: e9aed3398c2f1a782edc55f5410a43c3e0c6631d
+current_phase: 03
+current_phase_name: 设备事实与持久连续调查
+current_plan: Not started
+status: executing
+stopped_at: Phase 2 complete, ready to execute Phase 03
+last_updated: "2026-11-12T12:47:35.495Z"
+last_activity: 2026-11-12
+last_activity_desc: Phase 2 complete, transitioned to Phase 03
+state_head: 08d8ea0b0aa82f3f1c093935a86381273422e30a
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 13
-  completed_plans: 4
+  completed_plans: 5
   percent: 20
 milestone_name: 通用设备检修 Agent
 total_phases: 5
 total_plans_in_phase: 3
-review_status: phase_2_plan_02_passed_with_known_issues
+review_status: phase_2_plan_03_user_accepted
 execution_authorized: false
-last_execution_authorization: 2026-11-11用户授权执行02-02并自测；02-03仍未授权，不执行。02-01已于2026-11-11独立复审通过并提交(e9aed33)。
+last_execution_authorization: 2026-11-11用户明确授权修复02-03独立Review问题，保留既有修改且不自动commit/push；仅修复与记录，不推进完成状态或后续计划。
 ---
 
 # Project State
+
+> **2026-11-12 关闭结果：** 用户明确要求带遗留项关闭Phase 2；原生 `phase uat-passed 2 --require-verification` 与 `phase complete 2` 均成功，GSD当前Phase 03、5/13计划、2/5阶段。正文安全、PDF和浏览器验收转后续，不作技术通过。原生命令误将部分需求标Complete，已按实际状态恢复Pending；原生 `state update-progress` 显示20%，但 `progress json` 以5/13计算为38%。
+
+> **2026-11-12 用户决定：** 用户认可检索与多轮修复并通过本轮 Review，正文安全后续解决，安全风险与NOT_RUN不变。PDF、浏览器及阶段出口未完成；原生 GSD `state advance-plan` 返回 `advanced=false`（02-03 SUMMARY 尚为 blocked），因此未声称计划或阶段已经推进。
+
+> **2026-11-12 检索与补答修复：** 真实embedding测量后默认向量门槛调整至0.45，低覆盖关键词排除通用词误命中；原固定集三通道正向6/6、部件号2/2、定位6/6、负例全通过，补充7个负例21次查询为空（其中灯光样本用于规则调整）。真实DeepSeek在更明确的缺失信息场景中同run追问→补答→补答后检索→引用成功；整体仍因正文安全NOT_RUN。真实PG针对性33/0/0/0，脚本13/13。02-03与Phase2状态未推进。
+
+> **2026-11-12 真实供应商实测：** 用户配置密钥后，在独立临时 PostgreSQL 库执行真实 DashScope embedding 和 DeepSeek 测试，测试库已清理。固定检索正向 6/6、部件号 2/2，但无关查询 VECTOR/HYBRID 非空，整组 FAIL；单轮真实模型→工具→上传文档答案引用及章节定位已通过，正文安全 NOT_RUN，套件整体 NOT_RUN；多轮模型直接完成而未追问，FAIL。详见 02-03-SUMMARY。GSD 计划和阶段状态未推进。
+
+> 2026-11-12：用户授权统一本地模型配置，embedding 和 Agent 模型设置可使用既有私有文件；真实供应商验收尚须实际运行，02-03 和 Phase2 状态不变。
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-11-09)
 
 **Core value:** 自由设备问题能开启有来源、可补证、可恢复的可信调查。
-**Current focus:** 02-02按用户明确决定带已知问题通过；3项P1和1项P2未关闭，见[独立复审](phases/02-open-rag/02-02-REVIEW.md)。02-03未授权，不执行；Phase2尚未完成。
+**Current focus:** Phase 2按用户决定带遗留项关闭，GSD已进入Phase 03；下一计划03-01尚未实施。真实embedding检索与DeepSeek同run补答链路已实测；正文安全3项P1及1项P2、PDF/OCR及浏览器端到端验收转后续，未标技术通过。
 
 ## Current Position
 
-Phase: 02 of 5 (自由对话与知识检索)
-Current Plan: 3
+Phase: 03 of 5 (设备事实与持久连续调查)
+Current Plan: Not started
 Total Plans in Phase: 3
 Plan: 3 of 3
-Status: 02-02 用户接受已知问题后通过；02-03 未授权
-Last activity: 2026-11-11 — 02-02 独立复审与带问题通过
+Status: Ready to execute
+Last activity: 2026-11-12 — Phase 2 complete, transitioned to Phase 03
 
 Progress: [██░░░░░░░░] 20%
 
@@ -77,9 +87,9 @@ Progress: [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
-- Total plans completed: 3/13（9/37任务）；完成阶段1/5。计划比例约23%，原生STATE进度采用阶段口径。
-- M0已关闭；M1的02-01已完成并复审通过（已提交e9aed33），02-02已实施待审查，02-03未执行、未授权。
-- 当前HEAD为e9aed33；02-02实现（含三轮审查修复）保留在工作树，未commit/push。最新全量测试229/0/0/0。
+- Total plans completed: 4/13（12/37任务）；完成阶段1/5。原生STATE进度采用阶段口径，02-03未计入完成。
+- M0已关闭；M1的02-01/02-02已完成并提交，02-03独立Review修复后自测、待复审。
+- 当前HEAD为08d8ea0（02-02提交）；02-03实现与交付记录保留在工作树，未commit/push。最新全量测试241/0/0/0。
 
 ## Accumulated Context
 
@@ -103,17 +113,17 @@ Progress: [██░░░░░░░░] 20%
 ### Pending Todos
 
 - 用户第1项及集中回复“上述产品边界与设计符合预期”均已保存；01-UAT为6/6通过，阶段验证6/6 passed，Phase1已原生关闭。
-- 02-01已独立复审通过并提交（e9aed33）；02-02已实施并通过审查修复轮自测（215/0/0/0、打包/CLI、V4→V5升级、前端12/12与构建），等待独立复审。
-- 02-03仍未获授权，不得执行；真实模型/真实embedding/PDF/混合检索/浏览器演示保持NOT_RUN。
+- 02-01已复审通过并提交（e9aed33）；02-02带已知问题通过并提交（08d8ea0）。
+- 02-03独立Review的3项P1与1项P2已修复并自测，继续等待独立复审；真实模型/真实embedding、PDF与浏览器演示保持NOT_RUN，混合检索仅确定性合同通过。
 
 ### Blockers/Concerns
 
-- Phase1已关闭、02-01已完成；02-02待审查、02-03未执行，不勾Phase2完成。
+- Phase1已关闭、02-01/02-02已完成；02-03待复审，不勾Phase2完成。
 - Maven实际使用JDK21.0.13.0.2/Maven3.9.9，但直接java命令实测仍为17；用户命令必须显式使用仓库.tools内JDK21，不改全局设置。验收期间不再clean，避免临时移除JAR。
 - Docker Desktop Linux引擎实际可用，管道npipe:////./pipe/dockerDesktopLinuxEngine；interview-postgres已启动，映射5432。最初PG17拉取失败后已停止并按用户指令改用既有实例，历史失败保留。
-- 真实PG/迁移/两轮补证HTTP链路/新JAR进程重启读取已验收；真实模型与真实embedding、浏览器人工演示、Agent执行恢复未验收。
+- 真实PG/V7迁移、目标/补答附件、文件版本关联与混合检索合同已验证；真实模型与真实embedding缺key、浏览器人工演示、Agent执行恢复未验收。
 - 本地固定身份仅可证明服务层授权合同；共享部署前需真实认证。
-- 02-02引入了`dt_message.run_id`可空列（V5）：只前进不回退，历史消息不回填。
+- V5增加`dt_message.run_id`；V6追加受控文件导入状态与元数据；V7解除文件checksum唯一约束、拆分旧多版本文件并增加文件—文档关联，均为只前进迁移，不删除历史文档或引用。
 
 ## Verification Snapshot
 
@@ -135,6 +145,6 @@ interview_guide public表数量基线17；本轮仅在独立devicetruth/随机�
 ## Session Continuity
 
 Last session: 2026-11-11 (Asia/Shanghai)
-Stopped at: 02-02 implemented and self-verified; independent review pending
+Stopped at: Phase 2 complete, ready to execute Phase 03
 Resume file: .planning/NEXT_SESSION.md
-Read first: AGENTS.md → STATE → 02-02-SUMMARY → 02-REVIEW → 02-01-SUMMARY → PROJECT → ROADMAP
+Read first: AGENTS.md → STATE → 02-03-SUMMARY → 02-03-PLAN → 02-02-REVIEW → PROJECT → ROADMAP

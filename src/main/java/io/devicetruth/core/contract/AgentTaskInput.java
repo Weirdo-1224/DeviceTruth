@@ -2,6 +2,7 @@ package io.devicetruth.core.contract;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -33,14 +34,17 @@ public record AgentTaskInput(String ownerId, String projectId, UUID conversation
             throw new IllegalArgumentException("Invalid step budget");
     }
 
-    /** 会话中的一条消息；角色只允许 USER/ASSISTANT，内容保持原文。 */
-    public record Message(String role, String content) {
+    /** 会话消息保持原文；附件是服务端核验后的结构化数据，不属于用户指令文本。 */
+    public record Message(String role, String content, List<Map<String, Object>> attachments) {
+        public Message(String role, String content) { this(role, content, List.of()); }
+
         public Message {
             if (!"USER".equals(role) && !"ASSISTANT".equals(role))
                 throw new IllegalArgumentException("Invalid message role");
             Checks.text(content, "content");
             if (content.codePointCount(0, content.length()) > MAX_MESSAGE_CODE_POINTS)
                 throw new IllegalArgumentException("content too long");
+            attachments = Checks.list(attachments);
         }
     }
 

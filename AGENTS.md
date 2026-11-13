@@ -12,8 +12,8 @@ DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI
 - `core/contract/`：`Models` 为 legacy 诊断协议值；`AgentTaskInput`/`AgentResult` 为通用 Agent 的输入与答案（事实/可能性/建议/人工项、引用、风险、dataNature）。
 - `adapter/`：`JsonRepositories` 读取数据，`QwenReasoner`、`OpenAiReasoner`（OpenAI 兼容，可指向 DeepSeek）、`AgentScopeStep` 对接模型，`StructuredAgentReasoner`/`AgentModelConnections` 提供通用 Agent 的单步协议与供应商连接，`RunReportWriter` 保存报告，`persistence/` 读写 PG。
 - `server/`、`api/`、`application/`：`DeviceTruthServerApplication` 起 HTTP 服务，`ConversationController` 暴露会话/诊断接口，`AgentConversationController` 暴露产品会话/run/引用接口，`DiagnosisRunService` 有界异步执行 Core，`application/agent/GeneralAgentService` 提供 QUEUED→RUNNING→WAITING_FOR_USER→…→COMPLETED/FAILED 的持久状态机与有界 worker。
-- `knowledge/`：`KnowledgeImportService` 负责 MD/TXT 章节切片与向量化落库，`KnowledgeSearchService` 做归属过滤、向量召回与引用登记，`KnowledgeTools` 暴露 `search_knowledge`/`get_document_excerpt` 服务端合同并通过 `registerInto` 注册进产品 Agent 网关，`EmbeddingClient` 适配真实供应商或离线确定性向量；`api/KnowledgeController` 暴露 `/api/knowledge/*`。
-- `frontend/`：Vue3 + TypeScript + Vite 最小产品页（`src/api.ts` 冻结消息/补答合同与安全轮询，`src/App.vue` 展示持久消息、追问、答案与引用）；SSE 留到 05-01。
+- `knowledge/`：`KnowledgeImportService` 负责 MD/TXT 章节切片与向量化落库，`DocumentParser` 严格解析上传 Markdown，`FileUploadService` 负责受控原文件存储、有界异步导入与失败重试，`KnowledgeSearchService` 做归属过滤、向量/关键词/RRF 混合召回与引用登记，`KnowledgeTools` 暴露 `search_knowledge`/`get_document_excerpt` 服务端合同并通过 `registerInto` 注册进产品 Agent 网关，`EmbeddingClient` 适配真实供应商或离线确定性向量；`api/KnowledgeController`、`api/FileController` 分别暴露 `/api/knowledge/*` 与 `/api/files`。PDF 尚未实现。
+- `frontend/`：Vue3 + TypeScript + Vite 最小产品页（`src/api.ts` 冻结消息/补答/上传合同与安全轮询，`src/App.vue` 展示 Markdown 导入状态、持久消息、追问、答案与可展开章节引用）；SSE 留到 05-01。
 
 测试位于 `src/test/java/io/devicetruth/`；`src/main/resources/` 保存 `application.properties`（默认推理器与路由模式）、`logback.xml` 和 `static/index.html` 演示前端。`datasets/` 保存模拟场景和资料（含 `datasets/knowledge/` 演示手册），`skills/automotive-demo/rules.json` 保存规则，两者随 JAR 打包。
 

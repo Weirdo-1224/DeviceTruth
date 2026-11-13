@@ -26,6 +26,7 @@ public final class AgentRunRepository {
     public record RunRecord(UUID runId, UUID conversationId, UUID goalMessageId, String status, long version,
                             Instant requestedAt, Instant asOf, UUID pendingQuestionId, int questionVersion,
                             String selectedAssetId, String goalText, int stepsUsed, int maxSteps) {}
+    public record ToolEvent(int sequence, String toolName, boolean success, String errorCode, int referenceCount) {}
 
     private static final String VIEW_SQL = """
             SELECT r.id, r.conversation_id, r.goal_message_id, r.status, r.version, r.requested_at, r.as_of,
@@ -203,6 +204,44 @@ public final class AgentRunRepository {
                 r.getObject("citation_page", Integer.class), r.getString("citation_section"),
                 truncate(r.getString("content"), 600), r.getString("data_nature")),
                 runId, identity.ownerId(), identity.projectId());
+    }
+
+    public List<ToolEvent> toolEvents(ServerIdentity identity, UUID runId) {
+        return jdbc.query("""
+                SELECT seq,safe_payload->>'toolName' AS tool_name,
+                       (safe_payload->>'success')::boolean AS success,
+                       safe_payload->>'errorCode' AS error_code,
+                       COALESCE((safe_payload->>'references')::int,0) AS reference_count
+                FROM dt_run_event
+                WHERE run_id=? AND owner_id=? AND project_id=? AND type='RUN_TOOL'
+                ORDER BY seq
+                """, (r, n) -> new ToolEvent(r.getInt("seq"), r.getString("tool_name"),
+                r.getBoolean("success"), r.getString("error_code"), r.getInt("reference_count")),
+                runId, identity.ownerId(), identity.projectId());
+    }
+
+    /** 把同归属的历史证据登记到当前 run；不存在或跨权统一拒绝，返回的新 ID 才能用于本次回答。 */
+    public UUID importReference(ServerIdentity identity, UUID sourceReferenceId, UUID targetRunId) {
+        try {
+            return jdbc.queryForObject("""
+                    INSERT INTO dt_evidence_reference(id,run_id,conversation_id,owner_id,project_id,source_type,
+                        source_id,source_version,chunk_id,asset_id,as_of,citation_page,citation_section,
+                        retrieved_at,data_nature)
+                    SELECT ?,target.id,target.conversation_id,target.owner_id,target.project_id,source.source_type,
+                        source.source_id,source.source_version,source.chunk_id,source.asset_id,source.as_of,
+                        source.citation_page,source.citation_section,?,source.data_nature
+                    FROM dt_agent_run target
+                    JOIN dt_evidence_reference source ON source.owner_id=target.owner_id
+                      AND source.project_id=target.project_id
+                    WHERE target.id=? AND target.owner_id=? AND target.project_id=? AND source.id=?
+                    ON CONFLICT (run_id,owner_id,project_id,chunk_id) DO UPDATE
+                    SET retrieved_at=EXCLUDED.retrieved_at
+                    RETURNING id
+                    """, UUID.class, UUID.randomUUID(), java.sql.Timestamp.from(Instant.now()), targetRunId,
+                    identity.ownerId(), identity.projectId(), sourceReferenceId);
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            throw io.devicetruth.application.agent.GeneralAgentService.denied();
+        }
     }
 
     /** 公开事件只写白名单类型与逐字段构造的安全载荷；推理输入与原始模型输出永不落库。 */

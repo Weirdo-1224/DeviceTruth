@@ -10,12 +10,12 @@ import java.util.Properties;
 import java.util.function.Function;
 
 /** 首次推理时加载工作目录中的私有配置；文件非空值优先，环境变量补缺。 */
-final class ModelConfiguration implements Function<String,String> {
+public final class ModelConfiguration implements Function<String,String> {
     private final Path path;
     private final Function<String,String> environment;
     private Properties properties;
 
-    static ModelConfiguration local() {
+    public static ModelConfiguration local() {
         return new ModelConfiguration(Path.of("devicetruth.local.properties"),System::getenv);
     }
 

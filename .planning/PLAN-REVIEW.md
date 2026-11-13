@@ -2,6 +2,7 @@
 
 > 日期：2026-11-09（Asia/Shanghai）。按 docs/DeviceTruth_GSD_规划审查报告.md 修订，仅修改 .planning 内规划及其校验证据。保留五阶段、63 项需求、13 份 PLAN、37 个任务；全部未开始。
 > 当前仍为 planning / review_pending / execution_authorized=false。本文件是修订说明及自检，不是开发 SUMMARY，也不是独立 Review PASS。
+> 执行期补充（2026-11-11）：02-03经用户明确决定以Markdown上传替代PDF，开发与自测结束、待独立Review；真实供应商与PDF NOT_RUN。此补充不改变原规划审查历史、五阶段或完成计数，当前状态以STATE与02-03-SUMMARY为准。
 
 ## 审查意见与修改位置
 

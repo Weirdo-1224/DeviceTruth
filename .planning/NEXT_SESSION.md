@@ -1,5 +1,11 @@
 # 新会话接续说明
 
+> **2026-11-12 最新接续：** 用户明确要求Phase 2带遗留项关闭；GSD原生UAT门禁与phase complete已成功，现进入Phase 03，5/13计划、2/5阶段。正文安全3项P1/1项P2、PDF/OCR/页码和浏览器端到端验收转Phase 5质量交付前处理；相关需求保持部分或未完成。Phase 03尚未实施；勿因关闭决定把遗留技术项标为通过。GSD原生progress json显示38%，state update-progress错误显示20%，两者原样记录。
+
+> 下一计划03-01的历史文件清单仍写 `V3__asset_history.sql`，但当前迁移已经使用V3至V7。开始03-01时须按已有迁移现状调整计划和采用未占用的新版本，不能覆盖旧迁移；其他任务边界及权限、时点、事务要求按当前源码复核。
+
+> **最新接续（2026-11-11，02-03 独立Review修复后待复审）：** 用户授权修复02-03独立Review的3项P1与1项P2，保留全部既有工作区修改且不commit/push。补答附件现按消息以结构化元数据进入Agent上下文；V7区分上传文件与文档版本，兼容旧多版本文件记录，重传保存真实字节并建立关联；验收脚本纳入全部负例、答案引用/章节原文/工具事件及无资产Guard判定，并公开白名单`GET /api/runs/{id}/tool-events`供验收。真实PG全量40 suites 241/0/0/0、Python判定10/10、前端15/15及构建、打包、CLI、确定性固定样本通过。三个真实供应商命令均因缺embedding key退出2/BLOCKED_BY_ENV；PDF与浏览器NOT_RUN。02-03未提交、未标DONE、未推进ROADMAP，必须继续由独立Review判断；02-02既有3项P1和1项P2仍未关闭。下方均为历史记录。
+
 > **最新接续（2026-11-11，02-02 带已知问题通过）：** 用户明确要求发现问题记录后直接通过。独立复审记录3项P1与1项P2，均未修复，见 [02-02-REVIEW](phases/02-open-rag/02-02-REVIEW.md)；不代表安全边界验证通过。真实PG全量229/0/0/0、前端12/12及构建实际通过。SUMMARY为complete/passed_with_known_issues；GSD原生advance-plan已推进至02-03，Phase2为2/3，整体4/13。02-03仍未授权、未执行，Phase2未关闭；不自动commit/push。下方待复审等为历史记录。
 
 > **最新接续（2026-11-11，02-02 实施完成 + 审查修复轮待复审）：** 02-01 已于本轮先前提交（`e9aed33`）。02-02 已按用户授权实施：通用协议（CALL_TOOL/ASK_USER/ANSWER）、`TaskOrchestrator.runAgent` 唯一主循环、`CapabilityGateway` 工具注册/执行、`AnswerGuard`、`V5 dt_message.run_id`、有界 worker 状态机、`replyTo` 三元组 API、`/api/runs/{id}/references`、最小 Vue3/TS/Vite 页面。**独立审查提出的 P1×5（无核验仍可确诊、危险建议绕过、混合资料标错 AUTHORIZED、M0 遗留队列未交接、并发写入卡 RUNNING）与 P2×2（claim 独有引用丢失、页面只显示“执行失败”）已全部修复并补测试**：`AnswerGuard` 增加服务器 `fieldVerified`（M1 恒 false，确诊一律 `UNCONFIRMED_FINDING`）、逐句危险动作判定、dataNature 全授权才 AUTHORIZED、引用取并集；`recoverQueued` 启动接手 QUEUED；会话行锁下沉到 `append` 并把落库失败置 `PERSIST_FAILURE`；`RunView.failureCode` + 前端可读说明。实际执行：`mvn -o test` 215/0/0/0（35 suites；Flow 14、Api 6、AnswerGuard 10）、打包、`verify_cli.py` 全通过；既有 `devicetruth` 库 V4→V5 升级后独立 HTTP 进程两轮探针仍 COMPLETED（错版本 409、runs=1）；前端 `npm ci`、12/12 单测、`vue-tsc`+`vite build` 通过。**未验证：真实模型/真实 embedding、浏览器人工演示 E2E-01/02/03 与 E2E-07-basic、PDF/混合检索、RUNNING 跨进程恢复（M2）。** 当前 `status: blocked`、`review_status: pending`，未标记 PLAN 完成、未改 ROADMAP 阶段态、未 commit/push。先读 [02-02-SUMMARY](phases/02-open-rag/02-02-SUMMARY.md) 的“审查修复轮”表。02-03 仍未授权。

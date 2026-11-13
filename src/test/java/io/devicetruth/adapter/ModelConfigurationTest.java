@@ -8,6 +8,13 @@ import org.junit.jupiter.api.io.TempDir;
 import static org.assertj.core.api.Assertions.*;
 
 class ModelConfigurationTest {
+    @Test void embeddingSettingsUseSamePrivateFileAndBlankValuesFallBack(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var path = directory.resolve("model.properties");
+        java.nio.file.Files.writeString(path, "DEVICETRUTH_EMBEDDING_MODEL=local-model\nDEVICETRUTH_EMBEDDING_API_KEY=\n");
+        var settings = new ModelConfiguration(path, java.util.Map.of("DEVICETRUTH_EMBEDDING_API_KEY", "environment-key")::get);
+        assertThat(settings.apply("DEVICETRUTH_EMBEDDING_MODEL")).isEqualTo("local-model");
+        assertThat(settings.apply("DEVICETRUTH_EMBEDDING_API_KEY")).isEqualTo("environment-key");
+    }
     @Test void absentFileKeepsEnvironmentSupport(@TempDir Path directory) {
         var settings=new ModelConfiguration(directory.resolve("missing.properties"),Map.of("OPENAI_API_KEY","environment-key")::get);
         assertThat(settings.apply("OPENAI_API_KEY")).isEqualTo("environment-key");

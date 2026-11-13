@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-11-11",
+  "dataNature": "SIMULATED",
+  "documents": {
+    "charging": {
+      "path": "corpus/charging.md",
+      "sha256": "e22a6905ac30aa6e28180126b7d3737332fb58df651cb8fca4c17971f6b2f0ad",
+      "title": "充电系统检修手册（固定评测资料）",
+      "mimeType": "text/markdown",
+      "version": "2026.2",
+      "legacyVersion": "2025.1"
+    },
+    "parts": {
+      "path": "corpus/parts.txt",
+      "sha256": "f99c1043debf9e9d76a651a3476bbbf04d4557a0a5805e54879ee8eae22cbf75",
+      "title": "固定部件维护资料",
+      "mimeType": "text/plain",
+      "version": "2026.2"
+    }
+  },
+  "thresholds": {
+    "positiveHitAt5": "5/6",
+    "partNumberHitAt5": "2/2",
+    "authorizationLeaks": 0,
+    "forgedReferencesAccepted": 0
+  }
+}

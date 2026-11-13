@@ -152,21 +152,35 @@ public class ServerConfiguration {
     @Bean
     @Profile("product")
     EmbeddingProfile productEmbeddingProfile(Environment environment) {
-        String provider = environment.getProperty("devicetruth.embedding.provider", EmbeddingProfile.PROVIDER_OPENAI);
-        String model = environment.getProperty("devicetruth.embedding.model", "text-embedding-v4");
+        return productEmbeddingProfile(environment, io.devicetruth.adapter.ModelConfiguration.local());
+    }
+
+    EmbeddingProfile productEmbeddingProfile(Environment environment, java.util.function.Function<String, String> local) {
+        String provider = embeddingSetting(environment, local, "PROVIDER", "provider", EmbeddingProfile.PROVIDER_OPENAI);
+        String model = embeddingSetting(environment, local, "MODEL", "model", "text-embedding-v4");
         // 离线确定性向量必须使用自己的模型名：即便配置误设真实模型，也不能与真实供应商共用档案标签。
         if (EmbeddingProfile.PROVIDER_DETERMINISTIC.equalsIgnoreCase(provider)) model = "deterministic-char2";
-        int dimension = Integer.parseInt(environment.getProperty("devicetruth.embedding.dimension", "1024"));
-        String revision = environment.getProperty("devicetruth.embedding.profile-revision",
-                EmbeddingProfile.DEFAULT_REVISION);
+        int dimension = Integer.parseInt(embeddingSetting(environment, local, "DIMENSION", "dimension", "1024"));
+        String revision = embeddingSetting(environment, local, "PROFILE_REVISION", "profile-revision", EmbeddingProfile.DEFAULT_REVISION);
         // 专用变量优先；为空时复用千问 DashScope 的既有服务端密钥，避免为同一供应商维护两份凭据。
-        String apiKey = environment.getProperty("devicetruth.embedding.api-key", "");
-        if (apiKey.isBlank()) apiKey = environment.getProperty("DASHSCOPE_API_KEY", "");
-        return EmbeddingProfile.of(provider, environment.getProperty("devicetruth.embedding.base-url",
+        String apiKey = embeddingSetting(environment, local, "API_KEY", "api-key", "");
+        if (apiKey.isBlank()) {
+            String shared = local.apply("DASHSCOPE_API_KEY");
+            apiKey = shared == null || shared.isBlank() ? environment.getProperty("DASHSCOPE_API_KEY", "") : shared;
+        }
+        return EmbeddingProfile.of(provider, embeddingSetting(environment, local, "BASE_URL", "base-url",
                         "https://dashscope.aliyuncs.com/compatible-mode/v1"),
                 apiKey, model, dimension, revision,
-                Long.parseLong(environment.getProperty("devicetruth.embedding.timeout-ms", "15000")),
-                Boolean.parseBoolean(environment.getProperty("devicetruth.embedding.send-dimensions", "true")));
+                Long.parseLong(embeddingSetting(environment, local, "TIMEOUT_MS", "timeout-ms", "15000")),
+                Boolean.parseBoolean(embeddingSetting(environment, local, "SEND_DIMENSIONS", "send-dimensions", "true")));
+    }
+
+    private static String embeddingSetting(Environment environment, java.util.function.Function<String, String> local,
+                                           String suffix, String property, String fallback) {
+        String value = environment.getProperty("DEVICETRUTH_EMBEDDING_" + suffix);
+        if (value == null || value.isBlank()) value = local.apply("DEVICETRUTH_EMBEDDING_" + suffix);
+        return value == null || value.isBlank()
+                ? environment.getProperty("devicetruth.embedding." + property, fallback) : value.trim();
     }
 
     /** deterministic 仅供离线合同测试；真实供应商验收由 02-03 单独执行。 */
@@ -196,6 +210,16 @@ public class ServerConfiguration {
                 Integer.parseInt(environment.getProperty("devicetruth.knowledge.max-chunk-chars", "480")));
     }
 
+    @Bean(destroyMethod = "close")
+    @Profile("product")
+    io.devicetruth.knowledge.FileUploadService fileUploadService(JdbcTemplate knowledgeJdbc,
+            KnowledgeImportService knowledgeImportService, Environment environment) {
+        return new io.devicetruth.knowledge.FileUploadService(knowledgeJdbc, knowledgeImportService,
+                Path.of(environment.getProperty("devicetruth.files.root", "outputs/files")),
+                Integer.parseInt(environment.getProperty("devicetruth.files.max-concurrent-imports", "1")),
+                Integer.parseInt(environment.getProperty("devicetruth.files.max-queue", "4")));
+    }
+
     @Bean
     @Profile("product")
     KnowledgeSearchService knowledgeSearchService(JdbcTemplate knowledgeJdbc,
@@ -203,7 +227,7 @@ public class ServerConfiguration {
             Environment environment) {
         return new KnowledgeSearchService(knowledgeJdbc, knowledgeTransactions, productEmbeddingClient,
                 Integer.parseInt(environment.getProperty("devicetruth.knowledge.max-chunks", "5")),
-                Double.parseDouble(environment.getProperty("devicetruth.knowledge.min-similarity", "0.15")));
+                Double.parseDouble(environment.getProperty("devicetruth.knowledge.min-similarity", "0.45")));
     }
 
     /** 服务端知识工具合同；02-02 起注册进产品 Agent 网关（agentCapabilityGateway）。 */

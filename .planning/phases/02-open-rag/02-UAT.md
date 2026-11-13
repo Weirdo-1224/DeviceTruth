@@ -1,5 +1,5 @@
 ---
-status: testing
+status: complete
 phase: 02-open-rag
 source: [02-01-SUMMARY.md]
 started: 2026-11-11
@@ -72,16 +72,18 @@ verification: KnowledgeUpgradeMigrationTest（Flyway target=2植入“离线算�
 
 ### 9. Phase 2 产品与设计集中确认
 expected: 在后续计划实际完成后集中确认知识/现场事实分流、引用、低风险回答及补证交互和交付边界；真实模型/embedding、PDF、UI分别取实际证据，未验证不冒称通过。
-result: pending
+result: pass
+source: user
+note: 2026-11-12 用户明确要求按当前已实施范围结束并关闭Phase 2；正文安全、PDF及浏览器验收延后。此确认不作为相关技术测试通过证据。
 coverage_id: K7
 rationale: 产品/业务/设计判断留到阶段出口一次确认，不随每个PLAN重复询问；本轮Review通过不代替用户确认。
 
 ## Summary
 
 total: 9
-passed: 8
+passed: 9
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 
 这里统计的是coverage验收条目，不是JUnit用例数。真实JUnit为185/0/0/0，额外PG升级探针9断言单列。后续计划尚未交付的测试将在实际完成后追加；当前9项不代表Phase2全部验收范围。

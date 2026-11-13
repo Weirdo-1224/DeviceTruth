@@ -60,6 +60,7 @@ import static org.assertj.core.api.Assertions.*;
  * “目录 → 提议 → 网关 → PG 片段 → 引用 → 答案”这条链路，而不是证明语义检索质量。
  */
 class GeneralAgentFlowTest {
+    @org.junit.jupiter.api.io.TempDir static Path fileRoot;
     private static final String MANUAL = "datasets/knowledge/charging-system-manual.md";
     private static String databaseName;
     private static String databaseBaseUrl;
@@ -74,6 +75,7 @@ class GeneralAgentFlowTest {
     private static AgentRunRepository runs;
     private static ConversationRepository conversations;
     private static TransactionTemplate transactions;
+    private static io.devicetruth.knowledge.FileUploadService files;
     private static final ServerIdentity IDENTITY = new ServerIdentity("owner-a", "project-a");
 
     @BeforeAll static void start() throws Exception {
@@ -96,6 +98,7 @@ class GeneralAgentFlowTest {
                 "--devicetruth.product.owner-id=owner-a", "--devicetruth.product.project-id=project-a",
                 "--devicetruth.embedding.provider=deterministic", "--devicetruth.embedding.model=deterministic-char2",
                 "--devicetruth.embedding.dimension=1024", "--devicetruth.embedding.profile-revision=1",
+                "--devicetruth.files.root=" + fileRoot.toAbsolutePath(),
                 // 协议链路由测试直接驱动，worker 关闭以免异步运行并发登记引用
                 "--devicetruth.agent.worker-enabled=false");
         base = "http://127.0.0.1:" + ((WebServerApplicationContext) app).getWebServer().getPort();
@@ -106,6 +109,7 @@ class GeneralAgentFlowTest {
         runs = new AgentRunRepository(jdbc);
         conversations = new ConversationRepository(jdbc);
         transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        files = app.getBean(io.devicetruth.knowledge.FileUploadService.class);
         importManual();
     }
 
@@ -574,6 +578,185 @@ class GeneralAgentFlowTest {
             jdbc.execute("DROP FUNCTION IF EXISTS fail_assistant_message()");
             service.shutdown();
         }
+    }
+
+    @Test void replyAttachmentsStayInMessageOrderAndCanBeSearched() throws Exception {
+        var firstFile = uploaded("补答附件甲", "REPLY-A-731");
+        var secondFile = uploaded("补答附件乙", "REPLY-B-947");
+        var contexts = new java.util.concurrent.CopyOnWriteArrayList<JsonNode>();
+        var service = new GeneralAgentService(conversations, runs, transactions, IDENTITY, gateway,
+                () -> new StructuredAgentReasoner("attachment-capture", model(context -> {
+                    contexts.add(context);
+                    int userCount = userCount(context);
+                    if (userCount == 1) return ask("请提供第一份补答资料");
+                    if (userCount == 2) {
+                        if (context.path("attemptedTools").isEmpty()) return searchCall("REPLY-A-731");
+                        return ask("请提供第二份补答资料");
+                    }
+                    if (context.path("attemptedTools").isEmpty()) return searchCall("REPLY-B-947");
+                    return answerWith(referenceFor(context, secondFile.documentId()));
+                })), 1, 2, true, files);
+        try {
+            UUID conversation = service.create().conversationId();
+            RunView accepted = service.submit(conversation, UUID.randomUUID(), input("首轮没有附件，请追问"));
+            RunView waiting = awaitQuestion(service, accepted.runId(), 1);
+            service.submit(conversation, UUID.randomUUID(), replyInput("第一份补答", firstFile.fileId(), waiting));
+            RunView waitingAgain = awaitQuestion(service, accepted.runId(), 2);
+            service.submit(conversation, UUID.randomUUID(), replyInput("第二份补答", secondFile.fileId(), waitingAgain));
+            RunView completed = awaitTerminal(service, accepted.runId(), "COMPLETED");
+
+            JsonNode firstReply = contextWithUserCount(contexts, 2);
+            assertThat(firstReply.path("messages")).hasSize(3);
+            assertThat(firstReply.path("messages").get(0).path("attachments")).isEmpty();
+            assertAttachment(firstReply.path("messages").get(2), firstFile);
+            JsonNode secondReply = contextWithUserCount(contexts, 3);
+            assertThat(secondReply.path("messages")).hasSize(5);
+            assertAttachment(secondReply.path("messages").get(2), firstFile);
+            assertAttachment(secondReply.path("messages").get(4), secondFile);
+            assertThat(secondReply.path("messages").get(4).path("content").asText())
+                    .isEqualTo("第二份补答").doesNotContain(secondFile.documentId().toString());
+            assertThat(service.references(accepted.runId())).anyMatch(reference ->
+                    reference.sourceId().equals(firstFile.documentId().toString()));
+            assertThat(completed.result().references()).anyMatch(reference ->
+                    reference.sourceId().equals(secondFile.documentId().toString()));
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test void goalAndReplyAttachmentsKeepTheirAssociationAndCrossScopeReplyWritesNothing() throws Exception {
+        var goalFile = uploaded("目标附件", "GOAL-A-520");
+        var replyFile = uploaded("补答附件", "REPLY-C-820");
+        var contexts = new java.util.concurrent.CopyOnWriteArrayList<JsonNode>();
+        var service = new GeneralAgentService(conversations, runs, transactions, IDENTITY, gateway,
+                () -> new StructuredAgentReasoner("attachment-capture", model(context -> {
+                    contexts.add(context);
+                    if (userCount(context) == 1) {
+                        if (context.path("attemptedTools").isEmpty()) return searchCall("GOAL-A-520");
+                        return ask("请补充附件");
+                    }
+                    if (context.path("attemptedTools").isEmpty()) return searchCall("REPLY-C-820");
+                    return answerWith(referenceFor(context, replyFile.documentId()));
+                })), 1, 2, true, files);
+        var otherOwner = new GeneralAgentService(conversations, runs, transactions,
+                new ServerIdentity("owner-b", "project-a"), gateway, ScriptedAgentReasoner::new,
+                1, 0, false, files);
+        var otherProject = new GeneralAgentService(conversations, runs, transactions,
+                new ServerIdentity("owner-a", "project-b"), gateway, ScriptedAgentReasoner::new,
+                1, 0, false, files);
+        try {
+            UUID conversation = service.create().conversationId();
+            RunView accepted = service.submit(conversation, UUID.randomUUID(), input("目标消息带附件", goalFile.fileId()));
+            RunView waiting = awaitQuestion(service, accepted.runId(), 1);
+            int messagesBefore = service.read(conversation).messages().size();
+            int runsBefore = service.read(conversation).runs().size();
+            assertThatThrownBy(() -> otherOwner.submit(conversation, UUID.randomUUID(),
+                    replyInput("跨 owner 补答", replyFile.fileId(), waiting)))
+                    .hasMessageContaining("NOT_FOUND_OR_DENIED");
+            assertThatThrownBy(() -> otherProject.submit(conversation, UUID.randomUUID(),
+                    replyInput("跨 project 补答", replyFile.fileId(), waiting)))
+                    .hasMessageContaining("NOT_FOUND_OR_DENIED");
+            assertThat(service.read(conversation).messages()).hasSize(messagesBefore);
+            assertThat(service.read(conversation).runs()).hasSize(runsBefore);
+            assertThat(service.run(accepted.runId()).status()).isEqualTo("WAITING_FOR_USER");
+
+            service.submit(conversation, UUID.randomUUID(), replyInput("正常补答", replyFile.fileId(), waiting));
+            awaitTerminal(service, accepted.runId(), "COMPLETED");
+            JsonNode reply = contextWithUserCount(contexts, 2);
+            assertAttachment(reply.path("messages").get(0), goalFile);
+            assertAttachment(reply.path("messages").get(2), replyFile);
+        } finally {
+            otherProject.shutdown();
+            otherOwner.shutdown();
+            service.shutdown();
+        }
+    }
+
+    private io.devicetruth.knowledge.FileUploadService.FileView uploaded(String title, String marker) throws Exception {
+        String content = "# " + title + "\n\n" + marker + " 的排查必须记录桩侧日志。\n";
+        var accepted = files.upload(IDENTITY.ownerId(), IDENTITY.projectId(),
+                new org.springframework.mock.web.MockMultipartFile("file", marker + ".md", "text/markdown",
+                        content.getBytes(StandardCharsets.UTF_8)),
+                new io.devicetruth.knowledge.FileUploadService.ImportMetadata(title, "automotive-demo", null,
+                        "2026.2", "SIMULATED"));
+        for (int attempt = 0; attempt < 200; attempt++) {
+            var current = files.require(IDENTITY.ownerId(), IDENTITY.projectId(), accepted.fileId());
+            if ("PARSED".equals(current.parseStatus())) return current;
+            if ("FAILED".equals(current.parseStatus())) fail("附件导入失败：" + current.failureCode());
+            Thread.sleep(50);
+        }
+        return fail("附件导入超时");
+    }
+
+    private static void assertAttachment(JsonNode message, io.devicetruth.knowledge.FileUploadService.FileView file) {
+        assertThat(message.path("attachments")).hasSize(1);
+        JsonNode attachment = message.path("attachments").get(0);
+        assertThat(attachment.path("fileId").asText()).isEqualTo(file.fileId().toString());
+        assertThat(attachment.path("documentId").asText()).isEqualTo(file.documentId().toString());
+        assertThat(attachment.path("title").asText()).isEqualTo(file.title());
+        assertThat(attachment.path("version").asText()).isEqualTo(file.documentVersion());
+        assertThat(attachment.path("domain").asText()).isEqualTo(file.domain());
+    }
+
+    private static int userCount(JsonNode context) {
+        int count = 0;
+        for (JsonNode message : context.path("messages")) if ("USER".equals(message.path("role").asText())) count++;
+        return count;
+    }
+
+    private static JsonNode contextWithUserCount(List<JsonNode> contexts, int count) {
+        return contexts.stream().filter(context -> userCount(context) == count).findFirst().orElseThrow();
+    }
+
+    private static String referenceFor(JsonNode context, UUID documentId) {
+        for (JsonNode reference : context.path("references"))
+            if (documentId.toString().equals(reference.path("sourceId").asText()))
+                return reference.path("referenceId").asText();
+        return fail("上下文中没有文档引用：" + documentId);
+    }
+
+    private static String ask(String question) {
+        return Json.write(Map.of("type", "ASK_USER", "question", question, "requestedFields", List.of("附件")));
+    }
+
+    private static String answerWith(String referenceId) {
+        return Json.write(Map.of("type", "ANSWER", "category", "POSSIBLE_CAUSES",
+                "summary", "已按补答附件检索，资料只支持一般排查方向。",
+                "claims", List.of(Map.of("text", "补答文档提供了排查方向", "referenceIds", List.of(referenceId),
+                        "certainty", "SUPPORTED")),
+                "suggestions", List.of("记录桩侧日志"), "uncertainties", List.of("需要现场核对"),
+                "limitations", List.of("不代表设备现场状态"), "referenceIds", List.of(referenceId)));
+    }
+
+    private static RunView awaitQuestion(GeneralAgentService service, UUID runId, int version) throws Exception {
+        for (int attempt = 0; attempt < 200; attempt++) {
+            RunView current = service.run(runId);
+            if (current.pendingQuestion() != null && current.pendingQuestion().questionVersion() == version) return current;
+            if ("FAILED".equals(current.status())) return fail("run 失败：" + current.failureCode());
+            Thread.sleep(50);
+        }
+        return fail("run 未到达问题版本 " + version);
+    }
+
+    private static RunView awaitTerminal(GeneralAgentService service, UUID runId, String status) throws Exception {
+        for (int attempt = 0; attempt < 200; attempt++) {
+            RunView current = service.run(runId);
+            if (status.equals(current.status())) return current;
+            if ("FAILED".equals(current.status())) return fail("run 失败：" + current.failureCode());
+            Thread.sleep(50);
+        }
+        return fail("run 未到达 " + status);
+    }
+
+    private static AgentTaskInput replyInput(String text, UUID fileId, RunView waiting) {
+        var question = waiting.pendingQuestion();
+        return new AgentTaskInput(1, text, null, List.of(Map.of("fileId", fileId.toString())), null, null,
+                Map.of("runId", waiting.runId().toString(), "pendingQuestionId",
+                        question.pendingQuestionId().toString(), "questionVersion", question.questionVersion()));
+    }
+
+    private static AgentTaskInput input(String text, UUID fileId) {
+        return new AgentTaskInput(1, text, null, List.of(Map.of("fileId", fileId.toString())), null, null, null);
     }
 
     private static AgentTaskInput input(String text) {

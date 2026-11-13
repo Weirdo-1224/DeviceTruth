@@ -70,11 +70,21 @@ public final class GeneralAgentService {
     private final TaskOrchestrator orchestrator;
     private final boolean workerEnabled;
     private final ThreadPoolExecutor executor;
+    private final io.devicetruth.knowledge.FileUploadService files;
 
     public GeneralAgentService(ConversationRepository conversations, AgentRunRepository runs,
                                TransactionTemplate transactions, ServerIdentity identity,
                                CapabilityGateway gateway, Supplier<GeneralReasoner> reasoners,
                                int maxConcurrentRuns, int maxQueue, boolean workerEnabled) {
+        this(conversations, runs, transactions, identity, gateway, reasoners, maxConcurrentRuns, maxQueue,
+                workerEnabled, null);
+    }
+
+    public GeneralAgentService(ConversationRepository conversations, AgentRunRepository runs,
+                               TransactionTemplate transactions, ServerIdentity identity,
+                               CapabilityGateway gateway, Supplier<GeneralReasoner> reasoners,
+                               int maxConcurrentRuns, int maxQueue, boolean workerEnabled,
+                               io.devicetruth.knowledge.FileUploadService files) {
         if (maxConcurrentRuns < 1 || maxQueue < 0) throw new IllegalArgumentException("Worker limits must be positive");
         this.conversations = conversations;
         this.runs = runs;
@@ -84,6 +94,7 @@ public final class GeneralAgentService {
         this.reasoners = reasoners;
         this.orchestrator = new TaskOrchestrator(gateway);
         this.workerEnabled = workerEnabled;
+        this.files = files;
         AtomicInteger seq = new AtomicInteger();
         this.executor = new ThreadPoolExecutor(maxConcurrentRuns, maxConcurrentRuns, 30, TimeUnit.SECONDS,
                 // 容量 0 表示“占满即拒绝”，用 SynchronousQueue 表达，而不是把配置悄悄改成 1。
@@ -131,6 +142,11 @@ public final class GeneralAgentService {
         return runs.references(identity, runId);
     }
 
+    public List<AgentRunRepository.ToolEvent> toolEvents(UUID runId) {
+        runs.require(identity, runId);
+        return runs.toolEvents(identity, runId);
+    }
+
     /**
      * 提交一条消息：普通消息开启新任务；带 replyTo 三元组的消息是对当前 run 待答问题的补答，
      * 关联不成立时返回 REPLY_TARGET_REQUIRED/STALE_OR_UNRELATED_REPLY，绝不静默新建 run。
@@ -140,11 +156,10 @@ public final class GeneralAgentService {
                 || input.userMessage().codePointCount(0, input.userMessage().length()) > 8000
                 || input.userMessage().indexOf('\0') >= 0) throw new IllegalArgumentException("Invalid message");
         if (!Integer.valueOf(1).equals(input.schemaVersion())) throw new RequestFailure("SCHEMA_VERSION_UNSUPPORTED", 400);
-        if (input.attachments() != null && !input.attachments().isEmpty()
-                || input.contextRefs() != null && !input.contextRefs().isEmpty())
-            throw new RequestFailure("REFERENCES_NOT_AVAILABLE", 400);
         if (input.selectedAssetId() != null) Checks.id(input.selectedAssetId(), "selectedAssetId");
-        if (input.replyTo() != null) return reply(conversationId, requestKey, input);
+        List<Map<String, Object>> attachments = validatedAttachments(input.attachments());
+        List<Map<String, Object>> contextRefs = validatedContextRefs(input.contextRefs());
+        if (input.replyTo() != null) return reply(conversationId, requestKey, input, attachments, contextRefs);
 
         Instant now = Instant.now();
         Instant asOf = input.asOf() == null ? now : input.asOf();
@@ -152,16 +167,19 @@ public final class GeneralAgentService {
             conversations.require(identity, conversationId, true);
             if (conversations.hasRequest(identity, conversationId, requestKey))
                 throw new RequestFailure("DUPLICATE_REQUEST", 409);
-            UUID messageId = conversations.append(identity, conversationId, requestKey, input.userMessage(),
-                    input.selectedAssetId(), now, asOf);
-            return runs.enqueue(identity, conversationId, messageId, now, asOf);
+            UUID messageId = conversations.appendWithReferences(identity, conversationId, requestKey,
+                    input.userMessage(), input.selectedAssetId(), now, asOf, attachments, contextRefs);
+            RunView created = runs.enqueue(identity, conversationId, messageId, now, asOf);
+            importContextRefs(contextRefs, created.runId());
+            return created;
         });
         dispatch(run.runId());
         return run;
     }
 
     /** 补答：同一事务里校验归属/等待状态/问题匹配，写消息、消费问题并把 run 重新入队。 */
-    private RunView reply(UUID conversationId, UUID requestKey, AgentTaskInput input) {
+    private RunView reply(UUID conversationId, UUID requestKey, AgentTaskInput input,
+                          List<Map<String, Object>> attachments, List<Map<String, Object>> contextRefs) {
         var target = replyTarget(input.replyTo());
         Instant now = Instant.now();
         Instant asOf = input.asOf() == null ? now : input.asOf();
@@ -175,15 +193,43 @@ public final class GeneralAgentService {
                 throw new RequestFailure("STALE_OR_UNRELATED_REPLY", 409);
             if (conversations.hasRequest(identity, conversationId, requestKey))
                 throw new RequestFailure("DUPLICATE_REQUEST", 409);
-            conversations.appendReply(identity, conversationId, requestKey, input.userMessage(),
+            conversations.appendReplyWithReferences(identity, conversationId, requestKey, input.userMessage(),
                     input.selectedAssetId(), now, asOf, record.runId(), record.pendingQuestionId(),
-                    record.questionVersion());
+                    record.questionVersion(), attachments, contextRefs);
             if (runs.queueReply(identity, record, target.pendingQuestionId(), target.questionVersion(), now) != 1)
                 throw new RequestFailure("STALE_OR_UNRELATED_REPLY", 409);
+            importContextRefs(contextRefs, record.runId());
             return runs.require(identity, record.runId());
         });
         dispatch(run.runId());
         return run;
+    }
+
+    private List<Map<String, Object>> validatedAttachments(List<Map<String, Object>> attachments) {
+        if (attachments == null || attachments.isEmpty()) return List.of();
+        if (files == null) throw new RequestFailure("REFERENCES_NOT_AVAILABLE", 400);
+        return files.readyAttachments(identity.ownerId(), identity.projectId(), attachments);
+    }
+
+    private static List<Map<String, Object>> validatedContextRefs(List<Map<String, Object>> contextRefs) {
+        if (contextRefs == null || contextRefs.isEmpty()) return List.of();
+        if (contextRefs.size() > 10) throw new RequestFailure("INVALID_CONTEXT_REFERENCE", 400);
+        List<Map<String, Object>> validated = new java.util.ArrayList<>();
+        for (Map<String, Object> reference : contextRefs) {
+            if (reference == null || !reference.keySet().equals(Set.of("referenceId")))
+                throw new RequestFailure("INVALID_CONTEXT_REFERENCE", 400);
+            try {
+                validated.add(Map.of("referenceId", UUID.fromString(String.valueOf(reference.get("referenceId"))).toString()));
+            } catch (RuntimeException e) {
+                throw new RequestFailure("INVALID_CONTEXT_REFERENCE", 400);
+            }
+        }
+        return List.copyOf(validated);
+    }
+
+    private void importContextRefs(List<Map<String, Object>> contextRefs, UUID runId) {
+        for (Map<String, Object> reference : contextRefs)
+            runs.importReference(identity, UUID.fromString(String.valueOf(reference.get("referenceId"))), runId);
     }
 
     /** 三元组缺字段或类型不合法统一按 REPLY_TARGET_REQUIRED 拒绝，不猜测关联目标。 */
@@ -234,9 +280,9 @@ public final class GeneralAgentService {
         }
         AgentRunOutcome outcome;
         try {
-            var messages = conversations.runMessages(identity, runId, run.goalMessageId()).stream()
+            var messages = conversations.runContextMessages(identity, runId, run.goalMessageId()).stream()
                     .map(message -> new io.devicetruth.core.contract.AgentTaskInput.Message(message.role(),
-                            message.content()))
+                            message.content(), message.attachments()))
                     .toList();
             var input = new io.devicetruth.core.contract.AgentTaskInput(identity.ownerId(), identity.projectId(),
                     run.conversationId(), runId, run.goalMessageId(), run.goalText(), messages,

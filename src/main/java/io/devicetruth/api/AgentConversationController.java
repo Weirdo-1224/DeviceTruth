@@ -50,8 +50,18 @@ public class AgentConversationController {
         return service.references(id);
     }
 
+    @GetMapping("/api/runs/{id}/tool-events")
+    java.util.List<io.devicetruth.adapter.persistence.AgentRunRepository.ToolEvent> toolEvents(@PathVariable UUID id) {
+        return service.toolEvents(id);
+    }
+
     @ExceptionHandler(RequestFailure.class)
     ResponseEntity<Map<String, Object>> requestFailure(RequestFailure failure) {
+        return error(failure.status(), failure.code());
+    }
+
+    @ExceptionHandler(io.devicetruth.knowledge.KnowledgeException.class)
+    ResponseEntity<Map<String, Object>> knowledgeFailure(io.devicetruth.knowledge.KnowledgeException failure) {
         return error(failure.status(), failure.code());
     }
 

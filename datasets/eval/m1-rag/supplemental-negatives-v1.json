@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "purpose": "2026-11-12 相关性补充负例；汽车灯光样本参与关键词规则调整，其余六项未用于阈值选择。",
+  "cases": [
+    {"id": "holdout-flower", "query": "玫瑰花浇水的频率是多少"},
+    {"id": "holdout-movie", "query": "周末上映的电影有哪些"},
+    {"id": "holdout-cook", "query": "番茄炒鸡蛋怎么做"},
+    {"id": "holdout-computer", "query": "笔记本电脑连接无线网络"},
+    {"id": "holdout-bicycle", "query": "自行车链条如何保养"},
+    {"id": "holdout-engine", "query": "汽油发动机怠速抖动怎么分析"},
+    {"id": "holdout-light", "query": "汽车远光灯不亮应检查什么"}
+  ]
+}

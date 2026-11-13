@@ -7,8 +7,11 @@ import {
   readConversation,
   replyToQuestion,
   sendMessage,
+  uploadMarkdown,
+  waitForFile,
   waitForRun,
   type ConversationView,
+  type FileView,
   type MessageView,
   type RunView
 } from './api'
@@ -19,7 +22,10 @@ const run = ref<RunView | null>(null)
 const draft = ref('')
 const replyDraft = ref('')
 const busy = ref(false)
+const uploading = ref(false)
 const errorText = ref('')
+const uploadedFile = ref<FileView | null>(null)
+const openReferenceId = ref<string | null>(null)
 
 const statusLabels: Record<string, string> = {
   QUEUED: '排队中',
@@ -63,12 +69,33 @@ async function track(runId: string): Promise<void> {
   await refresh()
 }
 
+async function upload(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  uploading.value = true
+  errorText.value = ''
+  uploadedFile.value = null
+  try {
+    const accepted = await uploadMarkdown(file)
+    uploadedFile.value = await waitForFile(accepted.fileId)
+    if (uploadedFile.value.parseStatus !== 'PARSED')
+      errorText.value = `文件导入失败（${uploadedFile.value.failureCode ?? uploadedFile.value.parseStatus}）`
+  } catch (error) {
+    errorText.value = describeError(error)
+  } finally {
+    uploading.value = false
+    input.value = ''
+  }
+}
+
 async function submit(): Promise<void> {
   if (!canSend.value || !conversation.value) return
   busy.value = true
   errorText.value = ''
   try {
-    const accepted = await sendMessage(conversation.value.conversationId, draft.value)
+    const attachments = uploadedFile.value?.parseStatus === 'PARSED' ? [uploadedFile.value.fileId] : []
+    const accepted = await sendMessage(conversation.value.conversationId, draft.value, undefined, attachments)
     draft.value = ''
     run.value = accepted
     await refresh()
@@ -133,6 +160,17 @@ onMounted(async () => {
       <button v-if="!busy && conversation" type="button" class="link" @click="refresh">刷新</button>
     </section>
 
+    <section class="card upload">
+      <h2>上传 Markdown 资料</h2>
+      <input type="file" accept=".md,text/markdown" :disabled="uploading" @change="upload" />
+      <p v-if="uploading" class="hint">正在上传并导入，请稍候。</p>
+      <p v-if="uploadedFile" class="hint">
+        {{ uploadedFile.originalName }}：{{ uploadedFile.parseStatus }}
+        <span v-if="uploadedFile.parseStatus === 'PARSED'">，将随下一条问题作为检索范围线索。</span>
+        <span v-else-if="uploadedFile.failureCode">（{{ uploadedFile.failureCode }}）</span>
+      </p>
+    </section>
+
     <section v-if="failureText" class="card failure" role="alert">
       <h2>本次没有得到答案</h2>
       <p>{{ failureText }}</p>
@@ -177,10 +215,16 @@ onMounted(async () => {
         <h3>引用</h3>
         <ul class="references">
           <li v-for="reference in answer.references" :key="reference.referenceId">
-            《{{ reference.title }}》{{ reference.section ?? '' }}
-            <span v-if="reference.page">（第 {{ reference.page }} 页）</span>
+            <button
+              type="button"
+              class="link citation"
+              @click="openReferenceId = openReferenceId === reference.referenceId ? null : reference.referenceId"
+            >
+              《{{ reference.title }}》{{ reference.section ?? '' }}
+              <span v-if="reference.page">（第 {{ reference.page }} 页）</span>
+            </button>
             · 版本 {{ reference.sourceVersion }} · {{ reference.dataNature }}
-            <p class="excerpt">{{ reference.excerpt }}</p>
+            <p v-if="openReferenceId === reference.referenceId" class="excerpt">{{ reference.excerpt }}</p>
           </li>
         </ul>
       </div>

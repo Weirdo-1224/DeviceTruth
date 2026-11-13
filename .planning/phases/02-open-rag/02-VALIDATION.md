@@ -2,10 +2,14 @@
 phase: 02-open-rag
 status: partial
 updated: 2026-11-11
-scope: "02-01验证通过，Phase2其余计划未执行"
+scope: "02-01复审通过；02-03独立Review修复后自测通过、待复审，真实供应商/PDF NOT_RUN"
 ---
 
 # Phase 2 验证记录
+
+> **02-03 独立Review修复轮（2026-11-11，待复审）：** 真实PG全量`mvn -o -q test`为40 suites、241/0/0/0；`GeneralAgentFlowTest`18、`KnowledgeImportTest`8、`KnowledgeSearchTest`14、`KnowledgeUpgradeMigrationTest`2均通过。`python -m unittest discover -s scripts -p 'test_*.py'`为10/10；确定性`m1-retrieval`三通道6/6且全部必需负例进入最终门槛。前端15/15及构建、打包、CLI通过。三个真实供应商命令均退出2/BLOCKED_BY_ENV，PDF与浏览器NOT_RUN。
+>
+> 修复过程保留：V7首次在既有`devicetruth`库遇到“一个旧文件关联多个文档版本”而迁移失败，已增加按版本拆分旧文件及V2→V7回归后通过；迁移测试初次共享schema导致第二例未真正回到V2，改为每例只重建自己的随机库schema；全量首轮241项仅迁移数旧断言1项失败，改为7后全量通过。脚本一度误把禁止资料所属身份当成查询身份，报告准确判FAIL，恢复由主身份查询越权文档后确定性样本通过。没有修改固定样本或降低门槛。详见02-03-SUMMARY与02-ACCEPTANCE；未形成Phase2 VERIFICATION PASS。下方为02-01独立复审历史。
 
 ## 2026-11-11 独立复审批次
 

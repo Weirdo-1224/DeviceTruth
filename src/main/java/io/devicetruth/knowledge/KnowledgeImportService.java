@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -17,8 +18,8 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * MD/TXT 导入：校验 → 按章节切片 → 固定 profile 向量化 → 一个事务写入文件元数据、文档与切片。
- * 原始文件字节不写入数据库；path_key 由服务器生成。向量化在事务外完成，失败不留半成品。
+ * MD/TXT 导入：校验 → 按章节切片 → 固定 profile 向量化 → 一个事务写入文件关联、文档与切片。
+ * 文件代表一次内容/版本请求；同内容同版本可复用文档，但每个上传文件都要有关联和真实原始字节。
  */
 public final class KnowledgeImportService {
     public static final int MAX_DOCUMENT_BYTES = 1_000_000;
@@ -78,28 +79,49 @@ public final class KnowledgeImportService {
     }
 
     public ImportResult importDocument(String ownerId, String projectId, ImportRequest request) {
+        String mime = request.mimeType();
+        if (!MARKDOWN_MIME.contains(mime) && !"text/plain".equals(mime))
+            throw new KnowledgeException("UNSUPPORTED_FILE_TYPE", 415);
+        return importBytes(ownerId, projectId, request, request.content().getBytes(StandardCharsets.UTF_8), null);
+    }
+
+    /** 兼容不指定文件的上传调用；新上传应传入自己的 fileId，保证文档关联和 PARSED 同事务完成。 */
+    public ImportResult importMarkdown(String ownerId, String projectId, ImportRequest request, byte[] bytes) {
+        if (!MARKDOWN_MIME.contains(request.mimeType())) throw new KnowledgeException("UNSUPPORTED_FILE_TYPE", 415);
+        return importBytes(ownerId, projectId, request, bytes, null);
+    }
+
+    public ImportResult importMarkdown(String ownerId, String projectId, ImportRequest request, byte[] bytes,
+                                       UUID sourceFileId) {
+        if (!MARKDOWN_MIME.contains(request.mimeType())) throw new KnowledgeException("UNSUPPORTED_FILE_TYPE", 415);
+        Checks.required(sourceFileId, "sourceFileId");
+        return importBytes(ownerId, projectId, request, bytes, sourceFileId);
+    }
+
+    private ImportResult importBytes(String ownerId, String projectId, ImportRequest request, byte[] bytes,
+                                     UUID sourceFileId) {
         Checks.id(ownerId, "ownerId");
         Checks.id(projectId, "projectId");
-        boolean markdown;
-        String mime = request.mimeType();
-        if (MARKDOWN_MIME.contains(mime)) markdown = true;
-        else if ("text/plain".equals(mime)) markdown = false;
-        else throw new KnowledgeException("UNSUPPORTED_FILE_TYPE", 415);
-        byte[] bytes = request.content().getBytes(StandardCharsets.UTF_8);
+        if (bytes.length == 0) throw KnowledgeException.invalid("document has no indexable text");
         if (bytes.length > MAX_DOCUMENT_BYTES) throw new KnowledgeException("DOCUMENT_TOO_LARGE", 413);
         String checksum = sha256(bytes);
         // 维度先于复用判断：配置维度与索引列不符时必须失败，不能因为文档已存在而返回 reused=true。
         int dimension = KnowledgeIndexSchema.vectorDimension(jdbc);
         if (dimension != embeddings.profile().dimension())
             throw new KnowledgeException("EMBEDDING_DIMENSION_MISMATCH", 409);
-        var existing = reusable(ownerId, projectId, checksum, request.version());
-        if (existing != null) return new ImportResult(existing, true);
-        List<KnowledgeChunker.Chunk> chunks = KnowledgeChunker.of(request.content(), markdown, maxChunkChars);
+        var existing = reusable(ownerId, projectId, checksum, request);
+        if (existing != null) {
+            if (sourceFileId == null) return new ImportResult(existing, true);
+            return transactions.execute(status -> reuseForFile(ownerId, projectId, sourceFileId, existing));
+        }
+        List<KnowledgeChunker.Chunk> chunks = MARKDOWN_MIME.contains(request.mimeType())
+                ? new DocumentParser().parseMarkdown(bytes, maxChunkChars)
+                : KnowledgeChunker.of(request.content(), false, maxChunkChars);
         if (chunks.isEmpty()) throw KnowledgeException.invalid("document has no indexable text");
         List<float[]> vectors = new ArrayList<>(chunks.size());
         for (KnowledgeChunker.Chunk chunk : chunks) vectors.add(embed(chunk.content(), dimension));
-        return transactions.execute(status -> write(ownerId, projectId, request, mime, checksum, bytes.length,
-                chunks, vectors));
+        return transactions.execute(status -> write(ownerId, projectId, request, checksum,
+                bytes.length, chunks, vectors, sourceFileId));
     }
 
     /** 读取文档元数据；不存在与无权统一 404，不泄漏其他 owner/project 是否存在。 */
@@ -113,11 +135,16 @@ public final class KnowledgeImportService {
         return rows.getFirst();
     }
 
-    private ImportResult write(String ownerId, String projectId, ImportRequest request, String mime, String checksum,
-                               int byteSize, List<KnowledgeChunker.Chunk> chunks, List<float[]> vectors) {
-        var existing = reusable(ownerId, projectId, checksum, request.version());
-        if (existing != null) return new ImportResult(existing, true);
-        UUID fileId = ensureUploadedFile(ownerId, projectId, request, mime, checksum, byteSize);
+    private ImportResult write(String ownerId, String projectId, ImportRequest request, String checksum,
+                               int byteSize, List<KnowledgeChunker.Chunk> chunks, List<float[]> vectors,
+                               UUID sourceFileId) {
+        var existing = reusable(ownerId, projectId, checksum, request);
+        if (existing != null) {
+            if (sourceFileId == null) return new ImportResult(existing, true);
+            return reuseForFile(ownerId, projectId, sourceFileId, existing);
+        }
+        UUID fileId = sourceFileId == null ? ensureUploadedFile(ownerId, projectId, request, checksum, byteSize)
+                : sourceFileId;
         UUID documentId = UUID.randomUUID();
         Instant now = Instant.now();
         jdbc.update("""
@@ -139,21 +166,39 @@ public final class KnowledgeImportService {
                     chunk.page(), chunk.section(), VectorLiteral.of(vectors.get(index)),
                     embeddings.profile().profileVersion());
         }
+        linkAndMarkParsed(ownerId, projectId, fileId, documentId);
         return new ImportResult(document(ownerId, projectId, documentId), false);
     }
 
-    private UUID ensureUploadedFile(String ownerId, String projectId, ImportRequest request, String mime,
+    private ImportResult reuseForFile(String ownerId, String projectId, UUID fileId, DocumentMetadata existing) {
+        linkAndMarkParsed(ownerId, projectId, fileId, existing.documentId());
+        return new ImportResult(existing, true);
+    }
+
+    private void linkAndMarkParsed(String ownerId, String projectId, UUID fileId, UUID documentId) {
+        jdbc.update("""
+                INSERT INTO dt_knowledge_document_file(file_id,document_id,owner_id,project_id)
+                VALUES (?,?,?,?)
+                """, fileId, documentId, ownerId, projectId);
+        int updated = jdbc.update("""
+                UPDATE dt_uploaded_file SET parse_status='PARSED',parse_error=NULL
+                WHERE id=? AND owner_id=? AND project_id=?
+                """, fileId, ownerId, projectId);
+        if (updated != 1) throw KnowledgeException.notFoundOrDenied();
+    }
+
+    private UUID ensureUploadedFile(String ownerId, String projectId, ImportRequest request,
                                     String checksum, int byteSize) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO dt_uploaded_file(id,owner_id,project_id,path_key,original_name,mime,checksum,byte_size,
-                    parse_status,created_at)
-                VALUES (?,?,?,?,?,?,?,?,'PARSED',?)
-                ON CONFLICT (owner_id,project_id,checksum) DO NOTHING
-                """, id, ownerId, projectId, "knowledge/" + id, request.filename(), mime, checksum, byteSize,
-                Timestamp.from(Instant.now()));
-        return jdbc.queryForObject("SELECT id FROM dt_uploaded_file WHERE owner_id=? AND project_id=? AND checksum=?",
-                UUID.class, ownerId, projectId, checksum);
+                    parse_status,created_at,import_title,import_domain,import_device_model,import_version,
+                    import_data_nature)
+                VALUES (?,?,?,?,?,?,?,?,'PROCESSING',?,?,?,?,?,?)
+                """, id, ownerId, projectId, "knowledge/" + id, request.filename(), request.mimeType(), checksum,
+                byteSize, Timestamp.from(Instant.now()), request.title(), request.domain(), request.deviceModel(),
+                request.version(), request.dataNature());
+        return id;
     }
 
     private DocumentMetadata findDocument(String ownerId, String projectId, String checksum, String version) {
@@ -166,16 +211,18 @@ public final class KnowledgeImportService {
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
-    /**
-     * 只有同一档案（供应商/模型/维度/修订编码进 profile）才允许复用；
-     * 被隔离为 NEEDS_REBUILD 的历史向量（来源无法证明）一律要求用新版本重建，
-     * 换 provider、换模型或换维度时明确拒绝，绝不静默返回旧文档。
-     */
-    private DocumentMetadata reusable(String ownerId, String projectId, String checksum, String version) {
-        DocumentMetadata existing = findDocument(ownerId, projectId, checksum, version);
+    /** 同内容同版本只有元数据和 embedding 档案都一致才复用；冲突必须显式失败。 */
+    private DocumentMetadata reusable(String ownerId, String projectId, String checksum, ImportRequest request) {
+        DocumentMetadata existing = findDocument(ownerId, projectId, checksum, request.version());
         if (existing == null) return null;
+        if (!existing.title().equals(request.title()) || !existing.domain().equals(request.domain())
+                || !Objects.equals(existing.deviceModel(), request.deviceModel())
+                || !existing.dataNature().equals(request.dataNature()))
+            throw new KnowledgeException("DOCUMENT_METADATA_CONFLICT", 409);
         if ("NEEDS_REBUILD".equals(existing.ingestStatus()))
             throw new KnowledgeException("DOCUMENT_NEEDS_REBUILD", 409);
+        if (!"READY".equals(existing.ingestStatus()))
+            throw new KnowledgeException("DOCUMENT_NOT_REUSABLE", 409);
         EmbeddingProfile profile = embeddings.profile();
         if (!profile.profileVersion().equals(existing.embeddingProfile())
                 || !profile.model().equals(existing.embeddingModel())

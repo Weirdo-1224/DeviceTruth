@@ -2,13 +2,13 @@
 
 验收执行统一按[项目验收策略](../ACCEPTANCE.md)：技术测试由代理实际执行，SUMMARY coverage原生分类并写入UAT；仅产品/业务/设计等集中一次人工确认，不将技术结果逐项交给用户。既有用户确认与修复历史保留。
 
-当前五个阶段共13份计划；01-01/01-02已完成，独立Review及修复复审通过，逐项用户验收进行中，M0尚未关闭。2026-11-10用户授权出口满足后提交Git并仅执行02-01，其余计划未执行，02-02/02-03明确不执行。阶段编号从Phase 1开始，产品里程碑从M0开始。
+当前五个阶段共13份计划；Phase1与02-01/02-02已完成，当前完成4/13。02-03按用户决定以Markdown替代PDF，开发与自测结束、待独立Review；真实供应商与PDF NOT_RUN，不计入完成，Phase2不关闭。阶段编号从Phase 1开始，产品里程碑从M0开始。
 
 ## 从哪里开始读
 
 先看下面的阶段目标，再打开要审查的计划。每份计划正文依次说明交付目标、开始条件、任务步骤、验证和验收。文件开头的 YAML 以及正文中的标签供 GSD 读取。
 
-当前先读[01-UAT](01-baseline-contracts/01-UAT.md)、[独立Review](01-baseline-contracts/01-REVIEW.md)、[本轮验证](01-baseline-contracts/01-VALIDATION.md)和[Phase 01覆盖表](01-baseline-contracts/COVERAGE.md)，继续逐项用户验收；出口满足后按已记录授权提交Git并执行02-01。实施范围记录在`.planning/STATE.md`，下一会话从`.planning/NEXT_SESSION.md`接续。
+当前先读根`STATE.md`、[02-03 PLAN](02-open-rag/02-03-PLAN.md)、[02-03 SUMMARY](02-open-rag/02-03-SUMMARY.md)和[简洁验收报告](02-open-rag/02-ACCEPTANCE.md)。02-03只交付Markdown，PDF与真实供应商未验收；实施范围记录在`.planning/STATE.md`，下一会话从`.planning/NEXT_SESSION.md`接续。
 
 ## M0　确定基础契约并保存会话
 
@@ -23,7 +23,7 @@
 |---|---|---|
 | [02-01](02-open-rag/02-01-PLAN.md) | 导入 MD/TXT，生成向量，提供授权知识接口 | 检索、引用原文、维度与权限测试 |
 | [02-02](02-open-rag/02-02-PLAN.md) | 注册工具，接通 Agent 和 Vue，支持同 run 补答 | 问充电问题后补充“直流快充”，Agent 沿原 run 继续 |
-| [02-03](02-open-rag/02-03-PLAN.md) | 接入 PDF、混合检索和固定小样本 | 真实 embedding、真实模型、引用和基本多轮效果 |
+| [02-03](02-open-rag/02-03-PLAN.md) | Markdown上传、混合检索和固定小样本 | MD/PG/离线合同已通过；真实供应商、PDF与浏览器NOT_RUN，待Review |
 
 ## M2　接入设备事实并保证调查连续性
 

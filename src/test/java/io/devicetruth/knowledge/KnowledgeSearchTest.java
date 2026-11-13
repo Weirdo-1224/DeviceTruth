@@ -515,6 +515,23 @@ class KnowledgeSearchTest {
         assertThat(response.path("hits").size()).isZero();
     }
 
+    @Test void unrelatedQueryWithOnlyGenericKeywordDoesNotRegisterEvidence() throws Exception {
+        String unique = UUID.randomUUID().toString();
+        var imported = post(base + "/api/knowledge/documents", Map.of(
+                "title", "弱关键词过滤" + unique, "domain", "automotive-demo", "version", "2026.1",
+                "filename", "weak-keyword.md", "mimeType", "text/markdown",
+                "content", "# 充电\n\n检查充电桩授权和充电枪锁止。"));
+        String documentId = Json.MAPPER.readTree(imported.getBody()).path("document").path("documentId").asText();
+        String run = runId(base);
+        int before = references(run);
+        var result = post(base + "/api/knowledge/search", Map.of("runId", run,
+                "query", "汽车远光灯不亮应检查什么", "mode", "KEYWORD", "limit", 5,
+                "filters", Map.of("documentId", documentId)));
+        assertThat(result.getStatusCode().value()).isEqualTo(200);
+        assertThat(Json.MAPPER.readTree(result.getBody()).path("empty").asBoolean()).isTrue();
+        assertThat(references(run)).isEqualTo(before);
+    }
+
     @Test void switchingOnlyProviderCannotSilentlyReuseImportedDocument() throws Exception {
         manual();
         int before = jdbc.queryForObject("SELECT count(*) FROM dt_knowledge_document", Integer.class);
@@ -584,6 +601,36 @@ class KnowledgeSearchTest {
         var legit = search(base, runId, unique + "（合法）", null, 5);
         assertThat(legit.path("hits").size()).isGreaterThan(0);
         assertThat(legit.path("hits").get(0).path("documentId").asText()).isEqualTo(legitDocument.toString());
+    }
+
+    @Test void hybridChannelsKeepExactPartNumberAndAuthorizationContracts() throws Exception {
+        var document = importDocument(base, "部件维护手册", "text/markdown",
+                "# CP-900 绝缘检查\n\n部件 CP-900 的绝缘检查必须记录测量条件。\n", "2026.2");
+        String documentId = document.path("documentId").asText();
+        String runId = runId(base);
+
+        var keywordResponse = post(base + "/api/knowledge/search",
+                Map.of("runId", runId, "query", "CP-900", "mode", "KEYWORD", "limit", 5));
+        assertThat(keywordResponse.getStatusCode().value()).as(keywordResponse.getBody()).isEqualTo(200);
+        var keyword = Json.MAPPER.readTree(keywordResponse.getBody());
+        assertThat(keyword.path("hits").size()).isPositive();
+        assertThat(keyword.path("hits").get(0).path("documentId").asText()).isEqualTo(documentId);
+        assertThat(keyword.path("hits").get(0).path("keywordRank").asInt()).isEqualTo(1);
+
+        var hybrid = search(base, runId, "CP-900", null, 5);
+        assertThat(hybrid.path("hits").get(0).path("documentId").asText()).isEqualTo(documentId);
+        assertThat(hybrid.path("hits").get(0).path("fusionScore").asDouble()).isGreaterThan(0.05);
+
+        var vectorResponse = post(base + "/api/knowledge/search",
+                Map.of("runId", runId, "query", "直流快充中断", "mode", "VECTOR", "limit", 5));
+        assertThat(vectorResponse.getStatusCode().value()).isEqualTo(200);
+        for (JsonNode hit : Json.MAPPER.readTree(vectorResponse.getBody()).path("hits")) {
+            assertThat(hit.path("vectorRank").asInt()).isPositive();
+            assertThat(hit.path("similarity").asDouble()).isGreaterThanOrEqualTo(0.15);
+        }
+        var invalid = post(base + "/api/knowledge/search",
+                Map.of("runId", runId, "query", "CP-900", "mode", "ENGLISH_FULLTEXT"));
+        assertThat(invalid.getStatusCode().value()).isEqualTo(400);
     }
 
     private KnowledgeImportService importer(EmbeddingClient client, int maxChunkChars) {

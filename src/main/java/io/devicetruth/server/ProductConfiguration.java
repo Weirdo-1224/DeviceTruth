@@ -53,6 +53,7 @@ public class ProductConfiguration {
     @DependsOn("productFlyway")
     GeneralAgentService generalAgentService(HikariDataSource source, Environment environment,
             @Qualifier("agentCapabilityGateway") CapabilityGateway gateway,
+            io.devicetruth.knowledge.FileUploadService fileUploadService,
             @Value("${devicetruth.agent.reasoner:scripted}") String reasonerName,
             @Value("${devicetruth.agent.max-concurrent-runs:2}") int maxConcurrentRuns,
             @Value("${devicetruth.agent.max-queue:10}") int maxQueue,
@@ -62,7 +63,15 @@ public class ProductConfiguration {
         return new GeneralAgentService(new ConversationRepository(jdbc), new AgentRunRepository(jdbc), transactions,
                 new ServerIdentity(environment.getRequiredProperty("devicetruth.product.owner-id"),
                         environment.getRequiredProperty("devicetruth.product.project-id")),
-                gateway, agentReasoners(reasonerName), maxConcurrentRuns, maxQueue, workerEnabled);
+                gateway, agentReasoners(agentReasonerName(environment, reasonerName)), maxConcurrentRuns, maxQueue,
+                workerEnabled, fileUploadService);
+    }
+
+    static String agentReasonerName(Environment environment, String fallback) {
+        String value = environment.getProperty("DEVICETRUTH_AGENT_REASONER");
+        if (value == null || value.isBlank())
+            value = io.devicetruth.adapter.ModelConfiguration.local().apply("DEVICETRUTH_AGENT_REASONER");
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     /**

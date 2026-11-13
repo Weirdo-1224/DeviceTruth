@@ -2,6 +2,7 @@ target/
 outputs/runs/
 outputs/baselines/
 outputs/validation/
+outputs/files/
 .tools/
 .m2/
 .env
@@ -12,3 +13,4 @@ outputs/validation/
 .arts/
 frontend/node_modules/
 frontend/dist/
+__pycache__/

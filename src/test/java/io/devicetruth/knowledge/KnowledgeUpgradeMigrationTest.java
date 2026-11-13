@@ -6,6 +6,7 @@ import java.security.MessageDigest;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
@@ -63,6 +64,8 @@ class KnowledgeUpgradeMigrationTest {
     }
 
     @Test void legacyVectorsAreQuarantinedAndNeverReusedOrRecalled() throws Exception {
+        jdbc.execute("DROP SCHEMA public CASCADE");
+        jdbc.execute("CREATE SCHEMA public");
         migrate().target(MigrationVersion.fromVersion("2")).load().migrate();
         LegacyFixture legacy = plantLegacyVulnerableDocument();
         migrate().load().migrate();
@@ -80,7 +83,7 @@ class KnowledgeUpgradeMigrationTest {
         assertThat(jdbc.queryForObject("SELECT content FROM dt_knowledge_chunk WHERE document_id=?",
                 String.class, legacy.documentId())).isEqualTo(legacy.chunkContent());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class))
-                .isEqualTo(5);
+                .isEqualTo(7);
 
         var embeddingCalls = new java.util.concurrent.atomic.AtomicInteger();
         EmbeddingProfile realProfile = EmbeddingProfile.of("openai", "http://127.0.0.1:1", "test-key",
@@ -138,6 +141,43 @@ class KnowledgeUpgradeMigrationTest {
         assertThat(rebuiltSearch.hits().getFirst().documentId()).isEqualTo(rebuilt.document().documentId());
         assertThat(jdbc.queryForObject("SELECT ingest_status FROM dt_knowledge_document WHERE id=?",
                 String.class, legacy.documentId())).isEqualTo("NEEDS_REBUILD");
+    }
+
+    @Test void legacyMultiVersionFileIsSplitBeforeDocumentLinksAreBackfilled() {
+        jdbc.execute("DROP SCHEMA public CASCADE");
+        jdbc.execute("CREATE SCHEMA public");
+        migrate().target(MigrationVersion.fromVersion("2")).load().migrate();
+        UUID fileId = UUID.randomUUID();
+        UUID firstDocument = UUID.randomUUID();
+        UUID secondDocument = UUID.randomUUID();
+        String checksum = sha256("same bytes with two versions".getBytes(StandardCharsets.UTF_8));
+        jdbc.update("""
+                INSERT INTO dt_uploaded_file(id,owner_id,project_id,path_key,original_name,mime,checksum,byte_size,
+                    parse_status,created_at)
+                VALUES (?,'owner-a','project-a',?,'legacy.md','text/markdown',?,17,'PARSED',now())
+                """, fileId, "knowledge/" + fileId, checksum);
+        for (UUID documentId : List.of(firstDocument, secondDocument)) {
+            String version = documentId.equals(firstDocument) ? "2025.1" : "2026.2";
+            jdbc.update("""
+                    INSERT INTO dt_knowledge_document(id,owner_id,project_id,title,domain,doc_version,source_file_id,
+                        checksum,ingest_status,embedding_profile,embedding_model,embedding_dimension,chunking_profile,
+                        chunk_count,data_nature,created_at)
+                    VALUES (?,'owner-a','project-a','多版本历史','general',?,?,?,'READY',
+                        'text-embedding-v4@1024-cosine-v1','text-embedding-v4',1024,?,1,'SIMULATED',now())
+                    """, documentId, version, fileId, checksum, KnowledgeChunker.PROFILE);
+        }
+
+        migrate().load().migrate();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM dt_uploaded_file WHERE checksum=?",
+                Integer.class, checksum)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(DISTINCT source_file_id) FROM dt_knowledge_document WHERE checksum=?",
+                Integer.class, checksum)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM dt_knowledge_document_file df "
+                + "JOIN dt_knowledge_document d ON d.id=df.document_id WHERE d.checksum=?",
+                Integer.class, checksum)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM dt_uploaded_file WHERE checksum=? "
+                + "AND import_version IS NOT NULL", Integer.class, checksum)).isEqualTo(2);
     }
 
     private static org.flywaydb.core.api.configuration.FluentConfiguration migrate() {

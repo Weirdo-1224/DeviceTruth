@@ -39,7 +39,7 @@ public class KnowledgeController {
     private static final Logger LOG = LoggerFactory.getLogger(KnowledgeController.class);
 
     public record SearchRequest(UUID runId, String query,
-                                KnowledgeSearchService.KnowledgeFilters filters, Integer limit) {}
+                                KnowledgeSearchService.KnowledgeFilters filters, Integer limit, String mode) {}
     public record SearchResponse(UUID runId, List<KnowledgeSearchService.KnowledgeHit> hits, boolean empty) {}
     public record ToolCatalog(List<KnowledgeTools.ToolDescriptor> tools) {}
 
@@ -79,6 +79,12 @@ public class KnowledgeController {
     @PostMapping("/search")
     SearchResponse search(@RequestBody SearchRequest request) {
         if (request.runId() == null) throw new IllegalArgumentException("runId is required");
+        if (request.mode() != null && !request.mode().isBlank()) {
+            var channel = KnowledgeSearchService.SearchChannel.valueOf(request.mode().toUpperCase(java.util.Locale.ROOT));
+            int limit = request.limit() == null ? 5 : request.limit();
+            var outcome = searches.searchChannel(context(request.runId()), request.query(), request.filters(), limit, channel);
+            return new SearchResponse(request.runId(), outcome.hits(), outcome.empty());
+        }
         var outcome = tools.search(new KnowledgeTools.SearchRequest(request.query(), request.filters(), request.limit()),
                 context(request.runId()));
         if (!outcome.success()) throw failure(outcome.error().code());
@@ -88,6 +94,12 @@ public class KnowledgeController {
     @GetMapping("/references/{referenceId}")
     KnowledgeSearchService.Excerpt reference(@PathVariable UUID referenceId, @RequestParam UUID runId) {
         return searches.excerptByReference(context(runId), referenceId);
+    }
+
+    @GetMapping("/documents/{documentId}/chunks/{chunkId}")
+    KnowledgeSearchService.Excerpt excerpt(@PathVariable UUID documentId, @PathVariable UUID chunkId,
+                                           @RequestParam UUID runId) {
+        return searches.excerpt(context(runId), documentId, chunkId);
     }
 
     private ToolContext context(UUID runId) {

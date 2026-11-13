@@ -7,3 +7,16 @@ OPENAI_MODEL=deepseek-flash
 
 # Optional: Qwen via DashScope, selected with --reasoner=qwen
 DASHSCOPE_API_KEY=
+# Product Agent: scripted, qwen, or openai. Blank retains the application default.
+DEVICETRUTH_AGENT_REASONER=
+
+# Embedding: blank fields use environment variables or application defaults.
+# API key falls back to DASHSCOPE_API_KEY when no dedicated key is configured.
+DEVICETRUTH_EMBEDDING_PROVIDER=
+DEVICETRUTH_EMBEDDING_BASE_URL=
+DEVICETRUTH_EMBEDDING_API_KEY=
+DEVICETRUTH_EMBEDDING_MODEL=
+DEVICETRUTH_EMBEDDING_DIMENSION=
+DEVICETRUTH_EMBEDDING_PROFILE_REVISION=
+DEVICETRUTH_EMBEDDING_TIMEOUT_MS=
+DEVICETRUTH_EMBEDDING_SEND_DIMENSIONS=
