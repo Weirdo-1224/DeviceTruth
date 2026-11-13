@@ -260,9 +260,10 @@ class GeneralAgentApiTest {
         var toolEvents = Json.MAPPER.readTree(rest.getForObject(base + "/api/runs/" + runId + "/tool-events", String.class));
         assertThat(toolEvents.size()).isGreaterThanOrEqualTo(2);
         assertThat(toolEvents).allSatisfy(event -> {
-            assertThat(event.path("toolName").asText()).isEqualTo("search_knowledge");
+            assertThat(event.path("toolName").asText()).isIn("search_knowledge", "activate_skill", "get_observations");
             assertThat(event.path("success").asBoolean()).isTrue();
-            assertThat(event.path("referenceCount").asInt()).isPositive();
+            if ("search_knowledge".equals(event.path("toolName").asText()))
+                assertThat(event.path("referenceCount").asInt()).isPositive();
             assertThat(event.has("payload")).isFalse();
         });
         assertThat(jdbc.queryForObject("SELECT (budget->'used'->>'steps')::int FROM dt_agent_run WHERE id=?",

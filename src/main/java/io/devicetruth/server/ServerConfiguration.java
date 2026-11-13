@@ -18,7 +18,9 @@ import io.devicetruth.application.ReasonerFactory;
 import io.devicetruth.application.RouteValidator;
 import io.devicetruth.application.SupportedScenarioCatalog;
 import io.devicetruth.application.TaskRouter;
+import io.devicetruth.application.agent.ObservationTools;
 import io.devicetruth.core.capability.CapabilityGateway;
+import io.devicetruth.core.capability.Repositories.AssetRegistryRepository;
 import io.devicetruth.core.contract.Models.Budget;
 import io.devicetruth.core.reasoning.Reasoner;
 import io.devicetruth.core.reasoning.ScriptedReasoner;
@@ -102,12 +104,19 @@ public class ServerConfiguration {
     @Profile("product")
     CapabilityGateway agentCapabilityGateway(KnowledgeTools knowledgeTools,
             io.devicetruth.application.agent.AssetTools assetTools,
-            io.devicetruth.application.agent.AgentReportTools reportTools) {
+            io.devicetruth.application.agent.AgentReportTools reportTools, ObservationTools observations) {
         var gateway = new CapabilityGateway();
         knowledgeTools.registerInto(gateway);
         assetTools.registerInto(gateway);
         reportTools.registerInto(gateway);
+        observations.registerInto(gateway);
         return gateway;
+    }
+
+    @Bean
+    @Profile("product")
+    ObservationTools observationTools(AssetRegistryRepository assets, HikariDataSource source) {
+        return new ObservationTools(assets, new JdbcTemplate(source));
     }
 
     /** 通用调查报告工具：聚合当前 run 的持久白名单事实（引用/工具轨迹/预算/待答与答案摘要）。 */

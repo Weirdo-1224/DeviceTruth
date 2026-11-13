@@ -11,8 +11,10 @@ import io.devicetruth.application.agent.GeneralAgentService.ServerIdentity;
 import io.devicetruth.core.capability.CapabilityGateway;
 import io.devicetruth.core.reasoning.ActionProposal;
 import io.devicetruth.core.reasoning.GeneralReasoner;
+import io.devicetruth.core.reasoning.Reasoner;
 import io.devicetruth.core.reasoning.ScriptedAgentReasoner;
 import io.devicetruth.server.DeviceTruthServerApplication;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -346,7 +348,7 @@ class AgentLifecycleTest {
     }
 
     @Test void totalActiveDurationTerminatesSlowRunWithoutGhost() throws Exception {
-        // 总时限收紧到 100ms：每步耗时 ~250ms 的模型在第二步前被总时限收尾
+        // 超时后的工具提议不能被执行。
         var shortRuns = new AgentRunRepository(jdbc, 100);
         GeneralReasoner slow = new GeneralReasoner() {
             @Override public String name() { return "slow-model"; }
@@ -363,6 +365,7 @@ class AgentLifecycleTest {
                     input("新能源汽车充电中断，没有故障码，先查什么资料？")).runId();
             assertThat(awaitTerminal(service, runId, "FAILED")).isEqualTo("FAILED");
             assertThat(service.run(runId).failureCode()).isEqualTo("TOTAL_TIMEOUT");
+            assertThat(service.toolEvents(runId)).isEmpty();
             assertThat(jdbc.queryForObject(
                     "SELECT count(*) FROM dt_agent_run WHERE id=? AND status IN ('QUEUED','RUNNING')",
                     Integer.class, runId)).isZero();
@@ -373,6 +376,101 @@ class AgentLifecycleTest {
             service.recoverQueued();
             Thread.sleep(200);
             assertThat(service.run(runId).status()).isEqualTo("FAILED");
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test void lateQuestionAndAnswerAreNotPublishedAfterTotalDeadline() throws Exception {
+        var shortRuns = new AgentRunRepository(jdbc, 250);
+        var proposals = List.of(new ActionProposal.AskUser("需要设备编号", List.of("assetId")),
+                new ActionProposal.Answer("KNOWLEDGE", "当前缺少可引用的资料。",
+                        List.of(), List.of(), List.of(), List.of(), List.of()));
+        for (ActionProposal proposal : proposals) {
+            var entered = new AtomicBoolean();
+            GeneralReasoner slow = new GeneralReasoner() {
+                @Override public String name() { return "slow-terminal-proposal"; }
+                @Override public ActionProposal propose(Context context) {
+                    entered.set(true);
+                    try { Thread.sleep(350); }
+                    catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    return proposal;
+                }
+            };
+            var service = new GeneralAgentService(conversations, shortRuns, transactions, IDENTITY, gateway,
+                    () -> slow, 1, 1, true, null, LEASE_SECONDS, 3);
+            try {
+                UUID conversation = service.create().conversationId();
+                UUID runId = service.submit(conversation, UUID.randomUUID(), input("设备检修资料")).runId();
+                assertThat(awaitTerminal(service, runId, "FAILED")).isEqualTo("FAILED");
+                assertThat(entered).isTrue();
+                var view = service.run(runId);
+                assertThat(view.failureCode()).isEqualTo("TOTAL_TIMEOUT");
+                assertThat(view.pendingQuestion()).isNull();
+                assertThat(view.result()).isNull();
+                assertThat(jdbc.queryForObject("""
+                        SELECT count(*) FROM dt_message WHERE conversation_id=? AND role='ASSISTANT'
+                        """, Integer.class, conversation)).isZero();
+                assertThat(jdbc.queryForObject("""
+                        SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_LATE_RESPONSE'
+                        """, Integer.class, runId)).isEqualTo(1);
+            } finally {
+                service.shutdown();
+            }
+        }
+    }
+
+    @Test void reportedTokenUsageIsCumulativeAcrossReplyAndMissingAttempt() throws Exception {
+        GeneralReasoner reasoner = new GeneralReasoner() {
+            private int turn;
+            private Reasoner.Attempt attempt;
+
+            @Override public String name() { return "reported-usage-model"; }
+
+            @Override public ActionProposal propose(Context context) {
+                turn++;
+                var usage = switch (turn) {
+                    case 1 -> new Reasoner.TokenUsage(13L, 5L, new BigDecimal("0.00003"));
+                    case 2 -> new Reasoner.TokenUsage(21L, 8L, new BigDecimal("0.00012"));
+                    default -> null;
+                };
+                attempt = new Reasoner.Attempt(1, "VALID_PROPOSAL", 1L,
+                        name(), usage, false);
+                if (turn < 3) return new ActionProposal.AskUser("请提供更多设备信息", List.of("detail"));
+                return new ActionProposal.Answer("KNOWLEDGE", "当前缺少可引用的资料。",
+                        List.of(), List.of(), List.of(), List.of(), List.of());
+            }
+
+            @Override public List<Reasoner.Attempt> drainAttempts() {
+                if (attempt == null) return List.of();
+                var drained = List.of(attempt);
+                attempt = null;
+                return drained;
+            }
+        };
+        var service = service(1, 1, reasoner);
+        try {
+            UUID conversation = service.create().conversationId();
+            UUID runId = service.submit(conversation, UUID.randomUUID(), input("设备检修资料")).runId();
+            var first = awaitQuestion(service, runId, 1);
+            assertThat(first.usageStatus()).isEqualTo("REPORTED");
+            assertThat(first.inputTokens()).isEqualTo(13L);
+            assertThat(first.outputTokens()).isEqualTo(5L);
+            service.submit(conversation, UUID.randomUUID(), replyInput("第一次补充", first));
+            var second = awaitQuestion(service, runId, 2);
+            assertThat(second.usageStatus()).isEqualTo("REPORTED");
+            assertThat(second.inputTokens()).isEqualTo(34L);
+            assertThat(second.outputTokens()).isEqualTo(13L);
+            service.submit(conversation, UUID.randomUUID(), replyInput("第二次补充", second));
+            assertThat(awaitTerminal(service, runId, "COMPLETED")).isEqualTo("COMPLETED");
+            var finished = service.run(runId);
+            assertThat(finished.usageStatus()).isEqualTo("PARTIAL");
+            assertThat(finished.inputTokens()).isEqualTo(34L);
+            assertThat(finished.outputTokens()).isEqualTo(13L);
+            assertThat(finished.cost()).isEqualByComparingTo("0.00015");
+            assertThat(jdbc.queryForObject("""
+                    SELECT (budget#>>'{used,modelAttempts}')::int FROM dt_agent_run WHERE id=?
+                    """, Integer.class, runId)).isEqualTo(3);
         } finally {
             service.shutdown();
         }

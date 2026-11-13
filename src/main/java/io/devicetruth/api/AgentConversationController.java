@@ -44,6 +44,12 @@ public class AgentConversationController {
     @GetMapping("/api/runs/{id}")
     RunView run(@PathVariable UUID id) { return service.run(id); }
 
+    /** 公开已选版本与适用范围，正文和文件路径仅在服务端读取。 */
+    @GetMapping("/api/runs/{id}/skill")
+    io.devicetruth.skill.SkillRuntime.SelectionView skill(@PathVariable UUID id) {
+        return service.runSkill(id);
+    }
+
     /** 本 run 已取回的知识引用（含文档版本与章节/页码），按归属过滤；跨身份读取返回 404。 */
     @GetMapping("/api/runs/{id}/references")
     java.util.List<io.devicetruth.core.contract.AgentResult.Reference> references(@PathVariable UUID id) {

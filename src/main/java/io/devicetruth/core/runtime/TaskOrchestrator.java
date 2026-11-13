@@ -224,6 +224,18 @@ public final class TaskOrchestrator {
     public AgentRunOutcome runAgent(AgentTaskInput input, CapabilityGateway gateway, ToolContext toolContext,
                                     List<Reference> seedReferences, GeneralReasoner reasoner,
                                     java.util.function.Supplier<String> abortCode) {
+        return runAgent(input, gateway, toolContext, seedReferences, reasoner, abortCode,
+                () -> new SkillStep(toolContext, List.of(), null));
+    }
+
+    /** 由产品服务在每步重验领域指引及工具权限，主循环仍负责实际调用。 */
+    public record SkillStep(ToolContext toolContext, List<GeneralReasoner.SkillSummary> availableSkills,
+                            GeneralReasoner.ActiveSkill activeSkill) {}
+
+    public AgentRunOutcome runAgent(AgentTaskInput input, CapabilityGateway gateway, ToolContext toolContext,
+                                    List<Reference> seedReferences, GeneralReasoner reasoner,
+                                    java.util.function.Supplier<String> abortCode,
+                                    java.util.function.Supplier<SkillStep> skillStep) {
         if (input == null || gateway == null || toolContext == null || reasoner == null)
             throw new IllegalArgumentException("input, gateway, toolContext and reasoner are required");
         var events = new ArrayList<RunEvent>();
@@ -231,56 +243,68 @@ public final class TaskOrchestrator {
         var references = new LinkedHashMap<String, Reference>();
         for (Reference reference : Checks.list(seedReferences)) references.putIfAbsent(reference.referenceId(), reference);
         var attemptedTools = new ArrayList<String>();
+        var toolResults = new ArrayList<GeneralReasoner.ToolResult>();
         String feedback = null;
         int steps = input.stepsUsed();
         int rejections = 0;
         while (true) {
             // 协作式取消/总时限：模型每步之间检查，终态由持久层 CAS 收口
             String abort = abortCode == null ? null : abortCode.get();
-            if (abort != null) {
-                for (var attempt : reasoner.drainAttempts())
-                    event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt));
-                if ("TOTAL_TIMEOUT".equals(abort)) {
-                    event(events, "RUN_FAILED", input.runVersion(), Map.of("code", "TOTAL_TIMEOUT"));
-                    return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
-                            List.copyOf(references.values()), events, steps, "TOTAL_TIMEOUT");
-                }
-                event(events, "RUN_CANCELLED", input.runVersion(), Map.of("code", "CANCELLED"));
-                return new AgentRunOutcome(AgentStatus.CANCELLED, null, null, messages,
-                        List.copyOf(references.values()), events, steps, "CANCELLED");
-            }
+            if (abort != null) return aborted(input, messages, references, events, steps, abort);
             if (steps >= input.maxSteps()) {
                 event(events, "RUN_FAILED", input.runVersion(), Map.of("code", "BUDGET_EXHAUSTED"));
                 return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                         List.copyOf(references.values()), events, steps, "BUDGET_EXHAUSTED");
             }
-            var context = new GeneralReasoner.Context(input.goalText(), messages, gateway.toolCatalog(toolContext),
-                    List.copyOf(references.values()), attemptedTools, steps, input.maxSteps(), feedback);
+            var skill = skillStep.get();
+            var context = new GeneralReasoner.Context(input.goalText(), messages, gateway.toolCatalog(skill.toolContext()),
+                    List.copyOf(references.values()), attemptedTools, steps, input.maxSteps(), feedback,
+                    skill.availableSkills(), skill.activeSkill(), input.selectedAssetId(), input.asOf(), toolResults);
             event(events, "REASON_INPUT", input.runVersion(),
                     Map.of("stepsUsed", steps, "tools", context.tools().size(), "references", context.references().size()));
             ActionProposal action;
             try {
-                action = reasoner.propose(context);
+                action = reasoner.propose(context, abortCode == null ? () -> null : abortCode);
                 if (action == null) throw new IllegalArgumentException("Reasoner returned null proposal");
             } catch (RuntimeException e) {
                 // 模型配置/传输/输出失败：技术失败，不产生答案，也不伪装成缺证
                 String code = e instanceof ReasonerFailure failure ? failure.code() : "REASONER_FAILURE";
                 for (var attempt : reasoner.drainAttempts())
                     event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt));
+                abort = abortCode == null ? null : abortCode.get();
+                if (abort != null) return aborted(input, messages, references, events, steps, abort);
                 event(events, "RUN_FAILED", input.runVersion(), Map.of("code", code));
                 return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                         List.copyOf(references.values()), events, steps, code);
             }
             for (var attempt : reasoner.drainAttempts())
                 event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt));
+            // 单次模型请求可能跨过总时限，不能将迟到的工具、追问或答案交给后续处理。
+            abort = abortCode == null ? null : abortCode.get();
+            if (abort != null) {
+                event(events, "RUN_LATE_RESPONSE", input.runVersion(), Map.of("code", abort));
+                return aborted(input, messages, references, events, steps, abort);
+            }
+            // 模型调用期间可能撤销许可。执行动作前重新核验，核验耗时也计入总时限。
+            var authorizedContext = skillStep.get().toolContext();
+            abort = abortCode == null ? null : abortCode.get();
+            if (abort != null) {
+                event(events, "RUN_LATE_RESPONSE", input.runVersion(), Map.of("code", abort));
+                return aborted(input, messages, references, events, steps, abort);
+            }
             steps++;
             if (action instanceof CallTool call) {
                 attemptedTools.add(call.toolName());
                 long toolStartedNanos = System.nanoTime();
-                var outcome = gateway.executeTool(toolContext, call.toolName(), call.arguments());
+                var outcome = gateway.executeTool(authorizedContext, call.toolName(), call.arguments());
                 long toolDurationMs = (System.nanoTime() - toolStartedNanos) / 1_000_000;
                 if (outcome.success()) {
                     for (Reference reference : outcome.references()) references.putIfAbsent(reference.referenceId(), reference);
+                    if (!outcome.modelContext().isEmpty()) {
+                        if (toolResults.size() == 8) toolResults.removeFirst();
+                        toolResults.add(new GeneralReasoner.ToolResult(outcome.toolName(), outcome.dataNature(),
+                                outcome.modelContext()));
+                    }
                     feedback = null;
                 } else {
                     // 工具失败不可当成功证据：只把稳定错误码回给模型，由它决定是否换一种检索
@@ -289,7 +313,8 @@ public final class TaskOrchestrator {
                 event(events, "TOOL_RESULT", input.runVersion(), Map.of("toolName", outcome.toolName(),
                         "success", outcome.success(), "errorCode",
                         outcome.error() == null ? "" : outcome.error().code(),
-                        "references", outcome.references().size(), "durationMs", toolDurationMs));
+                        "references", outcome.references().size(), "durationMs", toolDurationMs,
+                        "retryable", outcome.error() != null && outcome.error().retryable()));
                 continue;
             }
             if (action instanceof AskUser ask) {
@@ -340,9 +365,17 @@ public final class TaskOrchestrator {
         }
     }
     private static EvidenceNeed need(String id,String description,NeedSource source,String ruleId) { return new EvidenceNeed(id,description,source,NeedStatus.OPEN,ruleId); }
+    private AgentRunOutcome aborted(AgentTaskInput input, List<AgentTaskInput.Message> messages,
+                                    Map<String, Reference> references, List<RunEvent> events, int steps, String code) {
+        boolean cancelled = "CANCELLED".equals(code);
+        event(events, cancelled ? "RUN_CANCELLED" : "RUN_FAILED", input.runVersion(), Map.of("code", code));
+        return new AgentRunOutcome(cancelled ? AgentStatus.CANCELLED : AgentStatus.FAILED,
+                null, null, messages, List.copyOf(references.values()), events, steps, code);
+    }
+
     /** 模型尝试事件：尝试记录 + 模型版本名（白名单审计字段）。 */
     private static Map<String,Object> modelAttempt(GeneralReasoner reasoner,Reasoner.Attempt attempt) {
-        return Map.of("attempt",attempt,"model",reasoner.name());
+        return Map.of("attempt", attempt, "model", attempt.model() == null ? reasoner.name() : attempt.model());
     }
     private static void event(List<RunEvent> events,String type,long version,Map<String,Object> data) {
         events.add(new RunEvent(events.size()+1,Instant.now(),type,version,data));

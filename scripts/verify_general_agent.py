@@ -1,4 +1,4 @@
-"""Real product API acceptance for M1 RAG and M2 investigation. Online mode never falls back to fake providers."""
+"""Product API acceptance for RAG, persistent investigation and dual domain Skills."""
 import argparse
 import json
 import os
@@ -18,6 +18,14 @@ MANUAL = ROOT / "datasets" / "knowledge" / "charging-system-manual.md"
 JAR = ROOT / "target" / "devicetruth-core-0.1.0.jar"
 EXPECTED_SECTION = "直流快充中断"
 EXPECTED_CONTENT = "直流快充过程中充电中止时，先读取充电桩故障日志"
+DUAL = ROOT / "datasets" / "v1"
+FACTORY_GOAL = ("请做控制器固件核对。查询 moduleVersion，比较 2024-06-01 的出厂记录和当前改造、旧模板，"
+                "解释各记录的来源、有效期以及现场核验情况。检查是否接入现场观测。")
+FACTORY_CONFIGURATION_SOURCES = {
+    "SC0245B-BOM-2024": ("value=D-120A", "source=FACTORY", "validFrom=2024-03-12"),
+    "SC0245B-RETROFIT-2025": ("value=D-120B", "source=REPLACEMENT", "validFrom=2025-09-15"),
+    "SC0245B-TEMPLATE-2026": ("value=D-120A", "source=CONFIGURATION", "validFrom=2026-02-01"),
+}
 
 
 def free_port():
@@ -35,7 +43,7 @@ def java_command():
 
 
 class Server:
-    def __init__(self, owner, project, embedding, reasoner, worker, output):
+    def __init__(self, owner, project, embedding, reasoner, worker, output, fixture_assets=None):
         self.port = free_port()
         self.base = f"http://127.0.0.1:{self.port}"
         self.output = output
@@ -55,12 +63,14 @@ class Server:
         environment["DEVICETRUTH_EMBEDDING_PROVIDER"] = "openai" if embedding == "real" else "deterministic"
         environment["DEVICETRUTH_EMBEDDING_MODEL"] = "text-embedding-v4" if embedding == "real" else "deterministic-char2"
         environment["DEVICETRUTH_FILES_ROOT"] = str(output / "files" / owner)
+        fixture_flags = (["--devicetruth.assets.seed-fixtures=true", f"--devicetruth.assets.fixtures={fixture_assets}"]
+                         if fixture_assets else [])
         self.log = (output / f"server-{owner}-{project}.log").open("w", encoding="utf-8")
         self.process = subprocess.Popen([
             java_command(), "-Dloader.main=io.devicetruth.server.DeviceTruthServerApplication",
             "-cp", str(JAR), "org.springframework.boot.loader.launch.PropertiesLauncher",
             "--spring.profiles.active=product", f"--server.port={self.port}", "--debug=false",
-            "--logging.level.org.springframework=WARN"
+            "--logging.level.org.springframework=WARN", *fixture_flags
         ], cwd=ROOT, env=environment, stdout=self.log, stderr=subprocess.STDOUT)
         deadline = time.time() + 45
         while time.time() < deadline:
@@ -463,9 +473,107 @@ def investigation(main, output):
             "evidence": evidence, "realModel": "NOT_RUN", "ui": "NOT_RUN", "pdf": "NOT_RUN"}
 
 
+def dual_case_evidence(server, run, skill_id, tools_required):
+    run_id = run["runId"]
+    skill_status, skill = server.request("GET", f"/api/runs/{run_id}/skill")
+    references = expect(server.request("GET", f"/api/runs/{run_id}/references"), 200)
+    events = expect(server.request("GET", f"/api/runs/{run_id}/tool-events"), 200)
+    tools = {event.get("toolName") for event in events if event.get("success") is True}
+    answer = run.get("result") or {}
+    used = answer.get("references", [])
+    retrieved = {reference.get("referenceId") for reference in references}
+    evidence = {
+        "completed": run["status"] == "COMPLETED",
+        "correctSkill": skill_status == 200 and skill.get("skillId") == skill_id and skill.get("version") == "1.0.0",
+        "toolCalls": tools_required <= tools,
+        "citationsInRun": bool(used) and all(reference.get("referenceId") in retrieved for reference in used),
+        "uncertain": answer.get("category") != "CONFIRMED_FINDING" and bool(answer.get("uncertainties")),
+        "simulated": answer.get("dataNature") == "SIMULATED",
+        "missingObservationDeclared": any(phrase in json.dumps(answer, ensure_ascii=False) for phrase in (
+            "尚未读取", "没有读取", "未接入", "未读取", "未取得现场观测")),
+    }
+    return evidence, skill, answer, events
+
+
+def factory_configuration_cited(references):
+    return all(any(reference.get("sourceType") == "CONFIGURATION" and reference.get("sourceId") == source
+                   and all(term in (reference.get("excerpt") or "") for term in terms)
+                   for reference in references) for source, terms in FACTORY_CONFIGURATION_SOURCES.items())
+
+
+def factory_installation_unconfirmed(answer):
+    if answer.get("category") == "CONFIRMED_FINDING":
+        return False
+    text = json.dumps(answer, ensure_ascii=False)
+    if any(phrase in text for phrase in (
+            "仍待现场核验", "尚未现场", "无法确认当前", "无法确认实际", "不能确认当前", "未有现场", "未核实",
+            "不能确认设备当前", "不能确认当前装机", "不能确认控制器当前实际固件版本")):
+        return True
+    return ("UNCONFIRMED" in text
+            and any(phrase in text for phrase in ("并不等于现场实际装机", "不等于现场实际装机",
+                                                  "不能据此判定设备已升级", "不能代表实际装机",
+                                                  "不是现场读取核实")))
+
+
+def dual_domain(main, embedding, reasoner):
+    manual = import_manual(main)
+    case = json.loads((DUAL / "automotive" / "charging-case.json").read_text("utf-8"))
+    conversation = expect(main.request("POST", "/api/conversations", {}), 201)["conversationId"]
+    messages = f"/api/conversations/{conversation}/messages"
+    goal = case["goalText"]
+    if reasoner != "scripted":
+        goal += "我还没有提供充电方式，也没说是不是只在特定充电桩发生。请先在一个问题里问清这两点，等我补充后再根据资料分析。"
+    car_id = expect(main.request("POST", messages, {"schemaVersion": 1, "userMessage": goal},
+                                 {"Idempotency-Key": str(uuid.uuid4())}), 202)["runId"]
+    car = await_run(main, car_id)
+    asked = []
+    same_run = True
+    if car["status"] == "WAITING_FOR_USER":
+        question = car.get("pendingQuestion") or {}
+        asked.append(question.get("question", ""))
+        clarification = case["turns"][1]["content"]
+        if reasoner != "scripted":
+            clarification += ("请先检索手册的“直流快充中断”章节，并在答案中引用该章节。"
+                              "再用只读观测工具核对有无可读现场观测，即使没有资产编号也请核对。"
+                              "最后把手册分析和观测结果一并告诉我。")
+        reply = expect(main.request("POST", messages, {
+            "schemaVersion": 1, "userMessage": clarification,
+            "replyTo": {"runId": car_id, "pendingQuestionId": question["pendingQuestionId"],
+                        "questionVersion": question["questionVersion"]}}, {"Idempotency-Key": str(uuid.uuid4())}), 202)
+        same_run = reply["runId"] == car_id
+        car = await_run(main, car_id)
+    car_evidence, car_skill, car_answer, car_events = dual_case_evidence(main, car, case["skillId"],
+                                                                       {"search_knowledge", "get_observations"})
+    car_evidence["sameRunClarification"] = same_run and bool(asked) and all(
+        any(term in asked[0] for term in topic["matchKeywords"])
+        for topic in case["expected"]["clarification"]["mustAskTopics"])
+    car_evidence["manualSectionReadable"] = False
+    for citation in car_answer.get("references", []):
+        if citation.get("sourceId") != manual["documentId"]:
+            continue
+        excerpt = expect(main.request("GET", f"/api/knowledge/references/{citation['referenceId']}?runId={car_id}"), 200)
+        if EXPECTED_SECTION in (excerpt.get("section") or "") and bool(excerpt.get("content")):
+            car_evidence["manualSectionReadable"] = True
+
+    factory_id = create_run(main, FACTORY_GOAL, {"selectedAssetId": "SC-0245-B", "asOf": "2026-11-13T08:00:00Z"})
+    factory = await_run(main, factory_id)
+    factory_evidence, factory_skill, factory_answer, factory_events = dual_case_evidence(
+        main, factory, "factory-equipment", {"get_configuration", "get_observations"})
+    factory_evidence["threeSourcesAndTimes"] = factory_configuration_cited(factory_answer.get("references", []))
+    factory_evidence["currentInstallationUnconfirmed"] = factory_installation_unconfirmed(factory_answer)
+    passed = all(car_evidence.values()) and all(factory_evidence.values())
+    return {"status": "PASS" if passed else "FAIL", "suite": "dual-domain",
+            "realModel": ("PASS" if passed else "FAIL") if reasoner != "scripted" else "NOT_RUN",
+            "realEmbedding": ("PASS" if passed else "FAIL") if embedding == "real" else "NOT_RUN",
+            "automotive": {"evidence": car_evidence, "skill": car_skill, "run": car, "toolEvents": car_events,
+                           "questions": asked},
+            "factory": {"evidence": factory_evidence, "skill": factory_skill, "run": factory,
+                        "toolEvents": factory_events}}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suite", choices=["m1-retrieval", "rag-smoke", "multi-turn-basic", "investigation"],
+    parser.add_argument("--suite", choices=["m1-retrieval", "rag-smoke", "multi-turn-basic", "investigation", "dual-domain"],
                         required=True)
     parser.add_argument("--embedding", choices=["real", "deterministic"], required=True)
     parser.add_argument("--reasoner", choices=["qwen", "openai", "scripted"], default="qwen")
@@ -475,16 +583,22 @@ def main():
     report = {"status": "NOT_RUN", "suite": args.suite, "embedding": args.embedding, "reasoner": args.reasoner}
     servers = []
     try:
-        if args.suite not in {"m1-retrieval", "investigation"} and args.embedding != "real":
+        offline_suites = {"m1-retrieval", "investigation"}
+        if args.suite == "dual-domain" and args.reasoner == "scripted":
+            offline_suites.add("dual-domain")
+        if args.suite not in offline_suites and args.embedding != "real":
             raise RuntimeError("BLOCKED_BY_ENV: online Agent acceptance requires --embedding=real")
         if not JAR.exists():
             raise RuntimeError("BLOCKED_BY_ENV: package the current JAR first")
         for name in ["DEVICETRUTH_TEST_PG_BASE_URL", "DEVICETRUTH_TEST_PG_USERNAME", "DEVICETRUTH_TEST_PG_PASSWORD"]:
             if not os.environ.get(name):
                 raise RuntimeError(f"BLOCKED_BY_ENV: {name} is required")
+        if args.suite == "dual-domain" and not os.environ.get("DEVICETRUTH_EVAL_DATABASE"):
+            raise RuntimeError("BLOCKED_BY_ENV: set DEVICETRUTH_EVAL_DATABASE to an isolated scratch database for dual-domain")
         owner = "eval-" + uuid.uuid4().hex[:12]
         worker = args.suite != "m1-retrieval"
-        main_server = Server(owner, "m1-rag", args.embedding, args.reasoner, worker, output)
+        main_server = Server(owner, "m1-rag", args.embedding, args.reasoner, worker, output,
+                             "SC-0245-B" if args.suite == "dual-domain" else None)
         servers.append(main_server)
         if args.suite == "m1-retrieval":
             other_owner = Server(owner + "-other", "m1-rag", args.embedding, "scripted", False, output)
@@ -493,6 +607,8 @@ def main():
             report = retrieval(main_server, other_owner, other_project, output, args.embedding)
         elif args.suite == "investigation":
             report = investigation(main_server, output)
+        elif args.suite == "dual-domain":
+            report = dual_domain(main_server, args.embedding, args.reasoner)
         else:
             report = agent_smoke(main_server, args.suite, output)
         report.update({"embedding": args.embedding, "reasoner": args.reasoner})

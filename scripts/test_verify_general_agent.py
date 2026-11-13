@@ -10,6 +10,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import verify_general_agent as verify
 
 
+class DualDomainDecisionTest(unittest.TestCase):
+    def test_explicit_unconfirmed_installation_can_use_tool_status_and_plain_language(self):
+        answer = {"category": "HUMAN_REVIEW",
+                  "summary": "installationStatus 为 UNCONFIRMED，台账记录值并不等于现场实际装机。"}
+        self.assertTrue(verify.factory_installation_unconfirmed(answer))
+        self.assertFalse(verify.factory_installation_unconfirmed(
+            dict(answer, category="CONFIRMED_FINDING")))
+        self.assertFalse(verify.factory_installation_unconfirmed(
+            dict(answer, summary="installationStatus 为 UNCONFIRMED。")))
+        self.assertTrue(verify.factory_installation_unconfirmed(
+            dict(answer, summary="未取得现场核验，不能确认控制器当前实际固件版本。")))
+
+    def test_maintenance_from_same_source_does_not_replace_configuration_citation(self):
+        references = [{"sourceType": "CONFIGURATION", "sourceId": source, "excerpt": ";".join(terms)}
+                      for source, terms in verify.FACTORY_CONFIGURATION_SOURCES.items()]
+        references.append({"sourceType": "CONFIGURATION", "sourceId": "SC0245B-RETROFIT-2025",
+                           "excerpt": "operation=REPLACEMENT;after=D-120B;validFrom=2025-09-15"})
+        self.assertTrue(verify.factory_configuration_cited(references))
+        self.assertFalse(verify.factory_configuration_cited(
+            [reference for reference in references if "value=D-120B" not in reference["excerpt"]]))
+
+
 class RetrievalDecisionTest(unittest.TestCase):
     def setUp(self):
         self.cases = json.loads((verify.EVAL / "cases.json").read_text("utf-8"))

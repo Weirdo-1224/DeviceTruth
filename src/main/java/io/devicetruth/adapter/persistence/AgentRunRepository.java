@@ -28,13 +28,16 @@ public final class AgentRunRepository {
                             String selectedAssetId, String goalText, int stepsUsed, int maxSteps, int attempts,
                             long activeDurationMs, long maxActiveDurationMs, boolean cancelRequested) {}
     public record ToolEvent(int sequence, String toolName, boolean success, String errorCode, int referenceCount,
-                            long durationMs) {}
+                            long durationMs, boolean retryable) {}
     /** 恢复扫描命中的遗留 RUNNING：只带对账需要的字段，不重建完整运行上下文。 */
     public record ExpiredRun(UUID runId, UUID conversationId, long version, int attempts) {}
 
     private static final String VIEW_SQL = """
             SELECT r.id, r.conversation_id, r.goal_message_id, r.status, r.version, r.requested_at, r.as_of,
                    r.pending_question, r.active_duration_ms, r.budget->>'usageStatus' AS usage_status,
+                   (r.budget->'used'->>'inputTokens')::bigint AS input_tokens,
+                   (r.budget->'used'->>'outputTokens')::bigint AS output_tokens,
+                   (r.budget->'used'->>'cost')::numeric AS cost,
                    (SELECT e.safe_payload FROM dt_run_event e
                      WHERE e.run_id = r.id AND e.type = 'RUN_ANSWER' ORDER BY e.seq DESC LIMIT 1) AS answer_payload,
                    (SELECT e.safe_payload->>'code' FROM dt_run_event e
@@ -48,7 +51,9 @@ public final class AgentRunRepository {
             r.getObject("goal_message_id", UUID.class), r.getString("status"), r.getLong("version"),
             r.getTimestamp("requested_at").toInstant(), r.getTimestamp("as_of").toInstant(), "SIMULATED",
             pendingQuestion(r), answer(r), r.getString("failure_code"),
-            r.getLong("active_duration_ms"), r.getString("usage_status"));
+            r.getLong("active_duration_ms"), r.getString("usage_status"),
+            r.getObject("input_tokens", Long.class), r.getObject("output_tokens", Long.class),
+            r.getBigDecimal("cost"));
 
     private static PendingQuestion pendingQuestion(ResultSet row) throws SQLException {
         String payload = row.getString("pending_question");
@@ -216,8 +221,36 @@ public final class AgentRunRepository {
 
     /** 终态统一回写：累计步数、执行时长、模型尝试与工具调用计数；Token/成本只在供应商真实返回时写。 */
     private static final String USAGE_SET_SQL = "budget=jsonb_set(jsonb_set(jsonb_set(jsonb_set("
-            + "budget,'{used,steps}',to_jsonb(?::int),true),'{used,activeDurationMs}',to_jsonb(?::bigint),true),"
-            + "'{used,modelAttempts}',to_jsonb(?::int),true),'{used,toolCalls}',to_jsonb(?::int),true)";
+            + "budget,'{used,steps}',to_jsonb(?::int),true),"
+            + "'{used,activeDurationMs}',to_jsonb(active_duration_ms+?::bigint),true),"
+            + "'{used,modelAttempts}',to_jsonb(COALESCE((budget#>>'{used,modelAttempts}')::int,0)+?::int),true),"
+            + "'{used,toolCalls}',to_jsonb(COALESCE((budget#>>'{used,toolCalls}')::int,0)+?::int),true)";
+
+    /** 同一事务内从本 run 的供应商审计汇总。混合缺失时显示已报告小计，标记 PARTIAL。 */
+    public void updateModelUsage(ServerIdentity identity, UUID runId) {
+        jdbc.update("""
+                WITH usage AS (
+                    SELECT count(*) AS attempts,
+                           count(*) FILTER (WHERE safe_payload->>'inputTokens' IS NOT NULL
+                                                  AND safe_payload->>'outputTokens' IS NOT NULL) AS token_reports,
+                           count(safe_payload->>'cost') AS cost_reports,
+                           sum((safe_payload->>'inputTokens')::bigint) AS input_tokens,
+                           sum((safe_payload->>'outputTokens')::bigint) AS output_tokens,
+                           sum((safe_payload->>'cost')::numeric) AS cost
+                    FROM dt_run_event
+                    WHERE run_id=? AND owner_id=? AND project_id=? AND type='RUN_MODEL'
+                )
+                UPDATE dt_agent_run r SET budget=jsonb_set(
+                    jsonb_set(r.budget,'{used}',r.budget->'used' || jsonb_build_object(
+                        'inputTokens',usage.input_tokens,'outputTokens',usage.output_tokens,'cost',usage.cost),true),
+                    '{usageStatus}',to_jsonb((CASE
+                        WHEN usage.token_reports=usage.attempts AND usage.cost_reports IN (0,usage.attempts)
+                        THEN 'REPORTED' ELSE 'PARTIAL' END)::text),true)
+                FROM usage
+                WHERE r.id=? AND r.owner_id=? AND r.project_id=?
+                  AND (usage.input_tokens IS NOT NULL OR usage.output_tokens IS NOT NULL OR usage.cost IS NOT NULL)
+                """, runId, identity.ownerId(), identity.projectId(), runId, identity.ownerId(), identity.projectId());
+    }
 
     /** RUNNING → WAITING_FOR_USER：问题、版本、累计步数与引用计数同一事务写入后释放 worker。 */
     public int waitForUser(ServerIdentity identity, RunRecord run, PendingQuestion question, int stepsUsed,
@@ -235,12 +268,12 @@ public final class AgentRunRepository {
                     context_summary=?, %s,
                     active_duration_ms=active_duration_ms+?, finished_at=?,
                     lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
-                WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING'
+                WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING' AND version=?
                 """.formatted(USAGE_SET_SQL), java.sql.Timestamp.from(now), question.pendingQuestionId(),
                 question.questionVersion(), payload,
                 "steps=" + stepsUsed + ";references=" + referenceCount, stepsUsed, activeDurationMs,
                 modelAttempts, toolCalls, activeDurationMs, java.sql.Timestamp.from(now),
-                run.runId(), identity.ownerId(), identity.projectId());
+                run.runId(), identity.ownerId(), identity.projectId(), run.version());
     }
 
     /** RUNNING → COMPLETED：答案写入 RUN_ANSWER 事件，界面与报告都从持久事件读回。 */
@@ -251,10 +284,10 @@ public final class AgentRunRepository {
                     %s,
                     active_duration_ms=active_duration_ms+?, finished_at=?,
                     lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
-                WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING'
+                WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING' AND version=?
                 """.formatted(USAGE_SET_SQL), java.sql.Timestamp.from(now), stepsUsed, activeDurationMs,
                 modelAttempts, toolCalls, activeDurationMs, java.sql.Timestamp.from(now),
-                run.runId(), identity.ownerId(), identity.projectId());
+                run.runId(), identity.ownerId(), identity.projectId(), run.version());
         if (updated == 1) appendEvent(identity, run.runId(), run.conversationId(), "RUN_ANSWER", answer, now);
         return updated;
     }
@@ -267,10 +300,10 @@ public final class AgentRunRepository {
                     %s,
                     active_duration_ms=active_duration_ms+?, finished_at=?,
                     lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
-                WHERE id=? AND owner_id=? AND project_id=? AND status IN ('QUEUED','RUNNING')
+                WHERE id=? AND owner_id=? AND project_id=? AND status IN ('QUEUED','RUNNING') AND version=?
                 """.formatted(USAGE_SET_SQL), java.sql.Timestamp.from(now), stepsUsed, activeDurationMs,
                 modelAttempts, toolCalls, activeDurationMs, java.sql.Timestamp.from(now),
-                run.runId(), identity.ownerId(), identity.projectId());
+                run.runId(), identity.ownerId(), identity.projectId(), run.version());
         if (updated == 1)
             appendEvent(identity, run.runId(), run.conversationId(), "RUN_FAILED", Map.of("code", code), now);
         return updated;
@@ -316,21 +349,24 @@ public final class AgentRunRepository {
                     active_duration_ms=active_duration_ms+?, finished_at=?,
                     lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
                 WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING' AND cancel_requested_at IS NOT NULL
+                  AND version=?
                 """.formatted(USAGE_SET_SQL), java.sql.Timestamp.from(now), stepsUsed, activeDurationMs,
                 modelAttempts, toolCalls, activeDurationMs, java.sql.Timestamp.from(now),
-                run.runId(), identity.ownerId(), identity.projectId());
+                run.runId(), identity.ownerId(), identity.projectId(), run.version());
         if (updated == 1)
             appendEvent(identity, run.runId(), run.conversationId(), "RUN_CANCELLED", Map.of("phase", "WORKER"), now);
         return updated;
     }
 
-    /** worker 每步之间查询取消标记；终态行不再有标记可读（已被收尾语句保留）。 */
-    public boolean isCancelRequested(ServerIdentity identity, UUID runId) {
-        var rows = jdbc.queryForList("""
-                SELECT cancel_requested_at FROM dt_agent_run
+    /** 每步核验 worker 仍持原版本的执行租约，防止已回收任务继续执行后续动作。 */
+    public String claimStopCode(ServerIdentity identity, UUID runId, long version) {
+        var rows = jdbc.query("""
+                SELECT cancel_requested_at IS NOT NULL FROM dt_agent_run
                 WHERE id=? AND owner_id=? AND project_id=?
-                """, runId, identity.ownerId(), identity.projectId());
-        return !rows.isEmpty() && rows.getFirst().get("cancel_requested_at") != null;
+                  AND status='RUNNING' AND version=?
+                """, (r, n) -> r.getBoolean(1), runId, identity.ownerId(), identity.projectId(), version);
+        if (rows.isEmpty()) return "RUN_CLAIM_LOST";
+        return rows.getFirst() ? "CANCELLED" : null;
     }
 
     /** WAITING_FOR_USER → QUEUED：只有问题 ID 与版本都匹配且尚未被消费时才成功，防止重复补答。 */
@@ -362,7 +398,7 @@ public final class AgentRunRepository {
                 LEFT JOIN dt_knowledge_document d
                   ON d.id = c.document_id AND d.owner_id = c.owner_id AND d.project_id = c.project_id
                 WHERE r.run_id = ? AND r.owner_id = ? AND r.project_id = ?
-                  AND r.source_type IN ('KNOWLEDGE_DOCUMENT', 'CONFIGURATION')
+                  AND r.source_type IN ('KNOWLEDGE_DOCUMENT', 'CONFIGURATION', 'FIELD_OBSERVATION')
                 ORDER BY r.retrieved_at, r.id
                 """, (r, n) -> new Reference(r.getObject("reference_id", UUID.class).toString(),
                 r.getString("source_type"), r.getString("source_id"), r.getString("source_version"),
@@ -378,30 +414,37 @@ public final class AgentRunRepository {
                        (safe_payload->>'success')::boolean AS success,
                        safe_payload->>'errorCode' AS error_code,
                        COALESCE((safe_payload->>'references')::int,0) AS reference_count,
-                       COALESCE((safe_payload->>'durationMs')::bigint,0) AS duration_ms
+                       COALESCE((safe_payload->>'durationMs')::bigint,0) AS duration_ms,
+                       COALESCE((safe_payload->>'retryable')::boolean,false) AS retryable
                 FROM dt_run_event
                 WHERE run_id=? AND owner_id=? AND project_id=? AND type='RUN_TOOL'
                 ORDER BY seq
                 """, (r, n) -> new ToolEvent(r.getInt("seq"), r.getString("tool_name"),
                 r.getBoolean("success"), r.getString("error_code"), r.getInt("reference_count"),
-                r.getLong("duration_ms")),
+                r.getLong("duration_ms"), r.getBoolean("retryable")),
                 runId, identity.ownerId(), identity.projectId());
     }
 
     /** 模型尝试审计（03-03）：每步的重试次数、结果码、单次耗时与模型版本，白名单字段不落 Prompt/密钥。 */
-    public record ModelEvent(int sequence, String model, int attempt, String outcome, long durationMs) {}
+    public record ModelEvent(int sequence, String model, int attempt, String outcome, long durationMs,
+                             boolean retryable, Long inputTokens, Long outputTokens, java.math.BigDecimal cost) {}
 
     public List<ModelEvent> modelEvents(ServerIdentity identity, UUID runId) {
         return jdbc.query("""
                 SELECT seq, safe_payload->>'model' AS model,
                        COALESCE((safe_payload->>'attempt')::int,0) AS attempt,
                        COALESCE(safe_payload->>'outcome','') AS outcome,
-                       COALESCE((safe_payload->>'durationMs')::bigint,0) AS duration_ms
+                       COALESCE((safe_payload->>'durationMs')::bigint,0) AS duration_ms,
+                       COALESCE((safe_payload->>'retryable')::boolean,false) AS retryable,
+                       (safe_payload->>'inputTokens')::bigint AS input_tokens,
+                       (safe_payload->>'outputTokens')::bigint AS output_tokens,
+                       (safe_payload->>'cost')::numeric AS cost
                 FROM dt_run_event
                 WHERE run_id=? AND owner_id=? AND project_id=? AND type='RUN_MODEL'
                 ORDER BY seq
                 """, (r, n) -> new ModelEvent(r.getInt("seq"), r.getString("model"), r.getInt("attempt"),
-                r.getString("outcome"), r.getLong("duration_ms")),
+                r.getString("outcome"), r.getLong("duration_ms"), r.getBoolean("retryable"),
+                r.getObject("input_tokens", Long.class), r.getObject("output_tokens", Long.class), r.getBigDecimal("cost")),
                 runId, identity.ownerId(), identity.projectId());
     }
 

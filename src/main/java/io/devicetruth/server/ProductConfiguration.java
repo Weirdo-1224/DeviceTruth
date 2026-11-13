@@ -4,11 +4,17 @@ import com.zaxxer.hikari.HikariDataSource;
 import io.devicetruth.adapter.AgentModelConnections;
 import io.devicetruth.adapter.persistence.AgentRunRepository;
 import io.devicetruth.adapter.persistence.ConversationRepository;
+import io.devicetruth.adapter.persistence.SkillInstallationRepository;
 import io.devicetruth.application.agent.GeneralAgentService;
 import io.devicetruth.application.agent.GeneralAgentService.ServerIdentity;
 import io.devicetruth.core.capability.CapabilityGateway;
 import io.devicetruth.core.reasoning.GeneralReasoner;
 import io.devicetruth.core.reasoning.ScriptedAgentReasoner;
+import io.devicetruth.skill.SkillRegistry;
+import io.devicetruth.skill.SkillRuntime;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.flywaydb.core.Flyway;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -54,6 +60,16 @@ public class ProductConfiguration {
                 environment.getRequiredProperty("devicetruth.product.project-id"));
     }
 
+    @Bean
+    @DependsOn("productFlyway")
+    SkillRuntime productSkillRuntime(HikariDataSource source, ServerIdentity identity,
+            @Value("${devicetruth.skills.root}") String root,
+            @Value("${devicetruth.skills.installations}") String[] defaults,
+            @Value("${devicetruth.skills.allowed-tools}") String[] tools) {
+        return new SkillRuntime(SkillRegistry.load(Path.of(root)), new SkillInstallationRepository(new JdbcTemplate(source)),
+                identity, Set.copyOf(List.of(tools)), List.of(defaults));
+    }
+
     /**
      * 产品通用 Agent 服务：知识工具经 agentCapabilityGateway 进入唯一主循环，
      * 每 run 新建推理器实例，worker 有界；worker-enabled=false 时只保留 M0 的 QUEUED 持久化合同。
@@ -63,7 +79,7 @@ public class ProductConfiguration {
     @DependsOn("productFlyway")
     GeneralAgentService generalAgentService(HikariDataSource source, Environment environment,
             @Qualifier("agentCapabilityGateway") CapabilityGateway gateway,
-            ServerIdentity identity,
+            ServerIdentity identity, SkillRuntime skills,
             io.devicetruth.knowledge.FileUploadService fileUploadService,
             @Value("${devicetruth.agent.reasoner:scripted}") String reasonerName,
             @Value("${devicetruth.agent.max-concurrent-runs:2}") int maxConcurrentRuns,
@@ -78,7 +94,7 @@ public class ProductConfiguration {
                         Long.class, 120_000L)),
                 transactions,
                 identity, gateway, agentReasoners(agentReasonerName(environment, reasonerName)), maxConcurrentRuns,
-                maxQueue, workerEnabled, fileUploadService, leaseSeconds, maxRecoveryAttempts);
+                maxQueue, workerEnabled, fileUploadService, leaseSeconds, maxRecoveryAttempts, skills);
     }
 
     /** 结构化设备主数据仓储：身份、组件、配置与维修历史（V8）。 */

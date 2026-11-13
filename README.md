@@ -169,6 +169,20 @@ python scripts/verify_general_agent.py --suite=rag-smoke --embedding=real
 python scripts/verify_general_agent.py --suite=multi-turn-basic --embedding=real
 ```
 
+### Phase 3 / 4 衔接验收
+
+产品 Agent 从 `DEVICETRUTH_SKILLS_ROOT` 指向的目录读取标准 Skill，默认使用启动目录下的 `skills/`。从别的目录启动 JAR 时可设置此变量为指引目录的绝对路径。`DEVICETRUTH_SKILLS_INSTALLATIONS` 配置默认安装的 `id@version`，`DEVICETRUTH_SKILLS_ALLOWED_TOOLS` 配置服务器工具上限。已有安装的停用状态和工具绑定在重启时保留。每次调查选中的 Skill 和版本可从 `GET /api/runs/{id}/skill` 查看。
+
+工厂演示可显式设置 `DEVICETRUTH_ASSETS_SEED_FIXTURES=true` 与 `DEVICETRUTH_ASSETS_FIXTURES=SC-0245-B`，由产品启动时导入模拟资产。观测工具只查询授权资产已导入的模拟记录，并给出质量、来源和时点。没有记录时，调查会收到尚未读取现场数据的状态。
+
+用仓库说明中的 PostgreSQL 测试连接变量，令 `DEVICETRUTH_EVAL_DATABASE` 指向单独创建的空测试库。双域验收会导入固定样例，应分别为离线与在线运行使用独立空库。浏览器验收需要已打包 JAR、已构建的 `frontend/dist`、本机 Chrome 或 Edge 以及 Python Playwright。
+
+```powershell
+python scripts/verify_general_agent.py --suite=investigation --reasoner=scripted --embedding=deterministic
+python scripts/verify_general_agent.py --suite=dual-domain --reasoner=scripted --embedding=deterministic
+python scripts/verify_browser_recovery.py --browser-path 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+```
+
 本轮真实PG全量241项、脚本判定10项、前端15项、打包与CLI通过；离线固定样本三通道均6/6命中，混合通道部件号2/2、全部必需负例通过。三个真实供应商命令均因缺少embedding密钥返回`BLOCKED_BY_ENV`（退出2），PDF与浏览器演示保持NOT_RUN；02-03仍待独立复审。
 
 在已有 `DeviceTruth` 根目录运行，不要创建第二层同名目录。需要 JDK 21 和 Maven 3.9+；首次 Maven 构建需要下载依赖，以后可用已缓存依赖离线运行。`.mvn/maven.config` 将依赖缓存限制到本项目 `.m2/repository`，不改用户全局 Maven 设置。运行 JAR 不需要 Python；两个验收辅助脚本需要 Python 3。

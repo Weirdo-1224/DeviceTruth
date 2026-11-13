@@ -20,7 +20,7 @@ class SkillRegistryTest {
         SkillMetadata automotive = registry.require("automotive-diagnosis");
         assertThat(automotive.version()).matches(SkillMetadata.VERSION_PATTERN);
         assertThat(automotive.tools()).contains("search_knowledge", "get_document_excerpt", "get_asset",
-                "get_configuration", "get_maintenance_history");
+                "get_configuration", "get_maintenance_history", "get_observations");
         assertThat(automotive.references()).contains("charging-troubleshooting.md");
         assertThat(registry.require("factory-equipment").declaresTool("get_maintenance_history")).isTrue();
         assertThat(registry.require("factory-equipment").declaresTool("run_shell")).isFalse();

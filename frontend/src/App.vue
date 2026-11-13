@@ -29,7 +29,7 @@ const run = ref<RunView | null>(null)
 const draft = ref('')
 const replyDraft = ref('')
 const busy = ref(false)
-const resuming = ref(false)
+const resumingRunId = ref<string | null>(null)
 const uploading = ref(false)
 const errorText = ref('')
 const uploadedFile = ref<FileView | null>(null)
@@ -58,21 +58,24 @@ function describeError(error: unknown): string {
 }
 
 async function refresh(): Promise<void> {
-  if (!conversation.value) return
-  const detail = await readConversation(conversation.value.conversationId)
+  const conversationId = conversation.value?.conversationId
+  if (!conversationId) return
+  const detail = await readConversation(conversationId)
+  if (conversation.value?.conversationId !== conversationId) return
   conversation.value = detail.conversation
   messages.value = detail.messages
   const latest = detail.runs.length > 0 ? detail.runs[detail.runs.length - 1] : null
-  if (latest) run.value = latest
+  run.value = latest
   // 刷新/重开时如果最新 run 还在排队或执行，继续安全轮询；PG 是唯一权威，等待态也会随轮询恢复
-  if (latest && (latest.status === 'QUEUED' || latest.status === 'RUNNING') && !busy.value && !resuming.value) {
-    resuming.value = true
+  if (latest && (latest.status === 'QUEUED' || latest.status === 'RUNNING')
+      && !busy.value && resumingRunId.value !== latest.runId) {
+    resumingRunId.value = latest.runId
     try {
       await track(latest.runId)
     } catch (error) {
-      if (error instanceof ApiError && error.code === 'RUN_WAIT_TIMEOUT') errorText.value = describeError(error)
+      if (conversation.value?.conversationId === conversationId) errorText.value = describeError(error)
     } finally {
-      resuming.value = false
+      if (resumingRunId.value === latest.runId) resumingRunId.value = null
     }
   }
 }
@@ -86,6 +89,7 @@ async function openConversation(conversationId: string): Promise<void> {
     const detail = await readConversation(conversationId)
     conversation.value = detail.conversation
     rememberConversation(detail.conversation.conversationId)
+    busy.value = false
     await refresh()
   } catch (error) {
     errorText.value = describeError(error)
@@ -125,11 +129,14 @@ async function refreshHistory(): Promise<void> {
 
 /** 轮询直到 WAITING_FOR_USER/COMPLETED/FAILED；运行结束后再从持久层刷新消息。 */
 async function track(runId: string): Promise<void> {
+  const conversationId = conversation.value?.conversationId
+  const isCurrent = () => conversation.value?.conversationId === conversationId && run.value?.runId === runId
   const finished = await waitForRun(runId, {
     onUpdate: (view) => {
-      run.value = view
+      if (isCurrent()) run.value = view
     }
   })
+  if (!isCurrent()) return
   run.value = finished
   await refresh()
 }
@@ -272,7 +279,7 @@ onMounted(async () => {
 
         <section class="status">
           <span>运行状态：{{ statusLabel }}</span>
-          <span v-if="resuming" class="hint">正在从服务器恢复进行中的调查…</span>
+          <span v-if="resumingRunId && run?.runId === resumingRunId" class="hint">正在从服务器恢复进行中的调查…</span>
           <button v-if="!busy && conversation" type="button" class="link" @click="refresh">刷新</button>
         </section>
 

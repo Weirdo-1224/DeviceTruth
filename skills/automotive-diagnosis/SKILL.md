@@ -16,6 +16,7 @@ tools:
   - get_asset
   - get_configuration
   - get_maintenance_history
+  - get_observations
 evidence:
   - 现场确认的仪表提示与故障码
   - 车辆与充电设备的维修记录
@@ -41,7 +42,8 @@ citation:
 3. 拉取历史：用 `get_maintenance_history` 查看近期维修、控制器更换或软件升级记录。
 4. 核对配置：用 `get_configuration` 比较当前配置与历史版本，注意时间点与来源差异。
 5. 检索资料：用 `search_knowledge` 找手册与案例片段，命中的原文再用 `get_document_excerpt` 取回章节。
-6. 汇总已确认事实、可能原因、待人工确认项与建议动作，每条结论都要能回到证据。
+6. 用 `get_observations` 核查是否有已导入的观测；未接入或无匹配时明确尚未读取到现场数据。
+7. 汇总已确认事实、可能原因、待人工确认项与建议动作，每条结论都要能回到证据。
 
 ## 证据要求
 

@@ -101,6 +101,9 @@ export interface RunView {
   activeDurationMs?: number | null
   /** 供应商用量可得性；无 usage 时为 UNKNOWN，Token/成本为 null，不编造数值。 */
   usageStatus?: string | null
+  inputTokens?: number | null
+  outputTokens?: number | null
+  cost?: number | null
 }
 
 export interface ConversationDetail {
@@ -153,6 +156,9 @@ const FAILURE_LABELS: Readonly<Record<string, string>> = {
   REASONER_FAILURE: '模型调用失败，本次回答已停止',
   QUEUE_REJECTED: '执行队列已满，请稍后重试',
   BUDGET_EXHAUSTED: '执行预算已用尽，未生成结论',
+  TOTAL_TIMEOUT: '本次调查的累计执行时间已用尽',
+  SKILL_UNAVAILABLE: '本次调查使用的领域指引已停用，请重新发起调查',
+  SKILL_CHANGED: '本次调查使用的领域指引已变更，请重新发起调查',
   INVALID_CITATION: '答案引用无法核实，已拒绝',
   UNCONFIRMED_FINDING: '缺少现场核验，不能给出确诊结论',
   UNSAFE_ANSWER: '答案包含不安全的设备操作建议，已拒绝',

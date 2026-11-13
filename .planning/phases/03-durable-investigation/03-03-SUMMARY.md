@@ -82,6 +82,9 @@ coverage:
     requirement: "OPS-01"
     verification:
       - kind: integration
+        ref: "AgentLifecycleTest#lateQuestionAndAnswerAreNotPublishedAfterTotalDeadline；2026-11-13 PostgreSQL 补验"
+        status: pass
+      - kind: integration
         ref: "src/test/java/io/devicetruth/application/AgentLifecycleTest.java#cancelQueuedRunWhileWorkerBusyStaysCancelledAfterRecovery"
         status: pass
       - kind: integration
@@ -119,6 +122,9 @@ coverage:
     requirement: "OPS-03"
     verification:
       - kind: integration
+        ref: "AgentScopeStepTest 本地 OpenAI 兼容协议与 AgentLifecycleTest 用量持久化；2026-11-13 PostgreSQL 补验"
+        status: pass
+      - kind: integration
         ref: "src/test/java/io/devicetruth/application/AgentLifecycleTest.java#transientToolErrorIsRecordedAndRunStillCompletes"
         status: pass
       - kind: integration
@@ -146,9 +152,14 @@ coverage:
     human_judgment: false
   - id: D6
     description: "真实模型/真实 embedding 链路验收（E2E-11 真实供应商路径、真实多轮追问质量）"
-    verification: []
-    human_judgment: true
-    rationale: "本轮环境缺 DASHSCOPE_API_KEY/OPENAI_API_KEY 与真实 embedding 配额，保持 NOT_RUN；investigation 套件仅证明 scripted+确定性 embedding 下的产品语义，不冒称真实模型通过"
+    verification:
+      - kind: e2e
+        ref: "2026-11-13 multi-turn-basic：DeepSeek 与 DashScope 实际完成同 run 追问、补答、检索和章节回读；原自动总判定因正文安全 NOT_RUN"
+        status: pass
+      - kind: e2e
+        ref: "同批次 GET run：Token 跨轮累计至 20,129 / 4,224，费用未报告；详见 03-ACCEPTANCE"
+        status: pass
+    human_judgment: false
 
 duration: 50min
 completed: 2026-11-13

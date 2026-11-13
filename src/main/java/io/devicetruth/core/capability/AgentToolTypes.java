@@ -43,11 +43,13 @@ public final class AgentToolTypes {
 
     /** 工具执行结果：success 与 error 互斥；references 是本 run 可取回的引用集合。 */
     public record ToolOutcome(boolean success, String requestId, String toolName, Object data,
-                              List<Reference> references, ToolError error, String dataNature) {
+                              List<Reference> references, ToolError error, String dataNature,
+                              Map<String, String> modelContext) {
         public ToolOutcome {
             Checks.text(requestId, "requestId");
             Checks.id(toolName, "toolName");
             references = Checks.list(references);
+            modelContext = Map.copyOf(modelContext);
             if (success && error != null) throw new IllegalArgumentException("success and error are exclusive");
             if (!success && error == null) throw new IllegalArgumentException("failure requires an error");
             if (!"SIMULATED".equals(dataNature) && !"AUTHORIZED".equals(dataNature))
@@ -56,11 +58,16 @@ public final class AgentToolTypes {
 
         public static ToolOutcome ok(String requestId, String toolName, Object data, List<Reference> references,
                                      String dataNature) {
-            return new ToolOutcome(true, requestId, toolName, data, references, null, dataNature);
+            return ok(requestId, toolName, data, references, dataNature, Map.of());
+        }
+
+        public static ToolOutcome ok(String requestId, String toolName, Object data, List<Reference> references,
+                                     String dataNature, Map<String, String> modelContext) {
+            return new ToolOutcome(true, requestId, toolName, data, references, null, dataNature, modelContext);
         }
 
         public static ToolOutcome failed(String requestId, String toolName, ToolError error) {
-            return new ToolOutcome(false, requestId, toolName, null, List.of(), error, "SIMULATED");
+            return new ToolOutcome(false, requestId, toolName, null, List.of(), error, "SIMULATED", Map.of());
         }
     }
 

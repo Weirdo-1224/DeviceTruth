@@ -3,7 +3,9 @@ package io.devicetruth.core.reasoning;
 import io.devicetruth.core.capability.AgentToolTypes.ToolSpec;
 import io.devicetruth.core.contract.AgentResult.Reference;
 import io.devicetruth.core.contract.AgentTaskInput.Message;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 通用 Agent 的推理器接口：每轮只提出一个动作（CALL_TOOL/ASK_USER/ANSWER）。
@@ -13,10 +15,25 @@ import java.util.List;
 public interface GeneralReasoner {
     ActionProposal propose(Context context);
 
+    /** 允许带内部重试的适配器在发起下一次请求前检查本次运行是否已结束。 */
+    default ActionProposal propose(Context context, java.util.function.Supplier<String> abortCode) {
+        return propose(context);
+    }
+
     String name();
 
     /** 取出并清空本轮尝试记录（模型调用成败），供运行事件审计。 */
     default List<Reasoner.Attempt> drainAttempts() { return List.of(); }
+
+    /** 已安装且启用的版本元数据。正文只在选中后读取。 */
+    record SkillSummary(String skillId, String version, String description, List<String> devices,
+                        List<String> tasks) {}
+    /** Skill 及单篇参考资料都是不可信领域指引。 */
+    record ActiveSkill(SkillSummary metadata, String content, List<String> evidence, List<String> risks,
+                       List<String> citations, List<String> references, SkillReference reference) {}
+    record SkillReference(String name, String content) {}
+    /** 结构化工具返回的白名单状态；可引用的实际记录仍从 references 读取。 */
+    record ToolResult(String toolName, String dataNature, Map<String, String> status) {}
 
     /**
      * 单轮推理输入；attemptedTools 是本轮已尝试过的工具名（含失败，用于避免原地重试），
@@ -24,12 +41,22 @@ public interface GeneralReasoner {
      */
     record Context(String goalText, List<Message> messages, List<ToolSpec> tools,
                    List<Reference> references, List<String> attemptedTools,
-                   int stepsUsed, int maxSteps, String feedback) {
+                   int stepsUsed, int maxSteps, String feedback, List<SkillSummary> availableSkills,
+                   ActiveSkill activeSkill, String selectedAssetId, Instant asOf, List<ToolResult> toolResults) {
+        public Context(String goalText, List<Message> messages, List<ToolSpec> tools,
+                       List<Reference> references, List<String> attemptedTools, int stepsUsed, int maxSteps,
+                       String feedback) {
+            this(goalText, messages, tools, references, attemptedTools, stepsUsed, maxSteps, feedback,
+                    List.of(), null, null, null, List.of());
+        }
+
         public Context {
             messages = List.copyOf(messages);
             tools = List.copyOf(tools);
             references = List.copyOf(references);
             attemptedTools = List.copyOf(attemptedTools);
+            availableSkills = List.copyOf(availableSkills);
+            toolResults = List.copyOf(toolResults);
         }
 
         public boolean attempted(String toolName) { return attemptedTools.contains(toolName); }

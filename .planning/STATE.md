@@ -1,30 +1,32 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.0
-current_phase: 04
-current_phase_name: 标准 Skill 与双域验证
+current_phase: 05
+current_phase_name: 完整工作台、质量与交付
 current_plan: Not started
 status: executing
-stopped_at: Phase 03 complete, ready to execute Phase 04
-last_updated: "2026-11-13T08:52:58.425Z"
+stopped_at: Phase 4 complete, ready to execute Phase 05
+last_updated: "2026-11-13T12:45:18.599Z"
 last_activity: 2026-11-13
-last_activity_desc: Phase 03 complete, transitioned to Phase 04
-state_head: 9d863773a2c48c007f7191723cb7234499940a6d
+last_activity_desc: Phase 4 complete, transitioned to Phase 05
+state_head: 480cfd692b401dfd1b9f7387da87c28c9c34cca2
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 4
   total_plans: 13
-  completed_plans: 8
-  percent: 40
+  completed_plans: 10
+  percent: 77
 milestone_name: 通用设备检修 Agent
 total_phases: 5
 total_plans_in_phase: 3
-review_status: 03-03_executed
-execution_authorized: true
-last_execution_authorization: 2026-11-13 GSD dispatch 明确执行 03-03（phase 03 plan 03），顺序执行于主工作树，逐任务原子提交并写 SUMMARY。
+review_status: phase_04_verified
+execution_authorized: false
+last_execution_authorization: 2026-11-13 用户授权修复 Phase 3 与 Phase 4 衔接缺口、并行实施并验收。
 ---
 
 # Project State
+
+> 2026-11-13 最新：Phase 3 补验和 Phase 4 验收结束。DeepSeek + DashScope 实际执行，Phase 3 同 run 追问、补答、引用和 Token 落库已核对；Phase 4 同批在线结果汽车 9/9、工厂 8/8（工厂措辞误判用更正规则复核原答案）。原生 UAT 门禁通过并关闭 Phase 4，累计 10/13 计划、4/5 阶段。Phase 5 尚未开始。全量 PostgreSQL 343 项（342 通过、1 跳过），见两阶段 ACCEPTANCE。
 
 > 2026-11-13 latest: **03-03 executed & committed**（3 任务 3 提交 + 文档提交；SUMMARY 见 [03-03-SUMMARY](phases/03-durable-investigation/03-03-SUMMARY.md)）。V13 生命周期列 + CANCELLED 终态：持久请求键重复提交 409 不重复执行；队列拒绝 FAILED/QUEUE_REJECTED 无幽灵任务；`POST /api/runs/{id}/cancel` 三态取消（QUEUED/WAITING 立即 CANCELLED，RUNNING 协作式收尾，终态再取消 409）；总时限=累计执行时长（不含等待）超限 FAILED/TOTAL_TIMEOUT，恢复/对账不清零不复活；取消/超时后迟到模型响应只记 RUN_LATE_RESPONSE 不覆盖终态。观测：RUN_TOOL 单次耗时、RUN_MODEL 版本/重试/耗时、budget.used 回写，无供应商 usage 时 UNKNOWN 不编造。全量 329/0/0/1（AgentLifecycleTest 12、RunRecoveryTest 9 无回归）；verify_cli 与 investigation HTTP 套件（多轮补证+幂等+取消+审计）PASS；前端 18/18+build 通过。真实模型/embedding（D6）与浏览器演示未验证。Phase 03 三个计划全部执行完毕，待独立 Review 与阶段验收。注意：工作树有并行 04-01 未提交改动，未纳入本计划。
 
@@ -53,18 +55,18 @@ last_execution_authorization: 2026-11-13 GSD dispatch 明确执行 03-03（phase
 See: .planning/PROJECT.md (updated 2026-11-09)
 
 **Core value:** 自由设备问题能开启有来源、可补证、可恢复的可信调查。
-**Current focus:** Phase 03 — 设备事实与持久连续调查
+**Current focus:** Phase 04 — 标准 Skill 与双域验证
 
 ## Current Position
 
-Phase: 04 — 标准 Skill 与双域验证
+Phase: 05 — 完整工作台、质量与交付
 Current Plan: Not started
-Total Plans in Phase: 3
-Plan: 3 of 3
+Total Plans in Phase: 2
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-11-13 — Phase 03 complete, transitioned to Phase 04
+Last activity: 2026-11-13 — Phase 4 complete, transitioned to Phase 05
 
-Progress: [████░░░░░░] 40%
+Progress: [███████░░░] 9/13 plans ([██████░░░░] 60%)
 
 ## 02-02 本轮事实（2026-11-11）
 
@@ -170,6 +172,6 @@ interview_guide public表数量基线17；本轮仅在独立devicetruth/随机�
 ## Session Continuity
 
 Last session: 2026-11-13T07:51:58.062Z
-Stopped at: Phase 03 complete, ready to execute Phase 04
+Stopped at: Phase 4 complete, ready to execute Phase 05
 Resume file: .planning/NEXT_SESSION.md
 Read first: AGENTS.md → STATE → 03-01-SUMMARY → 03-01-PLAN → 02-03-SUMMARY → PROJECT → ROADMAP

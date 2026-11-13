@@ -10,8 +10,12 @@ import io.devicetruth.core.contract.AgentResult.Reference;
 import io.devicetruth.core.contract.AgentTaskInput.PendingQuestion;
 import io.devicetruth.core.contract.Checks;
 import io.devicetruth.core.reasoning.GeneralReasoner;
+import io.devicetruth.core.reasoning.Reasoner;
 import io.devicetruth.core.runtime.TaskOrchestrator;
 import io.devicetruth.core.runtime.TaskOrchestrator.AgentRunOutcome;
+import io.devicetruth.skill.SkillException;
+import io.devicetruth.skill.SkillRuntime;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -50,7 +54,8 @@ public final class GeneralAgentService {
     public record RunView(UUID runId, UUID conversationId, UUID goalMessageId, String status, long version,
                           Instant requestedAt, Instant asOf, String dataNature,
                           PendingQuestion pendingQuestion, AgentResult result, String failureCode,
-                          Long activeDurationMs, String usageStatus) {}
+                          Long activeDurationMs, String usageStatus,
+                          Long inputTokens, Long outputTokens, BigDecimal cost) {}
     public record ConversationDetail(ConversationView conversation, List<MessageView> messages, List<RunView> runs) {}
     public static final class RequestFailure extends RuntimeException {
         private final String code;
@@ -72,6 +77,7 @@ public final class GeneralAgentService {
     private final boolean workerEnabled;
     private final ThreadPoolExecutor executor;
     private final io.devicetruth.knowledge.FileUploadService files;
+    private final SkillRuntime skills;
     /** 本进程实例的 worker 标识：租约按它判定持有者，崩溃后由新进程在租约过期后回收。 */
     private final String workerId;
     private final java.time.Duration leaseDuration;
@@ -101,6 +107,16 @@ public final class GeneralAgentService {
                                int maxConcurrentRuns, int maxQueue, boolean workerEnabled,
                                io.devicetruth.knowledge.FileUploadService files, long leaseSeconds,
                                int maxRecoveryAttempts) {
+        this(conversations, runs, transactions, identity, gateway, reasoners, maxConcurrentRuns, maxQueue,
+                workerEnabled, files, leaseSeconds, maxRecoveryAttempts, null);
+    }
+
+    public GeneralAgentService(ConversationRepository conversations, AgentRunRepository runs,
+                               TransactionTemplate transactions, ServerIdentity identity,
+                               CapabilityGateway gateway, Supplier<GeneralReasoner> reasoners,
+                               int maxConcurrentRuns, int maxQueue, boolean workerEnabled,
+                               io.devicetruth.knowledge.FileUploadService files, long leaseSeconds,
+                               int maxRecoveryAttempts, SkillRuntime skills) {
         if (maxConcurrentRuns < 1 || maxQueue < 0) throw new IllegalArgumentException("Worker limits must be positive");
         if (leaseSeconds < 1) throw new IllegalArgumentException("leaseSeconds must be positive");
         this.conversations = conversations;
@@ -112,6 +128,7 @@ public final class GeneralAgentService {
         this.orchestrator = new TaskOrchestrator(gateway);
         this.workerEnabled = workerEnabled;
         this.files = files;
+        this.skills = skills;
         this.workerId = "worker-" + UUID.randomUUID().toString().substring(0, 8);
         this.leaseDuration = java.time.Duration.ofSeconds(leaseSeconds);
         this.recovery = new RunRecoveryService(runs, maxRecoveryAttempts);
@@ -144,6 +161,13 @@ public final class GeneralAgentService {
 
     public RunView run(UUID runId) { return runs.require(identity, runId); }
 
+    public SkillRuntime.SelectionView runSkill(UUID runId) {
+        runs.require(identity, runId);
+        var selected = skills == null ? null : skills.selection(runId);
+        if (selected == null) throw new RequestFailure("SKILL_NOT_SELECTED", 404);
+        return selected;
+    }
+
     /**
      * 取消（03-03）：QUEUED/WAITING_FOR_USER 立即迁移终态 CANCELLED；
      * RUNNING 只打取消标记，由持有租约的 worker 在每步之间协作式收尾——
@@ -151,9 +175,12 @@ public final class GeneralAgentService {
      * 终态 run 再取消返回 409 RUN_ALREADY_TERMINAL；不存在/跨身份统一 404。
      */
     public RunView cancel(UUID runId) {
-        if (runs.requestCancel(identity, runId, Instant.now()) != 1)
-            throw new RequestFailure("RUN_ALREADY_TERMINAL", 409);
-        return runs.require(identity, runId);
+        return transactions.execute(status -> {
+            runs.load(identity, runId, true);
+            if (runs.requestCancel(identity, runId, Instant.now()) != 1)
+                throw new RequestFailure("RUN_ALREADY_TERMINAL", 409);
+            return runs.require(identity, runId);
+        });
     }
 
     /**
@@ -332,13 +359,14 @@ public final class GeneralAgentService {
         try {
             AgentRunOutcome outcome = doRun(run, abortCheck(run, segmentStartNanos));
             if (outcome == null) return; // doRun 内已按稳定错误码置 FAILED，无需再提交结果
-            long segmentMs = (System.nanoTime() - segmentStartNanos) / 1_000_000;
             try {
-                persist(run, outcome, segmentMs);
+                persist(run, outcome, segmentStartNanos);
+            } catch (SkillException e) {
+                failClaimedQuietly(run, e.code());
             } catch (RuntimeException e) {
                 // 落库失败（唯一约束、连接中断等）必须变成可观察的 FAILED，不能把 run 留在 RUNNING
                 LOG.error("Agent run persistence failed: runId={} type={}", runId, e.getClass().getSimpleName());
-                failQuietly(runId, "PERSIST_FAILURE");
+                failClaimedQuietly(run, "PERSIST_FAILURE");
             }
         } finally {
             heartbeat.cancel(false);
@@ -351,7 +379,8 @@ public final class GeneralAgentService {
      */
     private java.util.function.Supplier<String> abortCheck(RunRecord run, long segmentStartNanos) {
         return () -> {
-            if (runs.isCancelRequested(identity, run.runId())) return "CANCELLED";
+            String stop = runs.claimStopCode(identity, run.runId(), run.version() + 1);
+            if (stop != null) return stop;
             long totalActiveMs = run.activeDurationMs() + (System.nanoTime() - segmentStartNanos) / 1_000_000;
             return totalActiveMs >= run.maxActiveDurationMs() ? "TOTAL_TIMEOUT" : null;
         };
@@ -377,14 +406,21 @@ public final class GeneralAgentService {
             } catch (RuntimeException e) {
                 // 服务端模型配置错误：FAILED + 稳定错误码，不降级到 scripted
                 LOG.error("Agent reasoner creation failed: runId={} type={}", runId, e.getClass().getSimpleName());
-                failQuietly(runId, "MODEL_CONFIGURATION_MISSING");
+                failClaimedQuietly(run, "MODEL_CONFIGURATION_MISSING");
                 return null;
             }
-            return orchestrator.runAgent(input, gateway, toolContext, runs.references(identity, runId), reasoner,
-                    abortCode);
+            var references = runs.references(identity, runId);
+            if (skills == null)
+                return orchestrator.runAgent(input, gateway, toolContext, references, reasoner, abortCode);
+            var skillSession = skills.open(gateway, toolContext, run.version() + 1);
+            return orchestrator.runAgent(input, skillSession.gateway(), toolContext, references, reasoner,
+                    abortCode, skillSession::step);
+        } catch (SkillException e) {
+            failClaimedQuietly(run, e.code());
+            return null;
         } catch (RuntimeException e) {
             LOG.error("Agent run failed: runId={} type={}", runId, e.getClass().getSimpleName());
-            failQuietly(runId, "AGENT_RUN_FAILURE");
+            failClaimedQuietly(run, "AGENT_RUN_FAILURE");
             return null;
         }
     }
@@ -395,8 +431,7 @@ public final class GeneralAgentService {
      * 取消竞态在锁内重查：已打取消标记或已不再是 RUNNING 时，本轮模型响应只记
      * RUN_LATE_RESPONSE 事件，绝不覆盖 CANCELLED/FAILED 等既有终态。
      */
-    private void persist(RunRecord run, AgentRunOutcome outcome, long segmentMs) {
-        Instant now = Instant.now();
+    private void persist(RunRecord run, AgentRunOutcome outcome, long segmentStartNanos) {
         int modelAttempts = 0;
         int toolCalls = 0;
         for (var event : outcome.events()) {
@@ -406,26 +441,45 @@ public final class GeneralAgentService {
         int attempts = modelAttempts;
         int tools = toolCalls;
         transactions.execute(status -> {
+            conversations.require(identity, run.conversationId(), true);
             RunRecord current = runs.load(identity, run.runId(), true);
-            if (!"RUNNING".equals(current.status())) {
+            if (!ownsClaim(run, current)) {
                 runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_LATE_RESPONSE",
-                        Map.of("status", current.status(), "code", outcome.stopReason()), now);
+                        Map.of("status", current.status(), "code", outcome.stopReason()), Instant.now());
                 return null;
             }
-            if (current.cancelRequested()) {
-                runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_LATE_RESPONSE",
-                        Map.of("status", "CANCELLED", "code", outcome.stopReason()), now);
-                runs.cancelRunning(identity, current, outcome.stepsUsed(), segmentMs, attempts, tools, now);
-                return null;
-            }
+            Instant auditedAt = Instant.now();
             for (var event : outcome.events()) {
                 if ("TOOL_RESULT".equals(event.type()))
-                    runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_TOOL", event.data(), now);
+                    runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_TOOL", event.data(), auditedAt);
                 if ("MODEL_ATTEMPT".equals(event.type()))
                     runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_MODEL",
-                            modelEventPayload(event.data()), now);
+                            modelEventPayload(event.data()), auditedAt);
             }
-            if (outcome.status() == TaskOrchestrator.AgentStatus.WAITING_FOR_USER) {
+            if (attempts > 0) runs.updateModelUsage(identity, run.runId());
+
+            // 锁内重新计时，避免模型返回后在等待锁或保存审计的时间里超限却仍提交问答。
+            long segmentMs = (System.nanoTime() - segmentStartNanos) / 1_000_000;
+            boolean timedOut = current.activeDurationMs() + segmentMs >= current.maxActiveDurationMs();
+            boolean hasLateResponse = outcome.events().stream().anyMatch(event -> "RUN_LATE_RESPONSE".equals(event.type()));
+            boolean hasAssistantResponse = outcome.status() == TaskOrchestrator.AgentStatus.WAITING_FOR_USER
+                    || outcome.status() == TaskOrchestrator.AgentStatus.COMPLETED;
+            if (!current.cancelRequested() && !timedOut && hasAssistantResponse && skills != null) {
+                skills.verifyActiveGrant(run.runId());
+                segmentMs = (System.nanoTime() - segmentStartNanos) / 1_000_000;
+                timedOut = current.activeDurationMs() + segmentMs >= current.maxActiveDurationMs();
+            }
+            Instant now = Instant.now();
+            if (current.cancelRequested() || hasLateResponse || (timedOut && hasAssistantResponse)) {
+                String code = current.cancelRequested() ? "CANCELLED" : "TOTAL_TIMEOUT";
+                runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_LATE_RESPONSE",
+                        Map.of("status", current.cancelRequested() ? "CANCELLED" : "FAILED", "code", code), now);
+            }
+            if (current.cancelRequested()) {
+                runs.cancelRunning(identity, current, outcome.stepsUsed(), segmentMs, attempts, tools, now);
+            } else if (timedOut) {
+                runs.fail(identity, current, "TOTAL_TIMEOUT", outcome.stepsUsed(), segmentMs, attempts, tools, now);
+            } else if (outcome.status() == TaskOrchestrator.AgentStatus.WAITING_FOR_USER) {
                 var question = outcome.question().withVersion(run.questionVersion() + 1);
                 conversations.appendAssistant(identity, run.conversationId(), run.runId(), question.question(),
                         now, run.asOf());
@@ -436,9 +490,6 @@ public final class GeneralAgentService {
                         outcome.answer().summary(), now, run.asOf());
                 runs.complete(identity, current, outcome.answer(), outcome.stepsUsed(), segmentMs,
                         attempts, tools, now);
-            } else if (outcome.status() == TaskOrchestrator.AgentStatus.CANCELLED) {
-                // 协作式中止（取消/超时在循环内触发）：终态 CANCELLED 由 CAS 收口
-                runs.cancelRunning(identity, current, outcome.stepsUsed(), segmentMs, attempts, tools, now);
             } else {
                 runs.fail(identity, current, outcome.stopReason(), outcome.stepsUsed(), segmentMs,
                         attempts, tools, now);
@@ -452,19 +503,42 @@ public final class GeneralAgentService {
         Map<String, Object> payload = new java.util.HashMap<>();
         payload.put("model", String.valueOf(data.getOrDefault("model", "unknown")));
         Object attempt = data.get("attempt");
-        if (attempt instanceof io.devicetruth.core.reasoning.Reasoner.Attempt record) {
+        if (attempt instanceof Reasoner.Attempt record) {
             payload.put("attempt", record.number());
             payload.put("outcome", record.outcome());
             payload.put("durationMs", record.durationMs());
+            payload.put("retryable", record.retryable());
+            if (record.usage() != null) {
+                if (record.usage().inputTokens() != null) payload.put("inputTokens", record.usage().inputTokens());
+                if (record.usage().outputTokens() != null) payload.put("outputTokens", record.usage().outputTokens());
+                if (record.usage().cost() != null) payload.put("cost", record.usage().cost());
+            }
         }
         return payload;
     }
 
     private void failQuietly(UUID runId, String code) {
+        failQuietly(runId, code, null);
+    }
+
+    private void failClaimedQuietly(RunRecord claimed, String code) {
+        failQuietly(claimed.runId(), code, claimed);
+    }
+
+    private static boolean ownsClaim(RunRecord queued, RunRecord current) {
+        return "RUNNING".equals(current.status()) && current.version() == queued.version() + 1;
+    }
+
+    private void failQuietly(UUID runId, String code, RunRecord claimed) {
         try {
             transactions.execute(status -> {
                 RunRecord record = runs.load(identity, runId, true);
-                runs.fail(identity, record, code, record.stepsUsed(), 0, 0, 0, Instant.now());
+                if (claimed == null ? "QUEUED".equals(record.status()) : ownsClaim(claimed, record)) {
+                    if (record.cancelRequested())
+                        runs.cancelRunning(identity, record, record.stepsUsed(), 0, 0, 0, Instant.now());
+                    else
+                        runs.fail(identity, record, code, record.stepsUsed(), 0, 0, 0, Instant.now());
+                }
                 return null;
             });
         } catch (RuntimeException e) {

@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -32,8 +33,10 @@ public final class AssetSnapshotImporter {
         Checks.id(ownerId, "ownerId");
         Checks.id(projectId, "projectId");
         Checks.id(assetId, "assetId");
-        JsonRepositories.Dataset dataset = JsonRepositories.readResource(
-                "datasets/fixtures/" + fixtureFolder(assetId) + "/asset.json", JsonRepositories.Dataset.class);
+        String resource = "datasets/v1/factory/" + assetId.toLowerCase(Locale.ROOT) + ".json";
+        if (AssetSnapshotImporter.class.getClassLoader().getResource(resource) == null)
+            resource = "datasets/fixtures/" + fixtureFolder(assetId) + "/asset.json";
+        JsonRepositories.Dataset dataset = JsonRepositories.readResource(resource, JsonRepositories.Dataset.class);
         if (!assetId.equals(dataset.assetId()))
             throw new IllegalArgumentException("Fixture asset mismatch: " + dataset.assetId());
         return fromEvidence(ownerId, projectId, dataset.assetId(), dataset.records());

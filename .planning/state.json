@@ -21,7 +21,7 @@
     {
       "number": "4",
       "name": "标准 Skill 与双域验证",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "5",
@@ -32,7 +32,7 @@
   "next": {
     "command": "$gsd-progress --next",
     "label": "Advance to the next step",
-    "reason": "Phase 4 of 5 · 40% · executing"
+    "reason": "Phase 5 of 5 · 60% · executing"
   },
-  "updated_at": "2026-11-13T08:52:58.517Z"
+  "updated_at": "2026-11-13T12:45:18.718Z"
 }

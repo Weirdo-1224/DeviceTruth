@@ -41,10 +41,17 @@ public final class CapabilityGateway {
             throw new IllegalArgumentException("Tool already registered");
     }
 
+    /** 为当前 run 增加受控的会话工具；共享网关注册不受影响。 */
+    public CapabilityGateway copyToolCatalog() {
+        var copy = new CapabilityGateway();
+        copy.tools.putAll(tools);
+        return copy;
+    }
+
     /** 当前上下文可见的工具目录：已注册 ∩ 服务器授权（ToolContext.allowedTools）。 */
     public List<ToolSpec> toolCatalog(ToolContext context) {
         return tools.values().stream().map(ToolRegistration::spec)
-                .filter(spec -> context == null || context.allows(spec.name())).toList();
+                .filter(spec -> spec.readOnly() && (context == null || context.allows(spec.name()))).toList();
     }
 
     /** 已注册工具名（服务端授权的来源），用于构造 ToolContext.allowedTools。 */

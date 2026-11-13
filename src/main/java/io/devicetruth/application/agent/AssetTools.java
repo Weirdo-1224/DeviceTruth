@@ -233,7 +233,9 @@ public final class AssetTools {
         }
         if (!outcome.success()) return ToolOutcome.failed(outcome.requestId(), GET_CONFIGURATION, error(outcome));
         return ToolOutcome.ok(outcome.requestId(), GET_CONFIGURATION, outcome,
-                references.forOutcome(context, outcome), outcome.dataNature());
+                references.forOutcome(context, outcome), outcome.dataNature(), Map.of(
+                        "assetId", outcome.assetId(), "asOf", outcome.asOf().toString(),
+                        "installationStatus", outcome.installationStatus().name(), "conflict", outcome.conflict().name()));
     }
 
     private ToolOutcome maintenanceOutcome(Map<String, Object> arguments, ToolContext context) {

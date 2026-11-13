@@ -12,34 +12,34 @@ public final class AgentModelConnections {
     private AgentModelConnections() {}
 
     public static StructuredAgentReasoner qwen() {
-        return new StructuredAgentReasoner("qwen", new QwenCompletion());
+        return StructuredAgentReasoner.withUsage("qwen", new QwenCompletion()::complete);
     }
 
     public static StructuredAgentReasoner openai() {
-        return new StructuredAgentReasoner("openai", new OpenAiCompletion(ModelConfiguration.local()));
+        return StructuredAgentReasoner.withUsage("openai", new OpenAiCompletion(ModelConfiguration.local())::complete);
     }
 
-    private static final class QwenCompletion implements StructuredAgentReasoner.Completion {
+    private static final class QwenCompletion {
         private final Function<String, String> configuration = ModelConfiguration.local();
         private AgentScopeStep step;
 
-        @Override public String complete(String system, String input) {
+        private StructuredAgentReasoner.CompletionResult complete(String system, String input) {
             if (step == null) {
                 String key = configuration.apply("DASHSCOPE_API_KEY");
                 if (key == null || key.isBlank()) throw new ReasonerFailure("DASHSCOPE_API_KEY_MISSING");
                 step = AgentScopeStep.qwen(key);
             }
-            return step.complete(system, input);
+            return step.completeWithUsage(system, input);
         }
     }
 
-    private static final class OpenAiCompletion implements StructuredAgentReasoner.Completion {
+    private static final class OpenAiCompletion {
         private final Function<String, String> configuration;
         private AgentScopeStep step;
 
         private OpenAiCompletion(Function<String, String> configuration) { this.configuration = configuration; }
 
-        @Override public String complete(String system, String input) {
+        private StructuredAgentReasoner.CompletionResult complete(String system, String input) {
             if (step == null) {
                 String key = required("OPENAI_API_KEY");
                 String baseUrl = required("OPENAI_BASE_URL");
@@ -50,7 +50,7 @@ public final class AgentModelConnections {
                     throw new ReasonerFailure("OPENAI_CONFIGURATION_INVALID");
                 }
             }
-            return step.complete(system, input);
+            return step.completeWithUsage(system, input);
         }
 
         private String required(String name) {

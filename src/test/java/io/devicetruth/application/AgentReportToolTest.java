@@ -126,7 +126,8 @@ class AgentReportToolTest {
         var catalog = gateway.toolCatalog(context(UUID.randomUUID(), UUID.randomUUID()));
         assertThat(catalog).extracting(ToolSpec::name)
                 .contains("search_knowledge", "get_document_excerpt",
-                        "get_asset", "get_configuration", "get_maintenance_history", "generate_diagnosis_report");
+                        "get_asset", "get_configuration", "get_maintenance_history", "generate_diagnosis_report",
+                        "get_observations");
         ToolSpec report = catalog.stream().filter(spec -> "generate_diagnosis_report".equals(spec.name()))
                 .findFirst().orElseThrow();
         assertThat(report.readOnly()).isTrue();

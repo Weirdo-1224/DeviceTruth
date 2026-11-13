@@ -2,6 +2,8 @@
 
 # 新会话接续说明
 
+> **2026-11-13 最新接续：** Phase 3 总时限与用量修复、Chrome 恢复及在线多轮均已实测。Phase 4 两份计划完成，离线与真实 DeepSeek / DashScope 双域样本通过（保留原始报告和措辞复核）。原生阶段出口已通过，Phase 5 尚未开始。最近全量 343 项，342 通过、1 跳过。先读 [03-ACCEPTANCE](phases/03-durable-investigation/03-ACCEPTANCE.md) 与 [04-ACCEPTANCE](phases/04-skills-dual-domain/04-ACCEPTANCE.md) 的补验段。
+
 > **2026-11-13 最新接续：** 03-01（设备结构化记录与查询）已实施并自测完成，处于 REVIEW_PENDING：V8 资产四表 + V9 引用外键修正、AssetTools 三工具进产品网关、AssetController 只读 API、ResourceAuthorizationTest 8 项双身份负例。AssetToolTest 16/16、三轮全量回归 269/0/0、打包与 CLI 通过。关键背景：① 资产引用写入曾被 `dt_evidence_reference.chunk_id` 外键静默吞掉（表象是"时点过滤全空"，时区理论已被对照实验证伪）；② 推理器来源已改为 显式属性>环境变量>私有文件，**不要**再把"全量回归偶发超时"归因为 PG 争抢。全部未 commit、未标 DONE、未推进 ROADMAP；下一动作是独立 Review 03-01。先读 [03-01-SUMMARY](phases/03-durable-investigation/03-01-SUMMARY.md)。
 
 > **2026-11-12 最新接续：** 用户明确要求Phase 2带遗留项关闭；GSD原生UAT门禁与phase complete已成功，现进入Phase 03，5/13计划、2/5阶段。正文安全3项P1/1项P2、PDF/OCR/页码和浏览器端到端验收转Phase 5质量交付前处理；相关需求保持部分或未完成。Phase 03尚未实施；勿因关闭决定把遗留技术项标为通过。GSD原生progress json显示38%，state update-progress错误显示20%，两者原样记录。

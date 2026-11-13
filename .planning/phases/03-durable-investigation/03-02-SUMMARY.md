@@ -127,10 +127,12 @@ coverage:
         status: pass
     human_judgment: false
   - id: D6
-    description: "浏览器人工演示：新版§10.1最小纵向闭环（两轮问答/刷新/重启浏览器操作体验）"
-    verification: []
-    human_judgment: true
-    rationale: "需要真实浏览器交互体验评估（布局、流程顺畅度）；自动化已覆盖合同、构建与后端闭环，浏览器端仍为计划内人工验收项"
+    description: "真实浏览器行为：两轮问答、刷新、重开浏览器和重启服务恢复同一调查"
+    verification:
+      - kind: e2e
+        ref: "scripts/verify_browser_recovery.py；2026-11-13 Chrome + PostgreSQL；结果与引用在刷新及历史切换后可读"
+        status: pass
+    human_judgment: false
 
 duration: 75min
 completed: 2026-11-13

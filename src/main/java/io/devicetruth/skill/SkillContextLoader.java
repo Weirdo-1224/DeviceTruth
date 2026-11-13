@@ -27,7 +27,7 @@ public final class SkillContextLoader {
         SkillMetadata discovered = registry.require(skillId);
         Path directory = registry.directoryOf(discovered.name());
         SkillManifestParser.SkillDocument document = SkillManifestParser.readDocument(
-                directory.resolve(SkillManifestParser.SKILL_FILE), registry.limits());
+                containedFile(directory, directory.resolve(SkillManifestParser.SKILL_FILE)), registry.limits());
         if (!document.metadata().equals(discovered.withReferences(List.of())))
             throw SkillException.changed(discovered.name());
         if (document.content().isBlank()) throw SkillException.invalidDocument("instructions are empty");
@@ -43,9 +43,9 @@ public final class SkillContextLoader {
         Path file = references.resolve(referenceName);
         try {
             Path realBase = references.toRealPath();
-            Path realFile = file.toRealPath();
-            if (!realFile.startsWith(realBase) || !Files.isRegularFile(realFile))
-                throw SkillException.invalidPath("reference escapes the skill directory");
+            if (!realBase.startsWith(registry.directoryOf(discovered.name())))
+                throw SkillException.invalidPath("reference directory escapes the skill directory");
+            Path realFile = containedFile(realBase, file);
             if (Files.size(realFile) > registry.limits().maxReferenceBytes())
                 throw SkillException.tooLarge("reference");
             byte[] bytes = Files.readAllBytes(realFile);
@@ -54,6 +54,17 @@ public final class SkillContextLoader {
             String content = decode(bytes);
             if (content.isBlank()) throw SkillException.invalidDocument("reference is empty");
             return content;
+        } catch (IOException e) {
+            throw SkillException.unreadable();
+        }
+    }
+
+    private static Path containedFile(Path directory, Path file) {
+        try {
+            Path realFile = file.toRealPath();
+            if (!realFile.startsWith(directory) || !Files.isRegularFile(realFile))
+                throw SkillException.invalidPath("file escapes the skill directory");
+            return realFile;
         } catch (IOException e) {
             throw SkillException.unreadable();
         }
