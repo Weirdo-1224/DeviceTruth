@@ -80,14 +80,14 @@
 2. 在 M1 补证协议上强化跨进程检查点、租约/CAS、证据重验；重启保留等待和已提交上下文，崩溃运行可恢复或明确失败（E2E-07-restart 与 E2E-08）。
 3. 有界调度、请求幂等、取消/总超时和用量审计可验证；Vue 能读历史并继续。
 
-**Plans:** 2/3 plans executed（均已编写待审任务书；未执行）
+**Plans:** 3/3 plans executed（均待独立 Review 与阶段验收）
 - [x] 03-01-PLAN.md
 - [x] 03-02-PLAN.md
-- [ ] 03-03-PLAN.md
+- [x] 03-03-PLAN.md
 
-- [x] [03-01-PLAN.md](phases/03-durable-investigation/03-01-PLAN.md) — 带来源与时点的设备记录及全链路授权；依赖 02-03；wave 1
-- [ ] [03-02-PLAN.md](phases/03-durable-investigation/03-02-PLAN.md) — 补证可靠性强化、检查点恢复与历史会话闭环；依赖 03-01, 02-03；wave 2
-- [ ] [03-03-PLAN.md](phases/03-durable-investigation/03-03-PLAN.md) — 幂等、取消、总预算和故障可观测；依赖 03-02；wave 3
+- [x] [03-01-PLAN.md](phases/03-durable-investigation/03-01-PLAN.md) — 带来源与时点的设备记录及全链路授权；依赖 02-03；wave 1；[完成证据](phases/03-durable-investigation/03-01-SUMMARY.md)
+- [x] [03-02-PLAN.md](phases/03-durable-investigation/03-02-PLAN.md) — 补证可靠性强化、检查点恢复与历史会话闭环；依赖 03-01, 02-03；wave 2；[完成证据](phases/03-durable-investigation/03-02-SUMMARY.md)
+- [x] [03-03-PLAN.md](phases/03-durable-investigation/03-03-PLAN.md) — 幂等、取消、总预算和故障可观测；依赖 03-02；wave 3；[完成证据](phases/03-durable-investigation/03-03-SUMMARY.md)
 
 **边界 / 风险：** 事务/异步调度边界、重复恢复、迟到响应及用户声明可信级别必须测试。
 
@@ -146,10 +146,10 @@
 |---|---|---|---|---|
 | 1. 基线与通用契约 | M0 | 2/2 | Complete    | 2026-11-10 |
 | 2. 自由对话与知识检索 | M1 | 3/3 | Complete    | 2026-11-12 |
-| 3. 设备事实与持久连续调查 | M2 | 2/3 | In Progress（待审） | - |
+| 3. 设备事实与持久连续调查 | M2 | 3/3 | Executed（待独立Review与阶段验收） | - |
 | 4. 标准 Skill 与双域验证 | M3 | 0/2 | Not started（待审） | - |
 | 5. 完整工作台、质量与交付 | M4 | 0/3 | Not started（待审） | - |
 
-完成计划6/13（约46%），完成阶段2/5。03-01已修复并复审通过，03-02尚未执行，Phase 03保持开放；正文安全、PDF及浏览器验收未通过，仍需后续处理。
+完成计划8/13，完成阶段2/5。03-01 已复审通过，03-02/03-03 已执行并提交，Phase 03 三个计划全部执行完毕；待独立 Review 与阶段验收（真实模型/embedding、浏览器演示未验证）。正文安全、PDF及浏览器验收未通过，仍需后续处理。
 
-2026-11-13: PLAN 03-01 reviewed PASS after query-time reference fix; 6/13 plans complete, Phase 03 1/3. Phase 03 remains open. Next: 03-02 (not executed).
+2026-11-13: 03-03 executed（幂等/取消/总时限/错误观测；329/0/0/1，verify_cli 与 investigation 套件 PASS）；8/13 plans, Phase 03 3/3 executed. Phase 03 awaits independent review & phase acceptance. Next: review phase 03, then 04-01（未授权，待审）.

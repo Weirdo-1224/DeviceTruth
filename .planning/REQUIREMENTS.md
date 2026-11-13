@@ -1,5 +1,7 @@
 # Requirements: DeviceTruth V1.0
 
+> 2026-11-13 03-03 实际进度（待独立复审）：AGENT-04/OPS-01/OPS-03 在本计划边界内已有真实 PG 实现与测试依据（V13 生命周期列、持久请求键幂等 409、有界队列拒绝 FAILED/QUEUE_REJECTED、POST /api/runs/{id}/cancel 三态取消 CANCELLED、总时限=累计执行时长超限 FAILED/TOTAL_TIMEOUT、取消/超时后迟到响应只记 RUN_LATE_RESPONSE；RUN_TOOL 单次耗时、RUN_MODEL 版本/重试/耗时、budget.used 回写；AgentLifecycleTest 12 项 + investigation HTTP 套件 PASS + 全量 329/0/0/1 + CLI/前端无回归）。Token/成本依赖供应商 usage，当前 AgentScopeStep 不暴露 usage，保持 null/UNKNOWN 不编造（真实供应商验收仍 NOT_RUN）。原生命令无法识别中文四态需求表，本节按实际验证手动更新，不以自动标记代替。
+
 > 2026-11-13 03-02 实际进度（待独立复审）：AGENT-06/AGENT-07/STORE-04 在本计划边界内已有真实 PG 实现与测试依据（V12 执行租约、RunRecoveryService 启动对账、同 run 跨进程续跑、RunRecoveryTest 9 项）；TOOL-04 补齐 generate_diagnosis_report 只读报告工具（AgentReportToolTest 4 项）；WEB-02 历史会话/设备选择/刷新恢复已实现并有前端合同测试，浏览器人工演示未执行保持部分实现。真实模型/embedding 仍未验证；模拟数据链路不冒称现场。原生命令无法识别中文四态需求表，本节按实际验证手动更新，不以自动标记代替。
 
 > 2026-11-12 用户接受本轮检索与多轮 Review，正文安全留待后续；TRUST-05 仍部分实现，危险建议、缺现场证据确诊、追问安全与否定表述误拒均保留问题记录。真实embedding固定样本及真实模型补答链路已有实测，正文安全仍NOT_RUN。
@@ -26,7 +28,7 @@
 | AGENT-01 | 单 Agent 主循环，模型提议、服务端执行 | §4.2、D-02 | **已实现** | E07：TaskOrchestrator.run 每轮 propose；AgentScopeStep 空 SDK 工具列表 | 02 / 02-02 | 新路径仅一个主决策循环，不嵌套 ReAct 与外层循环 |
 | AGENT-02 | 通用工具动作、追问、带引用答案协议 | §4.2 | **部分实现** | E08：ActionProposal 五动作和 Map<String,String>，无普通 answer、RAG 过滤参数 | 02 / 02-02 | 支持 CALL_TOOL / ASK_USER / ANSWER 或等价协议，强类型验证 |
 | AGENT-03 | 追问持久化为 WAITING_FOR_USER，可续跑 | §4.4 | **与设计冲突** | E07：RequestInformation 分支直接 COMPLETED / NEED_EVIDENCE；E09 无等待状态 | 02 / 02-02 | M1：runId/pendingQuestionId/questionVersion 绑定补答，释放线程后同 run 读取持久消息/引用并继续检索或回答；M2 在 03-02/03-03 强化跨进程恢复、幂等与并发 |
-| AGENT-04 | 步数、重复、时间和成本预算及有界错误重试 | §4.3、§7.2、§11.2 | **部分实现** | E07：步数/重复检测；E01：45 秒单调用、非法 JSON 一次纠正；无全程时间/Token 成本账 | 03 / 03-03 | 恢复不清零累计预算，超时/取消可终止；缺失用量标 unknown |
+| AGENT-04 | 步数、重复、时间和成本预算及有界错误重试 | §4.3、§7.2、§11.2 | **已实现** | E07：步数/重复检测；E01：45 秒单调用、非法 JSON 一次纠正；03-03（待复审）：总时限=累计执行时长（不含等待）跨段强制、超限 FAILED/TOTAL_TIMEOUT，模型重试上限 2 次、答案拒绝有界修正，budget.used 步数/时长/尝试/工具调用回写（AgentLifecycleTest 12 项，真实PG） | 03 / 03-03 | 恢复不清零累计预算，超时/取消可终止；缺失用量标 unknown |
 | AGENT-05 | 风险分级结束策略，低风险不强制固定结案 | §4.5、D-07 | **与设计冲突** | E10：DecisionGuard.evaluate / investigationNeeds 强制规则与全资产历史/发现/取回 | 02 / 02-02 | 普通知识回答无需完整维修史；关键配置判断仍检查身份/时点/冲突 |
 | AGENT-06 | 任务摘要、待答问题、引用与工具输出可重建 | §4.3–4.4 | **已实现** | E07、E11：DiagnosisState/StateManager 有事实与版本但 run 内新建；03-02（待复审）：V12 租约 + RunRecoveryService 对账，新进程从 PG 重建消息/引用/预算并续跑同一 run，旧版本/跨身份/伪造引用负例通过（RunRecoveryTest 9 项，真实PG） | 03 / 03-02 | 从 PG 快照重建上下文，过期证据重验，不依赖原线程 |
 | AGENT-07 | Hypothesis 为可选调查笔记 | §4.3、§0.2 | **已实现** | E07、E10：可建 OPEN/INVALIDATED 但不作主源码赋值；03-02（待复审）：通用 Agent 路径无假设准入/结案前置，hypothesis 仅 legacy 可选笔记，未专建假设引擎，符合“可选笔记”边界 | 03 / 03-02 | 保留候选原因及依据但不作为全任务准入/结案前置；不专建完整假设引擎 |
@@ -71,9 +73,9 @@
 | WEB-04 | 上传、导入状态与引用原文查看 | §7.1 | **未实现** | E20：无上传/知识/原文 UI | 02 / 02-03 | 显示解析成功/失败，点击引用定位原页或章节 |
 | WEB-05 | 调查报告、工具轨迹与事实冲突对照 | §7.1、M4 | **部分实现** | E20：旧结果和结束后事件可展示；无通用报告/冲突对照 | 05 / 05-02 | 报告区分事实/候选原因/建议/人工事项并可追溯 |
 | WEB-06 | 新 conversations/runs/files/assets API 与 legacy 兼容 | §7.3、§9 | **部分实现** | 01-02新增product conversations/runs持久API并保留旧入口；files/assets及Agent执行后续交付 | 01 / 01-02 | 扩展资源 API；旧 sessions/diagnoses 在迁移期保留适配 |
-| OPS-01 | 有界队列、幂等提交、取消与任务总超时 | §7.2 | **部分实现** | E09：ThreadPoolExecutor 有界拒绝/回收；无请求幂等/取消/总超时 | 03 / 03-03 | 重复 POST 不重复跑；取消/超时后不能再提交终态结果 |
+| OPS-01 | 有界队列、幂等提交、取消与任务总超时 | §7.2 | **已实现** | E09：ThreadPoolExecutor 有界拒绝/回收；03-03（待复审）：持久请求键重复提交 409 DUPLICATE_REQUEST 不重复执行、队列拒绝 FAILED/QUEUE_REJECTED 无幽灵任务、POST /api/runs/{id}/cancel 三态取消 CANCELLED（终态再取消 409）、迟到响应只记事件不覆盖终态、总时限超限 FAILED/TOTAL_TIMEOUT（AgentLifecycleTest + investigation 套件） | 03 / 03-03 | 重复 POST 不重复跑；取消/超时后不能再提交终态结果 |
 | OPS-02 | Compose 部署 PG/后端/前端及服务入口 | §8 | **未实现** | E01：无 Compose；fat JAR 的 Start-Class 为 CLI | 05 / 05-03 | 单命令启动产品，HTTP 与 CLI 打包入口清晰，数据卷持久 |
-| OPS-03 | 模型/工具错误观测、调用用量与成本记录 | §11.2 | **部分实现** | E07、E18：MODEL_ATTEMPT/ToolError 码；无完整耗时/Token/成本汇总 | 03 / 03-03 | 单步/总耗时、重试、模型版本可审计，用量缺失不编数值 |
+| OPS-03 | 模型/工具错误观测、调用用量与成本记录 | §11.2 | **已实现** | E07、E18：MODEL_ATTEMPT/ToolError 码；03-03（待复审）：RUN_TOOL 单次耗时/错误码、RUN_MODEL 版本/重试次数/耗时（GET /api/runs/{id}/model-events）、started_at/finished_at/active_duration_ms；技术错误稳定码 FAILED 不伪装证据不足；供应商无 usage 时 Token/成本 null、usageStatus=UNKNOWN 不编造 | 03 / 03-03 | 单步/总耗时、重试、模型版本可审计，用量缺失不编数值 |
 | OPS-04 | 检索质量与真实数据量性能验证后再选索引/分词 | §5.5、§12 | **未实现** | E01：无检索实验/真实数据量性能结果 | 05 / 05-02 | 固定语料比较精确/向量/混合召回、延迟/成本，按结果选索引 |
 | EVAL-01 | 保留确定性测试与双域/权限/故障新测试 | §11 | **部分实现** | E21：本轮 145 项离线 PASS；未覆盖新 PG/RAG/双域产品 | 05 / 05-02 | 旧测试保留，新增 PG/引用/恢复/双域负例，不删旧用例迎合新路径 |
 | EVAL-02 | 真实模型完成新入口→Agent→Tool→结果链路 | E2E-14 | **部分实现** | E22：旧 DeepSeek CAR-B 有历史记录；在线 Router 全链路及新产品均未验收 | 02 / 02-03 | M1 真实 LLM→注册知识工具→真实 embedding/PG→引用结果及同 run 基本补证留证；固定 12 样本分通道验证；缺配置标 BLOCKED_BY_ENV，不回退 fake/scripted 冒充 |
