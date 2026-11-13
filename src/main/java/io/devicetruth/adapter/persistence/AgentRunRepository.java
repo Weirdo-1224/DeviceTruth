@@ -25,8 +25,10 @@ public final class AgentRunRepository {
     /** 运行记录：主循环需要的全部持久事实，均由 PG 重建，不依赖原 Java 线程。 */
     public record RunRecord(UUID runId, UUID conversationId, UUID goalMessageId, String status, long version,
                             Instant requestedAt, Instant asOf, UUID pendingQuestionId, int questionVersion,
-                            String selectedAssetId, String goalText, int stepsUsed, int maxSteps) {}
+                            String selectedAssetId, String goalText, int stepsUsed, int maxSteps, int attempts) {}
     public record ToolEvent(int sequence, String toolName, boolean success, String errorCode, int referenceCount) {}
+    /** 恢复扫描命中的遗留 RUNNING：只带对账需要的字段，不重建完整运行上下文。 */
+    public record ExpiredRun(UUID runId, UUID conversationId, long version, int attempts) {}
 
     private static final String VIEW_SQL = """
             SELECT r.id, r.conversation_id, r.goal_message_id, r.status, r.version, r.requested_at, r.as_of,
@@ -108,7 +110,8 @@ public final class AgentRunRepository {
                        r.pending_question_id, r.question_version,
                        (r.budget->'used'->>'steps')::int AS steps_used,
                        (r.budget->'limits'->>'maxSteps')::int AS max_steps,
-                       m.selected_asset_id, m.content AS goal_text
+                       m.selected_asset_id, m.content AS goal_text,
+                       r.attempts
                 FROM dt_agent_run r
                 JOIN dt_message m ON m.id = r.goal_message_id
                 WHERE r.id = ? AND r.owner_id = ? AND r.project_id = ?
@@ -118,17 +121,75 @@ public final class AgentRunRepository {
                         r.getTimestamp("requested_at").toInstant(), r.getTimestamp("as_of").toInstant(),
                         r.getObject("pending_question_id", UUID.class), r.getInt("question_version"),
                         r.getString("selected_asset_id"), r.getString("goal_text"),
-                        r.getInt("steps_used"), r.getInt("max_steps")),
+                        r.getInt("steps_used"), r.getInt("max_steps"), r.getInt("attempts")),
                 runId, identity.ownerId(), identity.projectId());
         if (rows.isEmpty()) throw io.devicetruth.application.agent.GeneralAgentService.denied();
         return rows.getFirst();
     }
 
-    /** QUEUED → RUNNING；已被其他 worker 接手（状态或版本变化）时返回 0，调用方必须放弃执行。 */
-    public int markRunning(ServerIdentity identity, RunRecord run, Instant now) {
-        return update("UPDATE dt_agent_run SET status='RUNNING', version=version+1, updated_at=? "
-                + "WHERE id=? AND owner_id=? AND project_id=? AND status='QUEUED' AND version=?",
+    /**
+     * QUEUED → RUNNING：领取执行租约并累计尝试次数。
+     * 已被其他 worker 接手（状态或版本变化）时返回 0，调用方必须放弃执行；
+     * 租约到期前其他进程不会回收这个 RUNNING，防双 worker 重复推进。
+     */
+    public int markRunning(ServerIdentity identity, RunRecord run, String leaseOwner, Instant leaseExpiresAt,
+                           Instant now) {
+        return update("""
+                UPDATE dt_agent_run SET status='RUNNING', version=version+1, updated_at=?,
+                    lease_owner=?, lease_expires_at=?, lease_heartbeat_at=?, attempts=attempts+1
+                WHERE id=? AND owner_id=? AND project_id=? AND status='QUEUED' AND version=?
+                """, java.sql.Timestamp.from(now), leaseOwner, java.sql.Timestamp.from(leaseExpiresAt),
                 java.sql.Timestamp.from(now), run.runId(), identity.ownerId(), identity.projectId(), run.version());
+    }
+
+    /** 运行中续租：只有持有者且仍处于 RUNNING 时才生效，worker 崩溃后租约自然过期。 */
+    public int heartbeat(ServerIdentity identity, UUID runId, String leaseOwner, Instant leaseExpiresAt, Instant now) {
+        return jdbc.update("""
+                UPDATE dt_agent_run SET lease_expires_at=?, lease_heartbeat_at=?
+                WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING' AND lease_owner=?
+                """, java.sql.Timestamp.from(leaseExpiresAt), java.sql.Timestamp.from(now),
+                runId, identity.ownerId(), identity.projectId(), leaseOwner);
+    }
+
+    /** 恢复扫描：租约已过期（或从未持租约的旧版遗留）的 RUNNING，供启动对账回收。 */
+    public List<ExpiredRun> runningWithExpiredLease(ServerIdentity identity, Instant now) {
+        return jdbc.query("""
+                SELECT id, conversation_id, version, attempts FROM dt_agent_run
+                WHERE owner_id=? AND project_id=? AND status='RUNNING'
+                  AND (lease_expires_at IS NULL OR lease_expires_at < ?)
+                ORDER BY created_at, id
+                """, (r, n) -> new ExpiredRun(r.getObject("id", UUID.class), r.getObject("conversation_id", UUID.class),
+                        r.getLong("version"), r.getInt("attempts")),
+                identity.ownerId(), identity.projectId(), java.sql.Timestamp.from(now));
+    }
+
+    /** RUNNING → QUEUED：仅当版本未变且租约仍处过期状态时回收，成功才允许重新调度。 */
+    public int requeueRecovered(ServerIdentity identity, ExpiredRun run, Instant now) {
+        int updated = update("""
+                UPDATE dt_agent_run SET status='QUEUED', version=version+1, updated_at=?,
+                    lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
+                WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING' AND version=?
+                  AND (lease_expires_at IS NULL OR lease_expires_at < ?)
+                """, java.sql.Timestamp.from(now), run.runId(), identity.ownerId(), identity.projectId(),
+                run.version(), java.sql.Timestamp.from(now));
+        if (updated == 1)
+            appendEvent(identity, run.runId(), run.conversationId(), "RUN_RECOVERED",
+                    Map.of("attempts", run.attempts()), now);
+        return updated;
+    }
+
+    /** 遗留 RUNNING 无法安全续跑时明确失败：同样以租约过期+版本 CAS 兜底，绝不留下永久 RUNNING。 */
+    public int failRecovered(ServerIdentity identity, ExpiredRun run, String code, Instant now) {
+        int updated = update("""
+                UPDATE dt_agent_run SET status='FAILED', version=version+1, updated_at=?,
+                    lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
+                WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING' AND version=?
+                  AND (lease_expires_at IS NULL OR lease_expires_at < ?)
+                """, java.sql.Timestamp.from(now), run.runId(), identity.ownerId(), identity.projectId(),
+                run.version(), java.sql.Timestamp.from(now));
+        if (updated == 1)
+            appendEvent(identity, run.runId(), run.conversationId(), "RUN_FAILED", Map.of("code", code), now);
+        return updated;
     }
 
     /** RUNNING → WAITING_FOR_USER：问题、版本、累计步数与引用计数同一事务写入后释放 worker。 */
@@ -143,7 +204,8 @@ public final class AgentRunRepository {
         return update("""
                 UPDATE dt_agent_run SET status='WAITING_FOR_USER', version=version+1, updated_at=?,
                     pending_question_id=?, question_version=?, pending_question=CAST(? AS jsonb),
-                    context_summary=?, budget=jsonb_set(budget,'{used,steps}',to_jsonb(?::int),true)
+                    context_summary=?, budget=jsonb_set(budget,'{used,steps}',to_jsonb(?::int),true),
+                    lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
                 WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING'
                 """, java.sql.Timestamp.from(now), question.pendingQuestionId(), question.questionVersion(), payload,
                 "steps=" + stepsUsed + ";references=" + referenceCount, stepsUsed,
@@ -154,7 +216,8 @@ public final class AgentRunRepository {
     public int complete(ServerIdentity identity, RunRecord run, AgentResult answer, int stepsUsed, Instant now) {
         int updated = update("""
                 UPDATE dt_agent_run SET status='COMPLETED', version=version+1, updated_at=?,
-                    budget=jsonb_set(budget,'{used,steps}',to_jsonb(?::int),true)
+                    budget=jsonb_set(budget,'{used,steps}',to_jsonb(?::int),true),
+                    lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
                 WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING'
                 """, java.sql.Timestamp.from(now), stepsUsed, run.runId(), identity.ownerId(), identity.projectId());
         if (updated == 1) appendEvent(identity, run.runId(), run.conversationId(), "RUN_ANSWER", answer, now);
@@ -165,7 +228,8 @@ public final class AgentRunRepository {
     public int fail(ServerIdentity identity, RunRecord run, String code, int stepsUsed, Instant now) {
         int updated = update("""
                 UPDATE dt_agent_run SET status='FAILED', version=version+1, updated_at=?,
-                    budget=jsonb_set(budget,'{used,steps}',to_jsonb(?::int),true)
+                    budget=jsonb_set(budget,'{used,steps}',to_jsonb(?::int),true),
+                    lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
                 WHERE id=? AND owner_id=? AND project_id=? AND status IN ('QUEUED','RUNNING')
                 """, java.sql.Timestamp.from(now), stepsUsed, run.runId(), identity.ownerId(), identity.projectId());
         if (updated == 1)

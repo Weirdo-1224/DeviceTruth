@@ -121,7 +121,7 @@ class PersistentConversationTest {
         jdbc = new JdbcTemplate(app.getBean(com.zaxxer.hikari.HikariDataSource.class));
         assertThat(detail(id)).isEqualTo(before);
         assertThat(Json.MAPPER.readTree(rest.getForObject(base + "/api/runs/" + runId, String.class))).isEqualTo(run);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class)).isEqualTo(11); // V1–V11
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success", Integer.class)).isEqualTo(12); // V1–V12（03-02 追加检查点租约迁移）
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE NOT success", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT extversion FROM pg_extension WHERE extname='vector'", String.class)).isEqualTo("0.8.7");
         assertThat(jdbc.queryForObject("SHOW server_version", String.class)).startsWith("16.15");

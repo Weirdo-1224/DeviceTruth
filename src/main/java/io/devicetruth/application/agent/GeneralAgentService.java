@@ -71,6 +71,11 @@ public final class GeneralAgentService {
     private final boolean workerEnabled;
     private final ThreadPoolExecutor executor;
     private final io.devicetruth.knowledge.FileUploadService files;
+    /** 本进程实例的 worker 标识：租约按它判定持有者，崩溃后由新进程在租约过期后回收。 */
+    private final String workerId;
+    private final java.time.Duration leaseDuration;
+    private final RunRecoveryService recovery;
+    private final java.util.concurrent.ScheduledExecutorService heartbeats;
 
     public GeneralAgentService(ConversationRepository conversations, AgentRunRepository runs,
                                TransactionTemplate transactions, ServerIdentity identity,
@@ -85,7 +90,18 @@ public final class GeneralAgentService {
                                CapabilityGateway gateway, Supplier<GeneralReasoner> reasoners,
                                int maxConcurrentRuns, int maxQueue, boolean workerEnabled,
                                io.devicetruth.knowledge.FileUploadService files) {
+        this(conversations, runs, transactions, identity, gateway, reasoners, maxConcurrentRuns, maxQueue,
+                workerEnabled, files, 60, 3);
+    }
+
+    public GeneralAgentService(ConversationRepository conversations, AgentRunRepository runs,
+                               TransactionTemplate transactions, ServerIdentity identity,
+                               CapabilityGateway gateway, Supplier<GeneralReasoner> reasoners,
+                               int maxConcurrentRuns, int maxQueue, boolean workerEnabled,
+                               io.devicetruth.knowledge.FileUploadService files, long leaseSeconds,
+                               int maxRecoveryAttempts) {
         if (maxConcurrentRuns < 1 || maxQueue < 0) throw new IllegalArgumentException("Worker limits must be positive");
+        if (leaseSeconds < 1) throw new IllegalArgumentException("leaseSeconds must be positive");
         this.conversations = conversations;
         this.runs = runs;
         this.transactions = transactions;
@@ -95,6 +111,9 @@ public final class GeneralAgentService {
         this.orchestrator = new TaskOrchestrator(gateway);
         this.workerEnabled = workerEnabled;
         this.files = files;
+        this.workerId = "worker-" + UUID.randomUUID().toString().substring(0, 8);
+        this.leaseDuration = java.time.Duration.ofSeconds(leaseSeconds);
+        this.recovery = new RunRecoveryService(runs, maxRecoveryAttempts);
         AtomicInteger seq = new AtomicInteger();
         this.executor = new ThreadPoolExecutor(maxConcurrentRuns, maxConcurrentRuns, 30, TimeUnit.SECONDS,
                 // 容量 0 表示“占满即拒绝”，用 SynchronousQueue 表达，而不是把配置悄悄改成 1。
@@ -103,6 +122,12 @@ public final class GeneralAgentService {
                     thread.setDaemon(true);
                     return thread;
                 });
+        AtomicInteger heartbeatSeq = new AtomicInteger();
+        this.heartbeats = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "devicetruth-lease-" + heartbeatSeq.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        });
     }
 
     public ConversationView create() { return conversations.create(identity, Instant.now()); }
@@ -119,21 +144,12 @@ public final class GeneralAgentService {
     public RunView run(UUID runId) { return runs.require(identity, runId); }
 
     /**
-     * 启动时接手上一个进程留下的全部 QUEUED 任务（M0 的正常队列交接），不设条数上限。
-     * 只扫 QUEUED：RUNNING 遗留属于崩溃恢复，需要租约/CAS（M2），这里不冒充可恢复。
-     * 执行器拒绝时由 dispatch 明确置 FAILED/QUEUE_REJECTED，不会留下幽灵任务。
+     * 启动时由 RunRecoveryService 对账上一个进程留下的任务：QUEUED 直接重新调度；
+     * 租约已过期的遗留 RUNNING 按持久检查点恢复（RUNNING → QUEUED → 重新调度），
+     * 超出恢复上限的明确 FAILED；WAITING_FOR_USER 与租约仍有效的 RUNNING 原样保留。
      */
     public void recoverQueued() {
-        if (!workerEnabled) return;
-        List<UUID> queued;
-        try {
-            queued = runs.queued(identity);
-        } catch (RuntimeException e) {
-            LOG.error("Agent queue recovery scan failed: {}", e.getClass().getSimpleName());
-            return;
-        }
-        for (UUID runId : queued) dispatch(runId);
-        if (!queued.isEmpty()) LOG.info("Agent queue recovery dispatched {} queued runs", queued.size());
+        recovery.reconcile(identity, workerEnabled, this::dispatch);
     }
 
     /** 本 run 已取回的知识引用；读取仍按归属过滤。 */
@@ -267,18 +283,45 @@ public final class GeneralAgentService {
         }
     }
 
-    /** worker 主体：QUEUED→RUNNING（条件更新防重复接手）→ 重建上下文 → 唯一主循环 → 原子写回。 */
+    /** worker 主体：QUEUED→RUNNING（条件更新+租约领取防重复接手）→ 重建上下文 → 唯一主循环 → 原子写回。 */
     private void executeRun(UUID runId) {
         RunRecord run;
         try {
             run = runs.load(identity, runId, false);
             if (!"QUEUED".equals(run.status())) return;
-            if (runs.markRunning(identity, run, Instant.now()) != 1) return;
+            // 领取执行租约：租约期内其他进程不会回收这个 RUNNING；崩溃后由新进程在过期后对账。
+            if (runs.markRunning(identity, run, workerId, Instant.now().plus(leaseDuration), Instant.now()) != 1)
+                return;
         } catch (RuntimeException e) {
             LOG.error("Agent run claim failed: runId={} type={}", runId, e.getClass().getSimpleName());
             return;
         }
-        AgentRunOutcome outcome;
+        // 长任务运行期间周期性续租；worker 存活时租约不过期，崩溃后租约自然失效供启动对账回收。
+        java.util.concurrent.ScheduledFuture<?> heartbeat = heartbeats.scheduleWithFixedDelay(() -> {
+            try {
+                runs.heartbeat(identity, runId, workerId, Instant.now().plus(leaseDuration), Instant.now());
+            } catch (RuntimeException e) {
+                LOG.error("Agent lease heartbeat failed: runId={} type={}", runId, e.getClass().getSimpleName());
+            }
+        }, leaseDuration.toMillis() / 3, leaseDuration.toMillis() / 3, TimeUnit.MILLISECONDS);
+        try {
+            AgentRunOutcome outcome = doRun(run);
+            if (outcome == null) return; // doRun 内已按稳定错误码置 FAILED，无需再提交结果
+            try {
+                persist(run, outcome);
+            } catch (RuntimeException e) {
+                // 落库失败（唯一约束、连接中断等）必须变成可观察的 FAILED，不能把 run 留在 RUNNING
+                LOG.error("Agent run persistence failed: runId={} type={}", runId, e.getClass().getSimpleName());
+                failQuietly(runId, "PERSIST_FAILURE");
+            }
+        } finally {
+            heartbeat.cancel(false);
+        }
+    }
+
+    /** 从 PG 重建上下文并执行唯一主循环；上下文全部来自持久层，新进程也能从同一检查点继续。 */
+    private AgentRunOutcome doRun(RunRecord run) {
+        UUID runId = run.runId();
         try {
             var messages = conversations.runContextMessages(identity, runId, run.goalMessageId()).stream()
                     .map(message -> new io.devicetruth.core.contract.AgentTaskInput.Message(message.role(),
@@ -297,20 +340,13 @@ public final class GeneralAgentService {
                 // 服务端模型配置错误：FAILED + 稳定错误码，不降级到 scripted
                 LOG.error("Agent reasoner creation failed: runId={} type={}", runId, e.getClass().getSimpleName());
                 failQuietly(runId, "MODEL_CONFIGURATION_MISSING");
-                return;
+                return null;
             }
-            outcome = orchestrator.runAgent(input, gateway, toolContext, runs.references(identity, runId), reasoner);
+            return orchestrator.runAgent(input, gateway, toolContext, runs.references(identity, runId), reasoner);
         } catch (RuntimeException e) {
             LOG.error("Agent run failed: runId={} type={}", runId, e.getClass().getSimpleName());
             failQuietly(runId, "AGENT_RUN_FAILURE");
-            return;
-        }
-        try {
-            persist(run, outcome);
-        } catch (RuntimeException e) {
-            // 落库失败（唯一约束、连接中断等）必须变成可观察的 FAILED，不能把 run 留在 RUNNING
-            LOG.error("Agent run persistence failed: runId={} type={}", runId, e.getClass().getSimpleName());
-            failQuietly(runId, "PERSIST_FAILURE");
+            return null;
         }
     }
 
@@ -358,8 +394,11 @@ public final class GeneralAgentService {
         }
     }
 
-    /** 关闭执行器（仅测试/停机用），不阻塞等待结果。 */
-    public void shutdown() { executor.shutdownNow(); }
+    /** 关闭执行器与心跳（仅测试/停机用），不阻塞等待结果。 */
+    public void shutdown() {
+        executor.shutdownNow();
+        heartbeats.shutdownNow();
+    }
 
     public static RequestFailure denied() { return new RequestFailure("NOT_FOUND_OR_DENIED", 404); }
 }

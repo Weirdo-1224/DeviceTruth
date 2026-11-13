@@ -68,12 +68,14 @@ public class ProductConfiguration {
             @Value("${devicetruth.agent.reasoner:scripted}") String reasonerName,
             @Value("${devicetruth.agent.max-concurrent-runs:2}") int maxConcurrentRuns,
             @Value("${devicetruth.agent.max-queue:10}") int maxQueue,
-            @Value("${devicetruth.agent.worker-enabled:true}") boolean workerEnabled) {
+            @Value("${devicetruth.agent.worker-enabled:true}") boolean workerEnabled,
+            @Value("${devicetruth.agent.lease-seconds:60}") long leaseSeconds,
+            @Value("${devicetruth.agent.max-recovery-attempts:3}") int maxRecoveryAttempts) {
         var jdbc = new JdbcTemplate(source);
         var transactions = new TransactionTemplate(new DataSourceTransactionManager(source));
         return new GeneralAgentService(new ConversationRepository(jdbc), new AgentRunRepository(jdbc), transactions,
                 identity, gateway, agentReasoners(agentReasonerName(environment, reasonerName)), maxConcurrentRuns,
-                maxQueue, workerEnabled, fileUploadService);
+                maxQueue, workerEnabled, fileUploadService, leaseSeconds, maxRecoveryAttempts);
     }
 
     /** 结构化设备主数据仓储：身份、组件、配置与维修历史（V8）。 */
