@@ -184,19 +184,25 @@ public final class AgentRunRepository {
                 pendingQuestionId, questionVersion);
     }
 
-    /** 本 run 已成功取回的知识引用；其他来源类型在 M2 的资产时序能力中再扩展。 */
+    /**
+     * 本 run 已成功取回的可引用事实：
+     * 知识引用联查文档/切片取标题与原文；配置类结构化事实（03-01）没有切片表，直接从引用行还原
+     * 来源、版本与摘要，两个来源的归属条件相同，均在 SQL 内按 run/owner/project 过滤。
+     */
     public List<Reference> references(ServerIdentity identity, UUID runId) {
         return jdbc.query("""
-                SELECT r.id AS reference_id, r.source_type, r.source_id, r.source_version, r.chunk_id,
+                SELECT r.id AS reference_id, r.source_type, r.source_id, r.source_version,
+                       COALESCE(r.chunk_id, r.id) AS chunk_id,
                        r.citation_page, r.citation_section, r.data_nature,
-                       d.title, c.content
+                       COALESCE(d.title, r.citation_section, r.source_type) AS title,
+                       COALESCE(c.content, r.citation_excerpt, '') AS content
                 FROM dt_evidence_reference r
-                JOIN dt_knowledge_chunk c
+                LEFT JOIN dt_knowledge_chunk c
                   ON c.id = r.chunk_id AND c.owner_id = r.owner_id AND c.project_id = r.project_id
-                JOIN dt_knowledge_document d
+                LEFT JOIN dt_knowledge_document d
                   ON d.id = c.document_id AND d.owner_id = c.owner_id AND d.project_id = c.project_id
                 WHERE r.run_id = ? AND r.owner_id = ? AND r.project_id = ?
-                  AND r.source_type = 'KNOWLEDGE_DOCUMENT'
+                  AND r.source_type IN ('KNOWLEDGE_DOCUMENT', 'CONFIGURATION')
                 ORDER BY r.retrieved_at, r.id
                 """, (r, n) -> new Reference(r.getObject("reference_id", UUID.class).toString(),
                 r.getString("source_type"), r.getString("source_id"), r.getString("source_version"),

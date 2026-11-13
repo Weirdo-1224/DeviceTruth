@@ -82,7 +82,7 @@
 
 **Plans:** 3 plans（均已编写待审任务书；未执行）
 
-- [ ] [03-01-PLAN.md](phases/03-durable-investigation/03-01-PLAN.md) — 带来源与时点的设备记录及全链路授权；依赖 02-03；wave 1
+- [x] [03-01-PLAN.md](phases/03-durable-investigation/03-01-PLAN.md) — 带来源与时点的设备记录及全链路授权；依赖 02-03；wave 1
 - [ ] [03-02-PLAN.md](phases/03-durable-investigation/03-02-PLAN.md) — 补证可靠性强化、检查点恢复与历史会话闭环；依赖 03-01, 02-03；wave 2
 - [ ] [03-03-PLAN.md](phases/03-durable-investigation/03-03-PLAN.md) — 幂等、取消、总预算和故障可观测；依赖 03-02；wave 3
 
@@ -143,8 +143,10 @@
 |---|---|---|---|---|
 | 1. 基线与通用契约 | M0 | 2/2 | Complete    | 2026-11-10 |
 | 2. 自由对话与知识检索 | M1 | 3/3 | Complete    | 2026-11-12 |
-| 3. 设备事实与持久连续调查 | M2 | 0/3 | Not started（待审） | - |
+| 3. 设备事实与持久连续调查 | M2 | 1/3 | In progress（待审） | - |
 | 4. 标准 Skill 与双域验证 | M3 | 0/2 | Not started（待审） | - |
 | 5. 完整工作台、质量与交付 | M4 | 0/3 | Not started（待审） | - |
 
-完成计划5/13（约38%），完成阶段2/5。Phase 2按用户决定带遗留项关闭，下一阶段为Phase 3；正文安全、PDF及浏览器验收未通过，仍需后续处理。
+完成计划6/13（约46%），完成阶段2/5。03-01已修复并复审通过，03-02尚未执行，Phase 03保持开放；正文安全、PDF及浏览器验收未通过，仍需后续处理。
+
+2026-11-13: PLAN 03-01 reviewed PASS after query-time reference fix; 6/13 plans complete, Phase 03 1/3. Phase 03 remains open. Next: 03-02 (not executed).

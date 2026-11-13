@@ -94,14 +94,17 @@ public class ServerConfiguration {
     }
 
     /**
-     * 产品 Agent 的网关：只登记知识工具（注册即服务器授权）。
+     * 产品 Agent 的网关：登记知识与设备事实工具（注册即服务器授权）。
      * legacy 资产能力仍留在上面的 standard 网关，避免无资产问答被 legacy 的必填 assetId 语义污染。
+     * 设备事实工具只读，且资产归属在仓储层按服务器身份校验，模型不能借参数扩大范围。
      */
     @Bean
     @Profile("product")
-    CapabilityGateway agentCapabilityGateway(KnowledgeTools knowledgeTools) {
+    CapabilityGateway agentCapabilityGateway(KnowledgeTools knowledgeTools,
+            io.devicetruth.application.agent.AssetTools assetTools) {
         var gateway = new CapabilityGateway();
         knowledgeTools.registerInto(gateway);
+        assetTools.registerInto(gateway);
         return gateway;
     }
 

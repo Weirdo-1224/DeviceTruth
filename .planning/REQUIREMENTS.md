@@ -29,9 +29,9 @@
 | AGENT-06 | 任务摘要、待答问题、引用与工具输出可重建 | §4.3–4.4 | **部分实现** | E07、E11：DiagnosisState / StateManager 有事实与版本，但 run 内新建、无恢复入口 | 03 / 03-02 | 从 PG 快照重建上下文，过期证据重验，不依赖原线程 |
 | AGENT-07 | Hypothesis 为可选调查笔记 | §4.3、§0.2 | **部分实现** | E07、E10：可建 OPEN / INVALIDATED，SUPPORTED 无主源码赋值，决策引用允许为空 | 03 / 03-02 | 保留候选原因及依据但不作为全任务准入/结案前置；不专建完整假设引擎 |
 | AGENT-08 | 知识建议、可能原因、确认结论与人工处理分明 | §2、§4.5 | **与设计冲突** | E10：结果围绕规则 Outcome；E12：未采纳规则摘要固定且不公开问题描述 | 02 / 02-02 | 开放报告包含不确定性、安全追问与引用；技术失败不当诊断 |
-| DATA-01 | PG 资产/组件主数据、型号与身份 | §5.2 | **部分实现** | E13：JSON 仅四资产证据集；无 PG asset / asset_component | 03 / 03-01 | 授权资产 API 返回身份/组件；汽车与工厂数据独立 |
-| DATA-02 | 配置/维修结构化查询，不以 RAG 代替现场事实 | §5.3 | **部分实现** | E06、E13：FACTORY / REPLACEMENT 分读且声明不等于现场；无 PG 配置查询 | 03 / 03-01 | get_configuration / history 从结构化记录返回，可追溯而不预填结论 |
-| DATA-03 | 有效期、记录时间、观测时间与来源类型 | §5.4 | **部分实现** | E14：EvidenceRecord 有时间与来源，EvidenceManager.validAt / effectiveEnd；无 PG verification_status | 03 / 03-01 | 保留文档记载/现场核验差异，跨有效期与 recordedAt 边界测试 |
+| DATA-01 | PG 资产/组件主数据、型号与身份 | §5.2 | **部分实现** | 03-01 reviewed 2026-11-13: PG asset/component registry and CAR-B verified; industrial fixtures deferred. | 03 / 03-01 | 授权资产 API 返回身份/组件；汽车与工厂数据独立 |
+| DATA-02 | 配置/维修结构化查询，不以 RAG 代替现场事实 | §5.3 | **部分实现** | 03-01 reviewed 2026-11-13: Structured configuration/maintenance tools verified; documentation does not imply field confirmation. | 03 / 03-01 | get_configuration / history 从结构化记录返回，可追溯而不预填结论 |
+| DATA-03 | 有效期、记录时间、观测时间与来源类型 | §5.4 | **部分实现** | 03-01 reviewed 2026-11-13: V8-V11 validity and verification metadata verified; broader recordedAt semantics remain partial. | 03 / 03-01 | 保留文档记载/现场核验差异，跨有效期与 recordedAt 边界测试 |
 | DATA-04 | 配置三源冲突与现场未核实的明确表达 | §1.3B、§5.4 | **部分实现** | E14：同权威当前冲突处理已存在；数据仅 CAR-C，尚无工厂 BOM/改造/旧模板 | 04 / 04-02 | SC-0245-B 不把 D-120B 改造记录当现场已确认 |
 | DATA-05 | 已接入的观测/日志查询与未接入声明 | §5.2 第二批、§6.1 | **未实现** | E13：无 asset_observation；无 get_observations 注册 | 04 / 04-02 | 用模拟观测验证范围/时间；未接入返回明确状态，不冒充实时 |
 | DATA-06 | 双域样例与无 Core 分支的可扩展性 | §9、E2E-04/13 | **部分实现** | E15：ExtensibilityTest 用工业假域证明有限 Core 解耦；没有完整工厂数据/Skill | 04 / 04-02 | 同一生产 Runtime 跑汽车与工厂，新增领域不复制循环 |
@@ -51,16 +51,16 @@
 | KNOW-08 | 空检索、错误引用、过期版本与资料冲突 | §11 E2E-02/10 | **未实现** | E14：只有结构证据失效，尚无文档版本/引用检查 | 02 / 02-03 | 无命中不编造；过期资料说明版本/适用范围；伪造引用拒绝 |
 | TOOL-01 | 复用注册白名单、只读与作用域校验 | §6.1、§9 | **部分实现** | E17：CapabilityGateway 有 5 工具和 scope 校验，scope 仍绑定 DiagnosisRequest | 02 / 02-02 | 新 ToolContext 支持无资产问答、服务器确定权限 |
 | TOOL-02 | 支持自然语言查询及嵌套过滤 DTO/Schema | §6.1 | **已实现** | 02-01：KnowledgeTools自然语言query及受限嵌套filters DTO/schema和严格标识校验实测通过；工具接Runtime目录另属02-02 | 02 / 02-01 | 逐工具 schema 校验，query 可含中文；标识字段保留严格验证 |
-| TOOL-03 | 明确 NOT_FOUND / DATA_STALE / DENIED / AMBIGUOUS 错误 | §6.1 | **部分实现** | E17：ToolError(code,message,retryable) 已有；状态及公开映射为旧工具集合 | 03 / 03-01 | 保留工具失败语义与 retryable，不混同无证据或成功结论 |
+| TOOL-03 | 明确 NOT_FOUND / DATA_STALE / DENIED / AMBIGUOUS 错误 | §6.1 | **部分实现** | 03-01 reviewed 2026-11-13: NOT_FOUND/DENIED/INVALID verified; DATA_STALE/AMBIGUOUS remain partial. | 03 / 03-01 | 保留工具失败语义与 retryable，不混同无证据或成功结论 |
 | TOOL-04 | 检索、资产/配置/历史、原文、追问、报告工具齐备 | §6.1 | **部分实现** | E17：只有 profile/history/evidence/rules；无 search_knowledge/excerpt/暂停/通用报告 | 03 / 03-02 | 基础工具通过统一注册表可发现，权限和引用均受控 |
 | SKILL-01 | SKILL.md 发现、元数据与按需读取 | §6.2 | **未实现** | E13：仅加载 automotive-demo/rules.json；无 SKILL.md 或解析器 | 04 / 04-01 | 发现汽车/工厂两个 Skill，不把 rules.json 认成 Skill |
 | SKILL-02 | 领域适配、版本与工具授权绑定 | §6.2、§5.2 第二批 | **未实现** | E17：工具 domain 可限定但没有 Skill 绑定/版本或 installation | 04 / 04-01 | Skill 可引用已注册工具，不能安装脚本或扩权；记录版本 |
 | SKILL-03 | Skill / RAG / 设备数据三者职责独立 | §6.3 | **未实现** | E13：规则包存在但尚无标准 Skill 与 RAG 的协作链 | 04 / 04-02 | 指引不写现场答案，知识不被当资产事实 |
 | SKILL-04 | 不可信 Skill/附件/文档的提示注入防护 | §6.4 | **部分实现** | E18：StructuredReasoner 将现有证据标不可信；无 Skill/上传执行边界 | 04 / 04-01 | 恶意 Skill/文档不能扩大工具/文件/网络/进程权限 |
 | TRUST-01 | 只读设备边界，模拟数据保留 SIMULATED | §1、§6.4、E2E-12 | **已实现** | E17：readOnly 检查；E13：Dataset/RulePack 强制 SIMULATED；E03 危险操作拒绝 | 02 / 02-02 | PG/上传也保留数据性质；应用写存储与设备只读分别授权 |
-| TRUST-02 | 来源、归属、时间、冲突与引用完整性校验 | §3.1、§4.5 | **部分实现** | E14、E10：结构证据与规则校验已做；新文档引用/权限未覆盖 | 03 / 03-01 | 跨源证据可审计，用户陈述不自动成为已核实配置 |
+| TRUST-02 | 来源、归属、时间、冲突与引用完整性校验 | §3.1、§4.5 | **部分实现** | 03-01 reviewed 2026-11-13: Fact excerpts and query-scoped references verified, including two-time regressions; broader trust coverage remains partial. | 03 / 03-01 | 跨源证据可审计，用户陈述不自动成为已核实配置 |
 | TRUST-03 | 公开事件/错误白名单，隐藏 Prompt/密钥/堆栈 | §7.2 | **部分实现** | E12：SafePublicFields / RunEventViews 已做；新 SSE/答案 DTO 尚无 | 05 / 05-01 | 历史与实时采用同一安全事件映射，测试注入敏感标记不回显 |
-| TRUST-04 | 用户/项目身份与跨会话资产、文档授权 | §5.5、§13.2.4、E2E-09 | **部分实现** | E09：require(diagnosisId,sessionId) 查归属；sessionId 不是认证，无项目/资产 ACL | 03 / 03-01 | 客户端不能指定 owner/permissions；知识/资产/附件/运行全链路校验 |
+| TRUST-04 | 用户/项目身份与跨会话资产、文档授权 | §5.5、§13.2.4、E2E-09 | **部分实现** | 03-01 reviewed 2026-11-13: Server-fixed identity and cross-resource authorization verified; real multi-user authentication deferred to 05-03. | 03 / 03-01 | 客户端不能指定 owner/permissions；知识/资产/附件/运行全链路校验 |
 | TRUST-05 | 按风险检查答案与关键配置确认 | §4.5、D-07 | **部分实现** | 02-02已接入AnswerGuard，但独立探针确认危险建议和未经核验结论仍可放行，追问绕过守卫；用户决定记录后通过计划，问题未关闭 | 02 / 02-02 | 知识/可能性可回答；无现场核验不输出已确认；不执行危险设备控制 |
 | TRUST-06 | 服务器密钥配置、脱敏、上传与数据隔离 | §12 | **部分实现** | E18：模型配置不进响应；E19：现存私有文件优先于环境，需规划统一配置策略 | 01 / 01-01 | 不读出/提交真实密钥；PG/embedding 凭据服务端注入并保留脱敏 |
 | WEB-01 | Vue3 + TypeScript 最小自由对话页 | §7.1、D-08 | **部分实现** | E20：原生 static/index.html 可聊天/轮询，无 Vue/TS/package.json | 02 / 02-02 | M1 Vue 能发送无故障码问题、看答案/追问/引用 |

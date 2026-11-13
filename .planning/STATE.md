@@ -3,28 +3,36 @@ gsd_state_version: "1.0"
 milestone: v1.0
 current_phase: 03
 current_phase_name: 设备事实与持久连续调查
-current_plan: Not started
+current_plan: 03-02
 status: executing
-stopped_at: Phase 2 complete, ready to execute Phase 03
-last_updated: "2026-11-12T12:47:35.495Z"
-last_activity: 2026-11-12
-last_activity_desc: Phase 2 complete, transitioned to Phase 03
-state_head: 08d8ea0b0aa82f3f1c093935a86381273422e30a
+stopped_at: 03-01 passed; next 03-02 not executed
+last_updated: "2026-11-13T05:33:18.977Z"
+last_activity: 2026-11-13
+last_activity_desc: 03-01 passed; full regression 278/0/0/0, package and CLI passed
+state_head: c1b65b74b5c750a09f51b4f747c14d569db21244
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 13
-  completed_plans: 5
+  completed_plans: 6
   percent: 20
 milestone_name: 通用设备检修 Agent
 total_phases: 5
 total_plans_in_phase: 3
-review_status: phase_2_plan_03_user_accepted
+review_status: 03-01_passed
 execution_authorized: false
 last_execution_authorization: 2026-11-11用户明确授权修复02-03独立Review问题，保留既有修改且不自动commit/push；仅修复与记录，不推进完成状态或后续计划。
 ---
 
 # Project State
+
+> 2026-11-13 latest: 03-01 PASS after final fix, 278/0/0/0; native advance-plan succeeded 1 -> 2. Phase 03 open; 03-02 not executed. Prior review failures below are historical. Native progress writer reports 20% while plan count is 6/13 (46%); do not interpret the percentage as plan acceptance. No commit/push.
+
+> **2026-11-13 03-01 次轮 Review 仍不通过，2 项 P1 修复已落地待再复审：** ① 引用身份从"来源+记录时间"改为事实记录 ID（同来源同时间的多条事实各自成引用，跨资产/时点不复用；登记/查重/派生/回读一致，重复查询幂等）；② V11 配置唯一键补 `valid_from`，同来源同属性的历史版本不再被 ON CONFLICT 丢弃。新增 2 项回归（同来源同时多事实三引用、同属性历史双版本时点查询），`AssetToolTest` 23/23、全量 276/0/0、打包与 CLI 通过。仍未 commit、未标 DONE。详见 [03-01-SUMMARY](phases/03-durable-investigation/03-01-SUMMARY.md) §0.2。
+
+> **2026-11-13 03-01 首轮独立 Review 不通过，修复已落地待复审：** Review 提出 P1×4（参数错误吞掉后执行默认查询、引用无事实摘要且挂默认资产/时点、任一核实记录即整体确认、幂等键过粗静默丢同来源多事实）+ P2（SUMMARY 无 frontmatter/coverage），全部已修复：V10 迁移（引用摘要列+事实身份唯一键）、按 组件+属性 分组确认、`AssetToolTest` 增至 21 项、SUMMARY 按 GSD 约定重写。未 commit、未标 DONE，待第二轮 Review。详见 [03-01-SUMMARY](phases/03-durable-investigation/03-01-SUMMARY.md) §0。
+
+> **2026-11-13 Phase 03-01 实施完成（待审查）：** 03-01（设备结构化记录与查询）已实现并自测：V8 资产四表 + V9 引用外键修正、`AssetTools` 三工具（get_asset/get_configuration/get_maintenance_history）注册进产品网关、`AssetController` 只读 API、夹具幂等导入（默认关闭）、双身份授权负例 `ResourceAuthorizationTest` 8 项。`AssetToolTest` 16/16、三轮全量回归 269/0/0、打包与 CLI 通过。关键修复：① `dt_evidence_reference.chunk_id` 外键使资产引用写入必失败且异常被吞（曾误判为时区问题，对照实验已证伪时区理论）→ V9 删外键 + 存在性校验统一 ASSET_NOT_FOUND；② 推理器来源优先级反转（本地私有文件压过显式 scripted，测试实际调真模型）→ 显式属性>环境变量>私有文件。全部未 commit/push，未标记计划 DONE，未推进 ROADMAP；详见 [03-01-SUMMARY](phases/03-durable-investigation/03-01-SUMMARY.md)。下方"current_plan: Not started"等旧口径以此条为准。
 
 > **2026-11-12 关闭结果：** 用户明确要求带遗留项关闭Phase 2；原生 `phase uat-passed 2 --require-verification` 与 `phase complete 2` 均成功，GSD当前Phase 03、5/13计划、2/5阶段。正文安全、PDF和浏览器验收转后续，不作技术通过。原生命令误将部分需求标Complete，已按实际状态恢复Pending；原生 `state update-progress` 显示20%，但 `progress json` 以5/13计算为38%。
 
@@ -41,16 +49,16 @@ last_execution_authorization: 2026-11-11用户明确授权修复02-03独立Revie
 See: .planning/PROJECT.md (updated 2026-11-09)
 
 **Core value:** 自由设备问题能开启有来源、可补证、可恢复的可信调查。
-**Current focus:** Phase 2按用户决定带遗留项关闭，GSD已进入Phase 03；下一计划03-01尚未实施。真实embedding检索与DeepSeek同run补答链路已实测；正文安全3项P1及1项P2、PDF/OCR及浏览器端到端验收转后续，未标技术通过。
+**Current focus:** Phase 2按用户决定带遗留项关闭，GSD已进入Phase 03；03-01已实施并自测（269/0/0），待独立Review，未commit未标DONE。真实embedding检索与DeepSeek同run补答链路已实测；正文安全3项P1及1项P2、PDF/OCR及浏览器端到端验收转后续，未标技术通过。
 
 ## Current Position
 
 Phase: 03 of 5 (设备事实与持久连续调查)
-Current Plan: Not started
+Current Plan: 03-02
 Total Plans in Phase: 3
-Plan: 3 of 3
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-11-12 — Phase 2 complete, transitioned to Phase 03
+Last activity: 2026-11-13 — Phase 03-01 implemented, three full-suite runs 269/0/0
 
 Progress: [██░░░░░░░░] 20%
 
@@ -144,7 +152,7 @@ interview_guide public表数量基线17；本轮仅在独立devicetruth/随机�
 
 ## Session Continuity
 
-Last session: 2026-11-11 (Asia/Shanghai)
-Stopped at: Phase 2 complete, ready to execute Phase 03
+Last session: 2026-11-13 (Asia/Shanghai)
+Stopped at: Phase 03-01 implemented and verified (269/0/0), awaiting independent review, uncommitted
 Resume file: .planning/NEXT_SESSION.md
-Read first: AGENTS.md → STATE → 02-03-SUMMARY → 02-03-PLAN → 02-02-REVIEW → PROJECT → ROADMAP
+Read first: AGENTS.md → STATE → 03-01-SUMMARY → 03-01-PLAN → 02-03-SUMMARY → PROJECT → ROADMAP
