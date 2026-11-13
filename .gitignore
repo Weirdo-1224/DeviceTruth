@@ -3,6 +3,8 @@ outputs/runs/
 outputs/baselines/
 outputs/validation/
 outputs/files/
+outputs/phase04-local-*/
+outputs/review-*.json
 .tools/
 .m2/
 .env
