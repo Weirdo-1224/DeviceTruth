@@ -435,4 +435,132 @@ class RunRecoveryTest {
             second.shutdown();
         }
     }
+
+    @Test void crashAfterToolCheckpointResumesWithoutDuplicatingReferencesOrMessages() throws Exception {
+        var release = new AtomicBoolean(false);
+        // 工具完成后的故障：检索（引用检查点已提交）成功，propose 下一步前进程消失
+        GeneralReasoner stuckAfterSearch = new GeneralReasoner() {
+            private boolean searched;
+            @Override public String name() { return "stuck-after-search"; }
+            @Override public ActionProposal propose(Context context) {
+                if (!searched) {
+                    searched = true;
+                    return new ActionProposal.CallTool("search_knowledge",
+                            Map.of("query", "充电中断"), "检索已授权手册");
+                }
+                while (!release.get()) {
+                    Thread.interrupted();
+                    LockSupport.parkNanos(Duration.ofMillis(5).toNanos());
+                }
+                throw new io.devicetruth.core.runtime.TaskOrchestrator.ReasonerFailure("RELEASED_AFTER_CRASH");
+            }
+        };
+        var crashed = service(stuckAfterSearch);
+        UUID runId;
+        try {
+            UUID conversation = crashed.create().conversationId();
+            runId = crashed.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车充电中断，没有故障码，先查什么资料？")).runId();
+            // 等检索检查点落库（引用可见）且 run 仍卡 RUNNING
+            for (int attempt = 0; attempt < 200; attempt++) {
+                if (!crashed.references(runId).isEmpty()
+                        && "RUNNING".equals(crashed.run(runId).status())) break;
+                Thread.sleep(25);
+            }
+            assertThat(crashed.references(runId)).isNotEmpty();
+            assertThat(crashed.run(runId).status()).isEqualTo("RUNNING");
+        } finally {
+            crashed.shutdown();
+        }
+        int referencesBefore = jdbc.queryForObject(
+                "SELECT count(*) FROM dt_evidence_reference WHERE run_id=?", Integer.class, runId);
+        Thread.sleep(LEASE_SECONDS * 1000 + 500);
+
+        // 新进程恢复：重建上下文后引用按 (run_id,chunk_id) 去重，不会因重跑而复制
+        var recovered = service(null);
+        try {
+            recovered.recoverQueued();
+            assertThat(awaitTerminal(recovered, runId, "WAITING_FOR_USER")).isEqualTo("WAITING_FOR_USER");
+            assertThat(runs.load(IDENTITY, runId, false).attempts()).isEqualTo(2);
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_evidence_reference WHERE run_id=?", Integer.class, runId))
+                    .isEqualTo(referencesBefore);
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_message WHERE id=(SELECT goal_message_id FROM dt_agent_run WHERE id=?)",
+                    Integer.class, runId)).isEqualTo(1);
+            // 只有一个终态方向：恢复后 run 到达 WAITING，没有遗留 QUEUED/RUNNING 的中间态
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_agent_run WHERE id=? AND status IN ('QUEUED','RUNNING')",
+                    Integer.class, runId)).isZero();
+        } finally {
+            recovered.shutdown();
+            release.set(true);
+        }
+    }
+
+    @Test void concurrentReconciliationReclaimsCrashedRunOnlyOnce() throws Exception {
+        // 直接写入崩溃遗留：RUNNING 且租约过期
+        UUID runId = transactions.execute(status -> {
+            var conversation = conversations.create(IDENTITY, Instant.now());
+            var messageId = conversations.append(IDENTITY, conversation.conversationId(), UUID.randomUUID(),
+                    "充电中断，没有故障码", null, Instant.now(), Instant.now());
+            return runs.enqueue(IDENTITY, conversation.conversationId(), messageId, Instant.now(), Instant.now()).runId();
+        });
+        var record = runs.load(IDENTITY, runId, false);
+        assertThat(runs.markRunning(IDENTITY, record, "dead-worker", Instant.now().minusSeconds(1), Instant.now()))
+                .isEqualTo(1);
+        Thread.sleep(LEASE_SECONDS * 1000 + 500);
+
+        // 两个进程同时启动对账：回收 CAS 只允许一个成功，不能双份重新调度
+        var first = service(null);
+        var second = service(null);
+        try {
+            var firstThread = new Thread(() -> first.recoverQueued());
+            var secondThread = new Thread(() -> second.recoverQueued());
+            firstThread.start();
+            secondThread.start();
+            firstThread.join(20_000);
+            secondThread.join(20_000);
+            awaitQuestion(first, runId, 1);
+            assertThat(runs.load(IDENTITY, runId, false).attempts()).isEqualTo(2);
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_RECOVERED'",
+                    Integer.class, runId)).isEqualTo(1);
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_agent_run WHERE id=? AND status IN ('QUEUED','RUNNING')",
+                    Integer.class, runId)).isZero();
+        } finally {
+            first.shutdown();
+            second.shutdown();
+        }
+    }
+
+    @Test void startupReconciliationLeavesNoOrphanedQueuedRuns() throws Exception {
+        // 直接写入 3 条 QUEUED（模拟上一个进程在调度前消失），历史结果也必须可读取
+        var runIds = new java.util.ArrayList<UUID>();
+        transactions.execute(status -> {
+            for (int index = 0; index < 3; index++) {
+                var conversation = conversations.create(IDENTITY, Instant.now());
+                var messageId = conversations.append(IDENTITY, conversation.conversationId(), UUID.randomUUID(),
+                        "充电中断，没有故障码 第" + (index + 1) + "问", null, Instant.now(), Instant.now());
+                runIds.add(runs.enqueue(IDENTITY, conversation.conversationId(), messageId,
+                        Instant.now(), Instant.now()).runId());
+            }
+            return null;
+        });
+        var service = service(null);
+        try {
+            service.recoverQueued();
+            for (UUID runId : runIds) {
+                assertThat(awaitTerminal(service, runId, "WAITING_FOR_USER")).isEqualTo("WAITING_FOR_USER");
+                // 历史结果可读取：每条 run 的目标消息、待答问题都在
+                assertThat(service.run(runId).pendingQuestion()).isNotNull();
+            }
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_agent_run WHERE owner_id='owner-a' AND project_id='project-a'"
+                            + " AND status IN ('QUEUED','RUNNING')", Integer.class)).isZero();
+        } finally {
+            service.shutdown();
+        }
+    }
 }
