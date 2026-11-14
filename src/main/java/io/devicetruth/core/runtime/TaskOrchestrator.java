@@ -1,6 +1,7 @@
 package io.devicetruth.core.runtime;
 
 import io.devicetruth.adapter.Json;
+import io.devicetruth.core.capability.AgentToolTypes.ToolOutcome;
 import io.devicetruth.core.capability.CapabilityGateway;
 import io.devicetruth.core.capability.CapabilityTypes.CapabilityResult;
 import io.devicetruth.core.capability.ToolContext;
@@ -25,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 
 /** 任务编排器：诊断运行的主循环。每轮迭代中推理器提出恰好一个动作，
@@ -255,8 +257,11 @@ public final class TaskOrchestrator {
         var events = new ArrayList<RunEvent>();
         var messages = new ArrayList<>(input.messages());
         var references = new LinkedHashMap<String, Reference>();
-        for (Reference reference : Checks.list(seedReferences)) references.putIfAbsent(reference.referenceId(), reference);
+        for (Reference reference : Checks.list(seedReferences)) mergeReference(references, reference);
         var attemptedTools = new ArrayList<String>();
+        // 重复调用控制：规范化参数键 → 上次执行是否成功。仅拦截“已成功且无新信息”的完全相同调用；
+        // 失败调用允许换参数或原样重试，不同参数不受工具名影响。
+        var attemptedCalls = new LinkedHashMap<String, Boolean>();
         var toolResults = new ArrayList<GeneralReasoner.ToolResult>();
         String feedback = null;
         int steps = input.stepsUsed();
@@ -310,21 +315,31 @@ public final class TaskOrchestrator {
             steps++;
             if (action instanceof CallTool call) {
                 attemptedTools.add(call.toolName());
+                String callKey = call.toolName() + "|" + canonicalJson(call.arguments());
+                Boolean previous = attemptedCalls.get(callKey);
+                if (previous != null && previous) {
+                    // 相同工具+参数已成功执行过：无新信息，不重复取证、不绕过网关、不算成功证据
+                    feedback = "相同工具与参数已查询过，结果已在上下文的引用与工具结果中；请改用其他检索、向用户追问或给出回答";
+                    event(events, "TOOL_RESULT", input.runVersion(), Map.of("toolName", call.toolName(),
+                            "success", false, "errorCode", "DUPLICATE_CALL", "references", 0,
+                            "durationMs", 0, "retryable", false), progress);
+                    continue;
+                }
                 long toolStartedNanos = System.nanoTime();
                 var outcome = gateway.executeTool(authorizedContext, call.toolName(), call.arguments());
                 long toolDurationMs = (System.nanoTime() - toolStartedNanos) / 1_000_000;
+                attemptedCalls.put(callKey, outcome.success());
                 if (outcome.success()) {
-                    for (Reference reference : outcome.references()) references.putIfAbsent(reference.referenceId(), reference);
-                    if (!outcome.modelContext().isEmpty()) {
-                        if (toolResults.size() == 8) toolResults.removeFirst();
-                        toolResults.add(new GeneralReasoner.ToolResult(outcome.toolName(), outcome.dataNature(),
-                                outcome.modelContext()));
-                    }
+                    for (Reference reference : outcome.references()) mergeReference(references, reference);
                     feedback = null;
                 } else {
                     // 工具失败不可当成功证据：只把稳定错误码回给模型，由它决定是否换一种检索
                     feedback = "工具调用失败：" + outcome.error().code();
                 }
+                // 无论成败都给模型一条受控白名单摘要（成败、错误码、关键字段、dataNature、引用ID），
+                // 不再依赖各工具是否恰好填了 modelContext；原始 data 永不进入上下文。
+                toolResults.add(boundedToolResult(outcome));
+                trimToolResults(toolResults);
                 event(events, "TOOL_RESULT", input.runVersion(), Map.of("toolName", outcome.toolName(),
                         "success", outcome.success(), "errorCode",
                         outcome.error() == null ? "" : outcome.error().code(),
@@ -394,6 +409,106 @@ public final class TaskOrchestrator {
             }
         }
     }
+    /** 单个状态值的最大长度；超出截断并加标记，防止一条记录撑爆上下文。 */
+    static final int RESULT_VALUE_MAX_CHARS = 1000;
+    /** 单条工具结果（状态键值合计）的最大长度。 */
+    static final int RESULT_ENTRY_MAX_CHARS = 1600;
+    /** 工具结果滑窗条数：与既有 8 条一致。 */
+    static final int TOOL_RESULTS_MAX = 8;
+    /** 工具结果滑窗的累计长度上限：8 条 × 约 750 字符 ≈ 6k，控制在步数预算的 Prompt 开销内。 */
+    static final int TOOL_RESULTS_TOTAL_MAX_CHARS = 6000;
+    static final String TRUNCATION_MARKER = "…(截断)";
+
+    /**
+     * 由 ToolOutcome 组装模型可见的工具结果白名单：标准字段（成败、错误码、dataNature、
+     * 引用数量与 ID）在前，工具自述的 modelContext 键值以 putIfAbsent 补充在后；
+     * 任何值都不直接取自 outcome.data() 的原始序列化。
+     */
+    private static GeneralReasoner.ToolResult boundedToolResult(ToolOutcome outcome) {
+        var status = new LinkedHashMap<String, String>();
+        status.put("success", String.valueOf(outcome.success()));
+        if (!outcome.success() && outcome.error() != null) status.put("errorCode", outcome.error().code());
+        status.put("dataNature", outcome.dataNature());
+        status.put("referenceCount", String.valueOf(outcome.references().size()));
+        if (!outcome.references().isEmpty()) status.put("referenceIds", boundedReferenceIds(outcome.references()));
+        if (outcome.modelContext() != null)
+            for (var entry : outcome.modelContext().entrySet())
+                status.putIfAbsent(entry.getKey(), entry.getValue() == null ? "" : entry.getValue());
+        var bounded = new LinkedHashMap<String, String>();
+        int used = 0;
+        for (var entry : status.entrySet()) {
+            String value = entry.getValue();
+            if (value.length() > RESULT_VALUE_MAX_CHARS)
+                value = value.substring(0, RESULT_VALUE_MAX_CHARS) + TRUNCATION_MARKER;
+            int cost = entry.getKey().length() + value.length();
+            // 首键必留（含 success/errorCode），后续可选键超出条目预算时丢弃而不是截断键名
+            if (!bounded.isEmpty() && used + cost > RESULT_ENTRY_MAX_CHARS) continue;
+            bounded.put(entry.getKey(), value);
+            used += cost;
+        }
+        return new GeneralReasoner.ToolResult(outcome.toolName(), outcome.dataNature(), Map.copyOf(bounded));
+    }
+
+    /** 引用 ID 列表只给到长度上限，ID 本体可在 references 中按 ID 找到。 */
+    private static String boundedReferenceIds(List<Reference> references) {
+        StringBuilder ids = new StringBuilder();
+        for (Reference reference : references) {
+            if (!ids.isEmpty()) ids.append(',');
+            if (ids.length() + reference.referenceId().length() > 256)
+                return ids + TRUNCATION_MARKER;
+            ids.append(reference.referenceId());
+        }
+        return ids.toString();
+    }
+
+    /** 滑窗条数与累计长度双重约束：超限先淘汰最旧结果，保证 Prompt 有界。 */
+    private static void trimToolResults(List<GeneralReasoner.ToolResult> toolResults) {
+        while (toolResults.size() > TOOL_RESULTS_MAX) toolResults.removeFirst();
+        int total = toolResults.stream().mapToInt(TaskOrchestrator::resultLength).sum();
+        while (total > TOOL_RESULTS_TOTAL_MAX_CHARS && !toolResults.isEmpty())
+            total -= resultLength(toolResults.removeFirst());
+    }
+
+    private static int resultLength(GeneralReasoner.ToolResult result) {
+        int sum = result.toolName().length() + result.dataNature().length();
+        for (var entry : result.status().entrySet()) sum += entry.getKey().length() + entry.getValue().length();
+        return sum;
+    }
+
+    /**
+     * 合并工具返回的引用：ID 不存在则新增；同 ID 且来源身份（sourceType/sourceId/
+     * sourceVersion/chunkId）一致时，允许更长的摘录替换旧值（原文扩展），
+     * 身份不一致保留原值，杜绝借同 ID 篡改来源身份。
+     */
+    private static void mergeReference(Map<String, Reference> references, Reference candidate) {
+        Reference existing = references.get(candidate.referenceId());
+        if (existing == null) {
+            references.put(candidate.referenceId(), candidate);
+            return;
+        }
+        boolean sameIdentity = existing.sourceType().equals(candidate.sourceType())
+                && existing.sourceId().equals(candidate.sourceId())
+                && existing.sourceVersion().equals(candidate.sourceVersion())
+                && existing.chunkId().equals(candidate.chunkId());
+        if (sameIdentity && candidate.excerpt().length() > existing.excerpt().length())
+            references.put(candidate.referenceId(), candidate);
+    }
+
+    /** 参数规范化序列化：键递归排序，保证结构等价的两次调用得到相同的去重键。 */
+    private static String canonicalJson(Map<String, Object> arguments) {
+        return Json.write(sortKeys(arguments == null ? Map.of() : arguments));
+    }
+
+    private static Object sortKeys(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            var sorted = new TreeMap<String, Object>();
+            for (var entry : map.entrySet()) sorted.put(String.valueOf(entry.getKey()), sortKeys(entry.getValue()));
+            return sorted;
+        }
+        if (value instanceof List<?> list) return list.stream().map(TaskOrchestrator::sortKeys).toList();
+        return value;
+    }
+
     private static EvidenceNeed need(String id,String description,NeedSource source,String ruleId) { return new EvidenceNeed(id,description,source,NeedStatus.OPEN,ruleId); }
     private AgentRunOutcome aborted(AgentTaskInput input, List<AgentTaskInput.Message> messages,
                                     Map<String, Reference> references, List<RunEvent> events, int steps, String code,

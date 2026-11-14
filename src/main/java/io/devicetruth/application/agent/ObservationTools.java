@@ -105,7 +105,8 @@ public final class ObservationTools {
         String message = status == Status.SIMULATED_DATA ? SIMULATED : NOT_READ;
         return ToolOutcome.ok(requestId, GET_OBSERVATIONS, new Result(assetId, from, asOf, status,
                 message, NATURE, entries), references, NATURE,
-                Map.of("status", status.name(), "asOf", asOf.toString(), "message", message));
+                Map.of("status", status.name(), "asOf", asOf.toString(), "message", message,
+                        "entries", String.valueOf(entries.size())));
     }
 
     private Reference reference(ToolContext scope, String assetId, Instant asOf, Entry entry) {

@@ -127,7 +127,10 @@ public final class KnowledgeTools {
         SearchOutcome outcome = search(arguments, context);
         if (!outcome.success()) return ToolOutcome.failed(outcome.requestId(), SEARCH, outcome.error());
         List<Reference> references = outcome.hits().stream().map(KnowledgeTools::hitReference).toList();
-        return ToolOutcome.ok(outcome.requestId(), SEARCH, outcome, references, dataNature(references));
+        // 空检索也是明确结果：把命中数与空标记放进模型可见摘要，不让模型猜测工具是否成功
+        return ToolOutcome.ok(outcome.requestId(), SEARCH, outcome, references, dataNature(references),
+                Map.of("hits", String.valueOf(outcome.hits().size()),
+                        "empty", String.valueOf(outcome.empty())));
     }
 
     private ToolOutcome excerptOutcome(Map<String, Object> arguments, ToolContext context) {
@@ -138,7 +141,12 @@ public final class KnowledgeTools {
                 excerpt.documentId().toString(), excerpt.documentVersion(), excerpt.chunkId().toString(),
                 excerpt.title(), excerpt.page(), excerpt.section(), truncate(excerpt.content(), 2000),
                 excerpt.dataNature());
-        return ToolOutcome.ok(outcome.requestId(), EXCERPT, outcome, List.of(reference), excerpt.dataNature());
+        // 扩展原文经白名单摘要进入模型上下文；引用身份（referenceId/文档/版本/chunk）保持不变
+        return ToolOutcome.ok(outcome.requestId(), EXCERPT, outcome, List.of(reference), excerpt.dataNature(),
+                Map.of("documentId", excerpt.documentId().toString(),
+                        "chunkId", excerpt.chunkId().toString(),
+                        "title", excerpt.title(),
+                        "excerpt", reference.excerpt()));
     }
 
     private static Reference hitReference(KnowledgeSearchService.KnowledgeHit hit) {

@@ -85,9 +85,9 @@ public final class SkillRuntime {
             this.leaseVersion = leaseVersion;
             this.selected = repository.selection(identity, base.runId());
             this.gateway.registerTool(ACTIVATE_SPEC, (arguments, context) -> invoke(ACTIVATE,
-                    () -> activate(arguments.get("skillId"))));
+                    arguments, () -> activate(arguments.get("skillId"))));
             this.gateway.registerTool(READ_SPEC, (arguments, context) -> invoke(READ_REFERENCE,
-                    () -> readReference(arguments.get("name"))));
+                    arguments, () -> readReference(arguments.get("name"))));
         }
 
         public CapabilityGateway gateway() { return gateway; }
@@ -186,11 +186,16 @@ public final class SkillRuntime {
         }
     }
 
-    private static ToolOutcome invoke(String tool, Runnable action) {
+    private static ToolOutcome invoke(String tool, Map<String, Object> arguments, Runnable action) {
         String requestId = UUID.randomUUID().toString();
         try {
             action.run();
-            return ToolOutcome.ok(requestId, tool, Map.of(), List.of(), "SIMULATED");
+            // 激活/阅读的效果下一轮经 activeSkill 上下文可见；这里回执调用参数作为最小可见确认
+            Map<String, String> visible = new LinkedHashMap<>();
+            if (arguments != null)
+                for (var entry : arguments.entrySet())
+                    if (entry.getValue() != null) visible.put(entry.getKey(), String.valueOf(entry.getValue()));
+            return ToolOutcome.ok(requestId, tool, Map.of(), List.of(), "SIMULATED", visible);
         } catch (SkillException e) {
             return ToolOutcome.failed(requestId, tool, new ToolError(e.code(), "Skill request denied", false));
         }

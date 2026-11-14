@@ -399,6 +399,21 @@ flowchart LR
 
 ---
 
+## 8+. Agent Runtime 第一轮修复（2026-05-22）
+
+针对通用 Agent 主循环（`TaskOrchestrator.runAgent()`）的四项局部修复，详细报告见 `docs/reviews/AGENT_RUNTIME_ROUND1_FIX.md`：
+
+- **工具结果可见性**：每次工具调用都产生有界白名单 `ToolResult`（成败/错误码/dataNature/引用 ID + 工具关键字段），修复 `get_asset`、`generate_diagnosis_report` 等对模型全黑及 `requiredChecks`/`limitations` 丢失问题；
+- **RAG 原文扩展**：同 ID 同来源身份的引用允许更长摘录替换，`get_document_excerpt` 的原文经白名单到达模型；
+- **重复调用拦截**：规范化参数键去重，仅拦截"已成功且无新信息"的相同调用（`DUPLICATE_CALL`），失败可重试、不同参数放行；
+- **上下文边界**：单值 ≤1000、单条 ≤1600、滑窗 8 条、累计 ≤6000 字符，截断带标记。
+
+改动文件：`TaskOrchestrator`、`StructuredAgentReasoner`（协议第 8 条 + `type` 笔误归一化，后者由在线验收驱动）、`AssetTools`/`ObservationTools`/`KnowledgeTools`/`AgentReportTools`/`SkillRuntime` 的 modelContext；新增离线测试 `AgentToolFeedbackTest`（18 用例，捕获每轮实际模型输入断言）。契约与数据库结构不变。
+
+在线验收（qwen-plus，经用户授权）：归一化修复前真实模型因 `type` 笔误连续失败；修复后同一提问完整走通 `activate_skill → get_asset → get_configuration×3 → ASK_USER`（6 步零解析失败），并在配置均为 UNCONFIRMED 时正确拒绝确诊、转为向用户追问，run 停在 `WAITING_FOR_USER`。追问-补答在线闭环与 openai 兼容路径未实测。
+
+---
+
 ## 9. 附：关键文件索引
 
 | 主题 | 位置 |

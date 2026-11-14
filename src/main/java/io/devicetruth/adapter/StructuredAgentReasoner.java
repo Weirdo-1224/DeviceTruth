@@ -6,6 +6,7 @@ import io.devicetruth.core.reasoning.Reasoner;
 import io.devicetruth.core.runtime.TaskOrchestrator.ReasonerFailure;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -42,6 +43,8 @@ public final class StructuredAgentReasoner implements GeneralReasoner {
             5. 工具失败只能换一种检索或如实说明，不能把失败结果当作证据，也不能据此下结论。
             6. 禁止任何实体设备操作指令；涉及高压等危险作业时只提示需要具备资质的人员现场执行。
             7. 只允许出现所选动作类型的字段；自由文本一律使用简体中文，type/category/certainty/toolName 与 ID 保持英文原样。
+            8. toolResults 是最近工具结果的白名单摘要（工具名、成败、关键字段与引用 ID），事实细节仍以 references 为准；
+               相同工具与参数已成功的结果不要重复调用；报告类工具已返回的摘要不要当作现场证据。
             本次运行使用 SIMULATED 的模拟数据，答案必须保留这一限制。
             """;
 
@@ -92,8 +95,9 @@ public final class StructuredAgentReasoner implements GeneralReasoner {
                 attempts.add(new Reasoner.Attempt(attempt, "MODEL_TRANSPORT_OR_TIMEOUT", elapsedMs(startedNanos)));
                 throw new ReasonerFailure("MODEL_TRANSPORT_OR_TIMEOUT");
             }
+            String response = null;
             try {
-                String response = result.text();
+                response = normalizeActionType(result.text());
                 if (response == null || response.length() > 65536) throw new IllegalArgumentException("Invalid response size");
                 var action = Json.MAPPER.readValue(response, ActionProposal.class);
                 if (!(action instanceof ActionProposal.CallTool || action instanceof ActionProposal.AskUser
@@ -111,4 +115,26 @@ public final class StructuredAgentReasoner implements GeneralReasoner {
     }
 
     private static long elapsedMs(long startedNanos) { return (System.nanoTime() - startedNanos) / 1_000_000; }
+
+    /**
+     * 真实模型的常见笔误纠正：把工具名误写进 type 字段（如 {"type":"activate_skill",...}）。
+     * 仅当 type 不是三种合法动作且载荷带 toolName 时归为 CALL_TOOL；归一化结果仍走
+     * 严格模式解析与网关授权/参数校验，不放宽任何安全约束。无法归一化时保持原文，
+     * 交给既有解析报错路径，绝不猜测语义。
+     */
+    private static String normalizeActionType(String response) {
+        try {
+            var node = Json.MAPPER.readTree(response);
+            var type = node.get("type");
+            boolean known = type != null && type.isTextual()
+                    && Set.of("CALL_TOOL", "ASK_USER", "ANSWER").contains(type.asText());
+            if (!known && node.hasNonNull("toolName") && node.get("toolName").isTextual()) {
+                ((com.fasterxml.jackson.databind.node.ObjectNode) node).put("type", "CALL_TOOL");
+                return Json.MAPPER.writeValueAsString(node);
+            }
+        } catch (Exception ignored) {
+            // 保持原文：解析失败走既有 INVALID_JSON_OR_SCHEMA 路径
+        }
+        return response;
+    }
 }

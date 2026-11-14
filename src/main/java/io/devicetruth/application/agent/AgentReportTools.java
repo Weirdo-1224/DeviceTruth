@@ -87,7 +87,16 @@ public final class AgentReportTools {
             if (run.failureCode() != null) report.put("failureCode", run.failureCode());
             report.put("references", references.stream().map(AgentReportTools::referenceView).toList());
             report.put("toolEvents", toolEvents.stream().map(AgentReportTools::toolEventView).toList());
-            return ToolOutcome.ok(requestId, REPORT, report, references, dataNature(references));
+            // 报告本体以白名单摘要进入模型上下文，而不是只留在 data 里
+            Map<String, String> visible = new LinkedHashMap<>(Map.of(
+                    "status", run.status(),
+                    "steps", record.stepsUsed() + "/" + record.maxSteps(),
+                    "references", String.valueOf(references.size()),
+                    "toolEvents", String.valueOf(toolEvents.size())));
+            if (run.result() != null)
+                visible.put("answer", run.result().category().name() + "：" + run.result().summary());
+            if (run.failureCode() != null) visible.put("failureCode", run.failureCode());
+            return ToolOutcome.ok(requestId, REPORT, report, references, dataNature(references), visible);
         } catch (RuntimeException e) {
             return ToolOutcome.failed(requestId, REPORT,
                     new io.devicetruth.core.capability.CapabilityTypes.ToolError(

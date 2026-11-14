@@ -213,7 +213,12 @@ public final class AssetTools {
     private ToolOutcome assetOutcome(Map<String, Object> arguments, ToolContext context) {
         AssetOutcome outcome = asset(new AssetRequest(optionalId(arguments, "assetId")), context);
         if (!outcome.success()) return ToolOutcome.failed(outcome.requestId(), GET_ASSET, error(outcome));
-        return ToolOutcome.ok(outcome.requestId(), GET_ASSET, outcome, List.of(), outcome.asset().dataNature());
+        // 模型可见摘要：身份与组件清单（白名单字段），不输出配置结论
+        return ToolOutcome.ok(outcome.requestId(), GET_ASSET, outcome, List.of(), outcome.asset().dataNature(),
+                Map.of("assetId", outcome.asset().assetId(),
+                        "asOf", outcome.asset().asOf().toString(),
+                        "componentCount", String.valueOf(outcome.asset().componentIds().size()),
+                        "components", String.join(",", outcome.asset().componentIds())));
     }
 
     private ToolOutcome configurationOutcome(Map<String, Object> arguments, ToolContext context) {
@@ -232,10 +237,16 @@ public final class AssetTools {
                     new ToolError(code(failure), message(failure), retryable(failure)));
         }
         if (!outcome.success()) return ToolOutcome.failed(outcome.requestId(), GET_CONFIGURATION, error(outcome));
+        // 模型可见摘要：确认/冲突状态、条目数、待核验要求与限制说明；未核实信息保持 UNCONFIRMED 语义
+        Map<String, String> visible = new LinkedHashMap<>(Map.of(
+                "assetId", outcome.assetId(), "asOf", outcome.asOf().toString(),
+                "installationStatus", outcome.installationStatus().name(), "conflict", outcome.conflict().name(),
+                "entries", String.valueOf(outcome.entries().size()),
+                "requiredChecks", String.join("；", outcome.requiredChecks()),
+                "limitations", String.join("；", outcome.limitations()),
+                "dataNature", outcome.dataNature()));
         return ToolOutcome.ok(outcome.requestId(), GET_CONFIGURATION, outcome,
-                references.forOutcome(context, outcome), outcome.dataNature(), Map.of(
-                        "assetId", outcome.assetId(), "asOf", outcome.asOf().toString(),
-                        "installationStatus", outcome.installationStatus().name(), "conflict", outcome.conflict().name()));
+                references.forOutcome(context, outcome), outcome.dataNature(), visible);
     }
 
     private ToolOutcome maintenanceOutcome(Map<String, Object> arguments, ToolContext context) {
@@ -251,8 +262,13 @@ public final class AssetTools {
         }
         if (!outcome.success())
             return ToolOutcome.failed(outcome.requestId(), GET_MAINTENANCE_HISTORY, error(outcome));
+        // 模型可见摘要：条目数与限制说明；条目事实经引用摘录传递，维修史不等同当前确认
         return ToolOutcome.ok(outcome.requestId(), GET_MAINTENANCE_HISTORY, outcome,
-                references.forOutcome(context, outcome), outcome.dataNature());
+                references.forOutcome(context, outcome), outcome.dataNature(), Map.of(
+                        "assetId", outcome.assetId(), "asOf", outcome.asOf().toString(),
+                        "entries", String.valueOf(outcome.entries().size()),
+                        "limitations", String.join("；", outcome.limitations()),
+                        "dataNature", outcome.dataNature()));
     }
 
     /**
