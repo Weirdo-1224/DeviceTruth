@@ -1,5 +1,28 @@
-:root { font-family: Inter, 'Segoe UI', 'Microsoft YaHei', sans-serif; color: #20283b; background: #f7f8fb; --ink: #20283b; --muted: #647186; --line: #e3e7ef; --primary: #5863d8; --surface: #fff; --soft: #f0f1ff; }
+:root {
+  font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: #141a35;
+  background: #fbfbfe;
+  font-size: 14px;
+  --ink: #141a35;
+  --muted: #535e7b;
+  --line: #e2e5f4;
+  --primary: #5144ed;
+  --accent: #4339c8;
+  --surface: #fff;
+  --soft: #eeedff;
+  --panel: #f6f6fd;
+  --success: #13794e;
+  --warning: #8c4b16;
+}
 * { box-sizing: border-box; }
 body { margin: 0; }
 button, textarea, select, input { font: inherit; }
-button:focus-visible, textarea:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+button, select { color: inherit; }
+button:focus-visible, textarea:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+button:disabled { cursor: not-allowed; }
+svg { flex: none; vertical-align: middle; }
+.hint { color: var(--muted); font-size: 13px; line-height: 1.55; }
+.error { background: #fff3f3; border: 1px solid #f3ced0; border-radius: 10px; color: #9d303c; padding: 10px 14px; }

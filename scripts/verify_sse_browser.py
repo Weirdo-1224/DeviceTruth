@@ -110,19 +110,19 @@ class Evidence:
         }) if "/stream" in resp.url or "/events" in resp.url or resp.status >= 400 else None)
 
     def snapshot_timeline(self, page, name):
-        items = page.locator(".timeline-item")
+        items = page.locator(".evidence-panel .timeline-item")
         data = []
         for i in range(items.count()):
             item = items.nth(i)
             data.append({
-                "seq": item.locator(".seq").inner_text(),
-                "badge": item.locator(".badge").inner_text(),
+                "seq": item.get_attribute("data-seq"),
+                "badge": item.get_attribute("data-type"),
                 "detail": item.locator(".detail").inner_text(),
             })
         state = {
             "items": data,
-            "liveBadge": page.locator(".timeline .live-badge").count() > 0,
-            "endedBadge": page.locator(".timeline .ended-badge").count() > 0,
+            "liveBadge": page.locator(".evidence-panel .timeline .live-badge").count() > 0,
+            "endedBadge": page.locator(".evidence-panel .timeline").count() > 0 and not page.locator(".evidence-panel .timeline .live-badge").count(),
         }
         self.timelines[name] = state
         return state
@@ -245,12 +245,21 @@ def await_run_status(product, run_id, statuses, timeout_s=30):
 
 def submit_question_and_wait(product, page, evidence, snapshot):
     """当前会话提交问题并等到 WAITING + 时间线出现；返回 (cid, runView, k)。"""
-    page.locator(".composer textarea").fill(QUESTION)
-    page.get_by_role("button", name="发送 ↑", exact=True).click()
+    composer = page.locator(".composer textarea")
+    composer.fill(QUESTION)
+    composer.press("Shift+Enter")
+    assert composer.input_value() == QUESTION + "\n"
+    composing = composer.evaluate("""el => el.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', isComposing: true, bubbles: true, cancelable: true
+    }))""")
+    assert composing and composer.input_value() == QUESTION + "\n"
+    composer.fill(QUESTION)
+    composer.press("Enter")
     page.get_by_role("heading", name="需要补充信息").wait_for(timeout=30_000)
     cid, run = latest_run(product, page)
     run_id = run["runId"]
-    wait_until(lambda: page.locator(".timeline-item").count() >= 2, 15_000, "时间线至少出现 2 条事件")
+    page.get_by_role("button", name="运行记录", exact=True).click()
+    wait_until(lambda: page.locator(".evidence-panel .timeline-item").count() >= 2, 15_000, "运行记录至少出现 2 条事件")
     state = evidence.snapshot_timeline(page, snapshot)
     k = len(run_events(product, run_id))
     assert_seqs_one_to_n(state, k, snapshot)
@@ -267,10 +276,10 @@ def scenario_a(product, page, evidence, output):
     state = evidence.timelines["A-waiting"]
     if not state["liveBadge"]:
         raise RuntimeError(f"A: 等待阶段时间线应为实时态：{state}")
-    if not any(item["badge"] == "排队" for item in state["items"]):
+    if not any(item["badge"] == "RUN_QUEUED" for item in state["items"]):
         raise RuntimeError(f"A: 等待阶段应包含排队事件：{state}")
     # 复验 §8.1：等待补充迁移必须产出 RUN_WAITING 持久事件，时间线显示「等待补充」条目
-    waiting_items = [item for item in state["items"] if item["badge"] == "等待补充"]
+    waiting_items = [item for item in state["items"] if item["badge"] == "RUN_WAITING"]
     if not waiting_items:
         raise RuntimeError(f"A: 等待阶段应包含「等待补充」条目（RUN_WAITING）：{state}")
     if not any("等待补充信息" in item["detail"] for item in waiting_items):
@@ -278,11 +287,10 @@ def scenario_a(product, page, evidence, output):
 
     # 页面内补答（真实用户路径）：后续事件必须经 SSE 实时追加
     page.locator(".question textarea").fill(REPLY)
-    page.get_by_role("button", name="提交补充信息").click()
+    page.locator(".question textarea").press("Enter")
     page.locator(".report .summary").wait_for(timeout=30_000)
-    page.locator(".timeline-details summary").wait_for(timeout=15_000)
-    page.locator(".timeline-details summary").click()
-    page.locator(".timeline .ended-badge").wait_for(timeout=15_000)
+    page.get_by_role("button", name="运行记录", exact=True).click()
+    wait_until(lambda: page.locator(".evidence-panel .timeline-item").last.get_attribute("data-type") == "RUN_ANSWER" and not page.locator(".evidence-panel .timeline .live-badge").count(), 15_000, "终态记录已回读")
 
     n = len(run_events(product, run_id))
     if n <= k:
@@ -291,11 +299,13 @@ def scenario_a(product, page, evidence, output):
     assert_seqs_one_to_n(state, n, "A-final")
     if not state["endedBadge"]:
         raise RuntimeError("A: 收到 RUN_TERMINAL 后时间线应显示已结束")
-    if not any(item["badge"] == "答案" for item in state["items"]):
+    if not any(item["badge"] == "RUN_ANSWER" for item in state["items"]):
         raise RuntimeError(f"A: 最终时间线应包含答案事件：{state}")
     page.screenshot(path=str(output / "screenshot-A-final.png"), full_page=True)
     for width, height, name in [(1440, 900, "desktop-1440"), (1920, 1080, "desktop-1920"), (375, 812, "mobile-375")]:
         page.set_viewport_size({"width": width, "height": height})
+        if width > 680:
+            page.get_by_role("button", name="调查依据", exact=True).click()
         page.screenshot(path=str(output / f"{name}.png"), full_page=True)
         if page.evaluate("document.documentElement.scrollWidth > window.innerWidth"):
             raise RuntimeError(f"{name}: 页面发生横向溢出")
@@ -304,11 +314,11 @@ def scenario_a(product, page, evidence, output):
             page.locator(".sidebar.open").wait_for()
             page.screenshot(path=str(output / "mobile-navigation.png"), full_page=True)
             page.get_by_role("button", name="关闭导航").click()
-            page.get_by_role("button", name="☷ 依据").click()
+            page.get_by_role("button", name="依据", exact=True).click()
             page.locator(".evidence-panel.open").wait_for()
             page.screenshot(path=str(output / "mobile-evidence.png"), full_page=True)
             page.get_by_role("button", name="关闭依据").click()
-            citation = page.locator(".citation-ref").first
+            citation = page.locator(".report .citation").first
             citation.scroll_into_view_if_needed()
             citation.click()
             page.locator(".evidence-panel.open .reference button[aria-expanded=true]").wait_for()
@@ -324,7 +334,7 @@ def scenario_b(product, page, evidence, output):
     断线期间经 API 补答推进 run，恢复后 EventSource 带 Last-Event-ID 重连，
     页面依序补齐且不重复。"""
     evidence.set_tag("B")
-    page.get_by_role("button", name="＋　新调查", exact=True).click()
+    page.get_by_role("button", name="新调查", exact=True).click()
     page.locator(".history-list .conversation-link").nth(0).wait_for(timeout=10_000)
     cid, run, k = submit_question_and_wait(product, page, evidence, "B-waiting")
     run_id = run["runId"]
@@ -354,7 +364,7 @@ def scenario_b(product, page, evidence, output):
 
     wait_until(lambda: len(evidence.snapshot_timeline(page, "B-backfill-check")["items"]) >= n,
                40_000, f"B: 重连后补齐到 {n} 条事件")
-    page.locator(".timeline .ended-badge").wait_for(timeout=15_000)
+    wait_until(lambda: page.locator(".evidence-panel .timeline-item").last.get_attribute("data-type") == "RUN_ANSWER" and not page.locator(".evidence-panel .timeline .live-badge").count(), 15_000, "终态记录已回读")
     state = evidence.snapshot_timeline(page, "B-final")
     assert_seqs_one_to_n(state, n, "B-final")
 
@@ -377,7 +387,7 @@ def scenario_b(product, page, evidence, output):
 def scenario_c(product, page, evidence, output):
     """c) 旧 run 等待时切换会话：页面关闭旧订阅；旧 run 迟到事件不得更新新页面。"""
     evidence.set_tag("C")
-    page.get_by_role("button", name="＋　新调查", exact=True).click()
+    page.get_by_role("button", name="新调查", exact=True).click()
     page.locator(".history-list .conversation-link").nth(0).wait_for(timeout=10_000)
     cid, run, k = submit_question_and_wait(product, page, evidence, "C-waiting")
     run_id = run["runId"]
@@ -385,7 +395,7 @@ def scenario_c(product, page, evidence, output):
     streams_before = len(evidence.stream_requests())
 
     # 切换会话：页面必须关闭旧订阅（network 里不得再出现旧 run 的新 stream 请求）
-    page.get_by_role("button", name="＋　新调查", exact=True).click()
+    page.get_by_role("button", name="新调查", exact=True).click()
     wait_until(lambda: conversation_id(page) != cid, 10_000, "C: 会话已切换")
 
     # 旧 run 在页面已切换后完成：迟到事件只允许存在于服务端
@@ -404,28 +414,22 @@ def scenario_c(product, page, evidence, output):
         raise RuntimeError(f"C: 新会话时间线应为空（旧 run 条目不得残留）：{before} -> {after}")
     if after["liveBadge"]:
         raise RuntimeError("C: 新会话不应显示实时徽标")
-    if any(item["badge"] == "答案" for item in after["items"]):
+    if any(item["badge"] == "RUN_ANSWER" for item in after["items"]):
         raise RuntimeError(f"C: 新页面不应出现旧 run 的答案事件：{after}")
     if old_run_streams:
         raise RuntimeError(f"C: 切换后不应再为旧 run 建立 stream 请求：{old_run_streams}")
     # 终态历史回读（主代理修复的接线）：切回旧会话，其最新 run 已终态，
     # 时间线必须回读 PG 历史且各显示一次（不残留新会话的时间线，也不重复）
-    history_buttons = page.locator(".history-list .conversation-link")
-    for i in range(history_buttons.count()):
-        if history_buttons.nth(i).evaluate("el => !el.classList.contains('active')"):
-            history_buttons.nth(i).click()
-            break
-    else:
-        raise RuntimeError("C: 历史列表中没有可切回的会话")
-    page.locator(".timeline-details summary").wait_for(timeout=15_000)
-    page.locator(".timeline-details summary").click()
+    page.locator(f'.conversation-link[data-conversation-id="{cid}"]').click()
+    page.wait_for_function("(id) => localStorage.getItem('devicetruth.conversation-id') === id", arg=cid)
+    page.get_by_role("button", name="运行记录", exact=True).click()
     n_old = len(run_events(product, run_id))
-    # 等 refollow 真正回读完历史（ended-badge 在旧视图就已可见，不能当作回读完成的信号）
+    # 等 refollow 真正回读完历史。
     wait_until(lambda: len(timeline_seqs(evidence.snapshot_timeline(page, "C-terminal-history-pending")))
                >= n_old, 15_000, f"C: 终态历史回读应补齐到 {n_old} 条")
     state_old = evidence.snapshot_timeline(page, "C-terminal-history")
     assert_seqs_one_to_n(state_old, n_old, "C-terminal-history")
-    if not any(item["badge"] == "答案" for item in state_old["items"]):
+    if not any(item["badge"] == "RUN_ANSWER" for item in state_old["items"]):
         raise RuntimeError(f"C: 终态历史回读应包含答案事件：{state_old}")
     page.screenshot(path=str(output / "screenshot-C-terminal-history.png"), full_page=True)
     if page.locator(".error").count() > 0:
@@ -443,7 +447,7 @@ def scenario_d(product, page, evidence, output):
     """d) 无 run 会话清理（复验 §8.6）：进入没有 run 的新会话后旧时间线立即消失；
     此后旧 run 若有迟到事件（再经 API 推进到终态），新会话页面不得出现旧数据。"""
     evidence.set_tag("D")
-    page.get_by_role("button", name="＋　新调查", exact=True).click()
+    page.get_by_role("button", name="新调查", exact=True).click()
     page.locator(".history-list .conversation-link").nth(0).wait_for(timeout=10_000)
     cid_old, run_old, k = submit_question_and_wait(product, page, evidence, "D-waiting")
     run_id_old = run_old["runId"]
@@ -451,10 +455,10 @@ def scenario_d(product, page, evidence, output):
         raise RuntimeError("D: 旧会话等待阶段应有时间线事件")
 
     # 进入没有 run 的新会话：旧时间线必须立即消失（clear：关流 + generation + runId 双保险）
-    page.get_by_role("button", name="＋　新调查", exact=True).click()
+    page.get_by_role("button", name="新调查", exact=True).click()
     wait_until(lambda: conversation_id(page) != cid_old, 10_000, "D: 会话已切换")
     wait_until(lambda: page.locator(".timeline-item").count() == 0, 5_000, "D: 新会话不应残留旧时间线条目")
-    if page.locator(".timeline").count() != 0:
+    if page.locator(".investigation").count() != 0:
         raise RuntimeError("D: 无 run 的新会话不应渲染时间线卡片")
     state = evidence.snapshot_timeline(page, "D-cleared")
     if state["items"] or state["liveBadge"]:
@@ -484,14 +488,14 @@ def scenario_d(product, page, evidence, output):
 def scenario_e(product, page, evidence, output):
     """HTTP 409 令原生 EventSource 进入 CLOSED，页面停订后可通过刷新恢复历史。"""
     evidence.set_tag("E")
-    page.get_by_role("button", name="＋　新调查", exact=True).click()
+    page.get_by_role("button", name="新调查", exact=True).click()
     page.locator(".history-list .conversation-link").nth(0).wait_for(timeout=10_000)
 
     page.route("**/api/runs/*/stream", lambda route: route.fulfill(
         status=409, json={"code": "STREAM_CAPACITY"}))
 
     page.locator(".composer textarea").fill(QUESTION)
-    page.get_by_role("button", name="发送 ↑", exact=True).click()
+    page.get_by_role("button", name="发送", exact=True).click()
     page.get_by_role("heading", name="需要补充信息").wait_for(timeout=30_000)
     cid, run = latest_run(product, page)
     run_id = run["runId"]
@@ -499,8 +503,9 @@ def scenario_e(product, page, evidence, output):
         return [n for n in evidence.network
                 if n["kind"] == "request" and "/stream" in n["url"] and run_id in n["url"]]
 
-    page.locator(".timeline li").first.wait_for(timeout=15_000)
-    wait_until(lambda: bool(stream_attempts()) and not page.locator(".timeline .live-badge").count(),
+    page.get_by_role("button", name="运行记录", exact=True).click()
+    page.locator(".evidence-panel .timeline-item").first.wait_for(timeout=15_000)
+    wait_until(lambda: bool(stream_attempts()) and not page.locator(".evidence-panel .timeline .live-badge").count(),
                15_000, "E: HTTP 409 后应停止实时展示")
     frozen_items = list(evidence.snapshot_timeline(page, "E-frozen-at-waiting")["items"])
 
@@ -526,8 +531,7 @@ def scenario_e(product, page, evidence, output):
     # 刷新后走历史回读：时间线完整 1..N、含答案与已结束徽标
     page.reload()
     page.locator(".history-list .conversation-link").first.wait_for(timeout=15_000)
-    page.locator(".timeline-details summary").wait_for(timeout=15_000)
-    page.locator(".timeline-details summary").click()
+    page.get_by_role("button", name="运行记录", exact=True).click()
     n = len(run_events(product, run_id))
     wait_until(lambda: len(evidence.snapshot_timeline(page, "E-history-pending")["items"]) >= n,
                20_000, f"E: 刷新后历史回读应补齐 {n} 条事件")
@@ -535,7 +539,7 @@ def scenario_e(product, page, evidence, output):
     assert_seqs_one_to_n(state, n, "E-history")
     if not state["endedBadge"]:
         raise RuntimeError("E: 历史回读后时间线应显示已结束")
-    if not any(item["badge"] == "答案" for item in state["items"]):
+    if not any(item["badge"] == "RUN_ANSWER" for item in state["items"]):
         raise RuntimeError(f"E: 历史回读应包含答案事件：{state}")
     errors = [line for line in evidence.pageerrors if "[E]" in line]
     if errors:
@@ -549,28 +553,28 @@ def scenario_e(product, page, evidence, output):
 
 def scenario_f(product, page, evidence, output):
     evidence.set_tag("F")
-    page.get_by_role("button", name="＋　新调查", exact=True).click()
+    page.get_by_role("button", name="新调查", exact=True).click()
     page.get_by_text("开始一次新调查").wait_for()
     page.screenshot(path=str(output / "empty-workbench.png"))
     page.locator('input[type=file]').set_input_files(str(ROOT / "datasets/knowledge/charging-system-manual.md"))
-    page.get_by_text("将随下一条问题作为检索范围线索", exact=False).wait_for(timeout=30000)
+    page.locator(".attachment-chip").wait_for(timeout=30000)
     page.screenshot(path=str(output / "upload-parsed.png"))
-    page.get_by_role("button", name="☷ 依据").click()
+    page.get_by_role("button", name="关联设备", exact=True).click()
     page.locator("#asset").select_option("CAR-B")
     page.locator(".comparison table").wait_for(timeout=15000)
     page.locator(".comparison").get_by_text("存在", exact=True).wait_for()
     page.screenshot(path=str(output / "asset-records.png"))
-    page.get_by_role("button", name="关闭依据").click()
+    page.get_by_role("button", name="调查依据", exact=True).click()
     cid, run, _ = submit_question_and_wait(product, page, evidence, "F-waiting")
     page.screenshot(path=str(output / "waiting-for-user.png"))
     page.get_by_role("button", name="取消调查", exact=True).click()
     page.get_by_role("heading", name="本次调查已取消").wait_for(timeout=15000)
     assert await_run_status(product, run["runId"], {"CANCELLED"})["status"] == "CANCELLED"
     page.screenshot(path=str(output / "cancelled.png"))
-    page.get_by_role("button", name="＋　新调查", exact=True).click()
+    page.get_by_role("button", name="新调查", exact=True).click()
     page.route("**/api/conversations/*/messages", lambda route: route.fulfill(status=500, json={"code": "TEST_ERROR", "message": "模拟请求失败"}))
     page.locator(".composer textarea").fill(QUESTION)
-    page.get_by_role("button", name="发送 ↑", exact=True).click()
+    page.get_by_role("button", name="发送", exact=True).click()
     page.locator("[role=alert]").first.wait_for(timeout=15000)
     page.screenshot(path=str(output / "error-state.png"))
     page.unroute_all()

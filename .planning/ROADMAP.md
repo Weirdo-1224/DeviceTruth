@@ -112,6 +112,8 @@
 
 ### Phase 5: 完整工作台、质量与交付
 
+工作台参考图复刻已完成本地技术验收，见 [05-UI-ACCEPTANCE](phases/05-workbench-quality/05-UI-ACCEPTANCE.md)。
+
 **Milestone:** M4
 **Goal:** 在正确持久事件之上实现实时进度、可读报告与完整评测，再完成可恢复部署。
 **Depends on:** Phase 4

@@ -24,6 +24,7 @@ import {
 import RunTimeline from './components/RunTimeline.vue'
 import DiagnosisReport from './components/DiagnosisReport.vue'
 import EvidenceComparison from './components/EvidenceComparison.vue'
+import UiIcon from './components/UiIcon.vue'
 import { createRunTimelineController } from './timeline'
 
 const STORAGE_KEY = 'devicetruth.conversation-id'
@@ -46,12 +47,60 @@ const selectedSkill = ref<SkillSelection | null>(null)
 const cancelling = ref(false)
 const navigationOpen = ref(false)
 const evidenceOpen = ref(false)
+const evidenceTab = ref<'evidence' | 'assets' | 'events'>('evidence')
+const historyTitles = ref<Record<string, string>>({})
 const isTerminal = computed(() => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(run.value?.status ?? ''))
-const taskTitle = computed(() => messages.value.find(message => message.role === 'USER')?.content.slice(0, 36) || '新调查')
-watch(() => conversation.value?.conversationId, () => { evidenceOpen.value = false; navigationOpen.value = false; openReferenceId.value = null })
+const taskTitle = computed(() => messages.value.find(message => message.role === 'USER')?.content || '新调查')
+const reportMessageId = computed(() => {
+  const last = messages.value.at(-1)
+  return last?.role === 'ASSISTANT' && last.content === run.value?.result?.summary ? last.messageId : null
+})
+const foldedMessages = computed(() => reportMessageId.value ? messages.value.slice(1, -1) : [])
+const shownMessages = computed(() => foldedMessages.value.length
+  ? [messages.value[0], messages.value[messages.value.length - 1]]
+  : messages.value)
+const goalMessage = computed(() => messages.value.find(message => message.messageId === run.value?.goalMessageId))
+const references = computed(() => run.value?.result?.references ?? [])
+const sources = computed(() => [...new Map(references.value.map(reference => [
+  JSON.stringify([reference.sourceType, reference.sourceId, reference.sourceVersion]), reference
+])).values()])
+const visibleEvents = computed(() => timelineEvents.value.slice(-3))
+const activeDuration = computed(() => {
+  const ms = run.value?.activeDurationMs
+  if (ms == null) return ''
+  if (ms < 1000) return ms + ' 毫秒'
+  const seconds = Math.round(ms / 1000)
+  return seconds < 60 ? seconds + ' 秒' : Math.floor(seconds / 60) + ' 分 ' + seconds % 60 + ' 秒'
+})
+const safetyNotice = computed(() => {
+  const disposition = run.value?.result?.safetyDisposition
+  if (disposition === 'REQUIRES_QUALIFIED_PERSONNEL') return '涉及高风险操作，必须由具备资质的专业人员按厂家规程处理。'
+  if (disposition === 'PROHIBITED') return '该请求涉及被禁止的设备操作，系统不提供执行指引。'
+  return ''
+})
+const shortTime = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+const dateTime = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+
+watch([conversation, messages], ([current, currentMessages]) => {
+  const title = currentMessages.find(message => message.role === 'USER')?.content
+  if (current && title) historyTitles.value[current.conversationId] = title
+})
+watch(() => conversation.value?.conversationId, () => {
+  evidenceOpen.value = false
+  navigationOpen.value = false
+  evidenceTab.value = 'evidence'
+  openReferenceId.value = null
+})
+watch(() => run.value?.runId, () => { openReferenceId.value = null })
+
+function openEvidence(tab: typeof evidenceTab.value): void {
+  evidenceTab.value = tab
+  evidenceOpen.value = true
+}
+
 function showReference(id: string): void {
   openReferenceId.value = id
-  evidenceOpen.value = true
+  openEvidence('evidence')
   void nextTick(() => document.getElementById('reference-' + id)?.scrollIntoView({ block: 'nearest' }))
 }
 
@@ -255,8 +304,14 @@ async function upload(event: Event): Promise<void> {
   }
 }
 
+function submitOnEnter(event: KeyboardEvent, action: () => Promise<void>): void {
+  if (event.shiftKey || event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  if (!event.repeat) void action()
+}
+
 async function submit(): Promise<void> {
-  if (!canSend.value || !conversation.value) return
+  if (!canSend.value || !conversation.value || pendingQuestion.value) return
   busy.value = true
   errorText.value = ''
   try {
@@ -282,7 +337,7 @@ async function submit(): Promise<void> {
 /** 补答：用当前 run 的 pendingQuestionId/questionVersion 关联，沿同一个 run 继续。 */
 async function answerQuestion(): Promise<void> {
   const question = pendingQuestion.value
-  if (!conversation.value || !question || !run.value || replyDraft.value.trim().length === 0) return
+  if (busy.value || !conversation.value || !question || !run.value || replyDraft.value.trim().length === 0) return
   busy.value = true
   errorText.value = ''
   try {
@@ -341,32 +396,223 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="workbench" :class="{ 'evidence-visible': evidenceOpen }" @keydown.esc="navigationOpen = false; evidenceOpen = false">
-    <div v-if="navigationOpen || evidenceOpen" class="scrim" @click="navigationOpen = false; evidenceOpen = false"></div>
+  <main class="workbench" @keydown.esc="navigationOpen = false; evidenceOpen = false">
+    <div v-if="navigationOpen || evidenceOpen" class="scrim"
+         @click="navigationOpen = false; evidenceOpen = false"></div>
+
     <aside class="sidebar" :class="{ open: navigationOpen }" aria-label="会话导航">
-      <div class="brand"><span class="brand-mark">◈</span> DeviceTruth <button class="mobile-close" aria-label="关闭导航" @click="navigationOpen = false">×</button></div>
-      <button class="new-conversation" :disabled="busy" @click="startNewConversation">＋　新调查</button>
-      <p class="side-label">工作区</p><div class="nav-current">◫　调查工作台</div><p class="side-label">历史会话</p>
-      <p v-if="conversations.length === 0" class="hint">还没有历史会话。</p>
-      <div class="history-list"><button v-for="item in conversations" :key="item.conversationId" class="conversation-link" :class="{ active: item.conversationId === conversation?.conversationId }" :aria-current="item.conversationId === conversation?.conversationId ? 'true' : undefined" :disabled="busy" @click="openConversation(item.conversationId)">{{ new Date(item.updatedAt).toLocaleString() }} 的会话</button></div>
-      <p class="sidebar-foot">设备检修助手</p>
+      <div class="brand">
+        <span class="brand-mark"><UiIcon name="spark" /></span>
+        <div><strong>DeviceTruth</strong><small>设备真相 · AI 检修助手</small></div>
+        <button class="icon-button mobile-close" aria-label="关闭导航" @click="navigationOpen = false">
+          <UiIcon name="close" />
+        </button>
+      </div>
+      <button class="primary new-conversation" :disabled="busy" @click="startNewConversation">
+        <UiIcon name="plus" /> 新调查
+      </button>
+      <nav class="workspace-nav" aria-label="工作区">
+        <span class="nav-current" aria-current="page"><UiIcon name="home" /> 调查工作台</span>
+      </nav>
+
+      <h2 class="side-label">历史会话</h2>
+      <p v-if="!conversations.length" class="hint">还没有历史会话。</p>
+      <div class="history-list">
+        <button v-for="item in conversations" :key="item.conversationId" class="conversation-link"
+                :data-conversation-id="item.conversationId"
+                :class="{ active: item.conversationId === conversation?.conversationId }"
+                :aria-current="item.conversationId === conversation?.conversationId ? 'true' : undefined"
+                :disabled="busy" @click="openConversation(item.conversationId)">
+          <UiIcon name="chat" />
+          <span class="history-text">
+            <strong>{{ historyTitles[item.conversationId] || (item.version === 0 ? '新调查' : '调查会话') }}</strong>
+            <small>{{ dateTime.format(new Date(item.updatedAt)) }}<template v-if="item.conversationId === conversation?.conversationId && run"> · {{ statusLabel }}</template></small>
+          </span>
+          <span v-if="item.conversationId === conversation?.conversationId && run?.status === 'COMPLETED'" class="history-check"><UiIcon name="check" /></span>
+        </button>
+      </div>
+      <div class="sidebar-foot">
+        <span class="avatar user">DT</span>
+        <div>DeviceTruth<small>设备检修工作台</small></div>
+      </div>
     </aside>
-    <section class="main-panel">
-      <header class="topbar"><div class="top-title"><button class="menu-button" aria-label="打开会话导航" @click="navigationOpen = true">☰</button><div><span class="eyebrow">工作区 / 调查工作台</span><h1>{{ taskTitle }}</h1></div><span class="status-badge">{{ statusLabel }}</span></div><button class="secondary" :aria-expanded="evidenceOpen" @click="evidenceOpen = !evidenceOpen">☷ 依据</button></header>
-      <div class="main-scroll"><div class="content">
+
+    <header class="topbar">
+      <button class="icon-button menu-button" aria-label="打开会话导航" @click="navigationOpen = true"><UiIcon name="menu" /></button>
+      <div class="top-title">
+        <div class="eyebrow">工作区 / 调查工作台</div>
+        <div class="title-row">
+          <h1 :title="taskTitle">{{ taskTitle }}</h1>
+          <span v-if="run" class="status-badge" :class="run.status">
+            <UiIcon v-if="run.status === 'COMPLETED'" name="check" /> {{ statusLabel }}
+          </span>
+        </div>
+        <div v-if="run" class="run-meta">
+          <span v-if="goalMessage?.selectedAssetId"><UiIcon name="layers" /> {{ goalMessage.selectedAssetId }}</span>
+          <span><UiIcon name="clock" /> {{ dateTime.format(new Date(run.requestedAt)) }}</span>
+          <span v-if="activeDuration">耗时 {{ activeDuration }}</span>
+          <span v-if="selectedSkill">领域包 {{ selectedSkill.name }} v{{ selectedSkill.version }}</span>
+          <span v-if="resumingRunId === run.runId">正在恢复调查…</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button v-if="run && !isTerminal" class="secondary" :disabled="cancelling" @click="cancelCurrentRun">
+          {{ cancelling ? '正在取消…' : '取消调查' }}
+        </button>
+        <button v-if="!busy && conversation" class="secondary" aria-label="刷新" title="刷新" @click="refresh">
+          <UiIcon name="refresh" /><span class="action-label">刷新</span>
+        </button>
+        <button class="secondary evidence-toggle" :aria-expanded="evidenceOpen"
+                @click="evidenceOpen = !evidenceOpen"><UiIcon name="layers" /> 依据</button>
+      </div>
+    </header>
+
+    <section class="main-panel" aria-label="Agent 工作台">
+      <div class="main-scroll">
         <p v-if="errorText" class="error" role="alert">{{ errorText }}</p>
-        <div class="run-actions"><span v-if="selectedSkill" class="hint">领域包：{{ selectedSkill.name }} v{{ selectedSkill.version }}</span><span v-if="resumingRunId && run?.runId === resumingRunId" class="hint">正在恢复调查…</span><button v-if="run && ['QUEUED', 'RUNNING', 'WAITING_FOR_USER'].includes(run.status)" class="text-button" :disabled="cancelling" @click="cancelCurrentRun">{{ cancelling ? '正在取消…' : '取消调查' }}</button><button v-if="!busy && conversation" class="text-button" @click="refresh">刷新</button></div>
-        <section class="messages"><div v-if="messages.length === 0" class="empty"><div class="empty-icon">✦</div><h2>开始一次新调查</h2><p>描述设备现象，助手会查找资料并整理可核验的线索。</p></div><article v-for="message in messages" :key="message.messageId" class="message"><span class="avatar" :class="{ user: message.role === 'USER' }">{{ message.role === 'USER' ? '我' : '✦' }}</span><div class="message-body"><strong>{{ message.role === 'USER' ? '我' : 'DeviceTruth Agent' }}</strong><p :class="{ bubble: message.role === 'USER' }">{{ message.content }}</p></div></article></section>
-        <section v-if="pendingQuestion" class="card question"><h2>需要补充信息</h2><p>{{ pendingQuestion.question }}</p><p v-if="pendingQuestion.requestedFields.length" class="hint">需要：{{ pendingQuestion.requestedFields.join('、') }}</p><textarea v-model="replyDraft" rows="3" aria-label="补充信息" placeholder="按问题补充信息"></textarea><button class="primary" :disabled="busy || replyDraft.trim().length === 0" @click="answerQuestion">提交补充信息</button></section>
-        <RunTimeline v-if="timelineEvents.length > 0 && !isTerminal" :events="timelineEvents" :live="timelineLive" />
-        <DiagnosisReport v-if="run" :status="run?.status ?? 'COMPLETED'" :result="run?.result ?? null" :failure-code="run?.failureCode ?? null" :failure-text="failureText" :references="run?.result?.references ?? []" :active-reference-id="openReferenceId" @toggle-reference="showReference" />
-        <details v-if="timelineEvents.length > 0 && isTerminal" class="timeline-details" :key="run?.runId"><summary>查看完整调查过程（{{ timelineEvents.length }} 条）</summary><RunTimeline :events="timelineEvents" :live="timelineLive" /></details>
-      </div></div>
-      <div class="composer-wrap"><div class="composer"><textarea v-model="draft" rows="2" :disabled="busy || pendingQuestion !== null" aria-label="描述设备问题" placeholder="描述设备现象，或继续追问…"></textarea><div class="composer-actions"><label class="upload-label">添加 Markdown 资料<input type="file" accept=".md,text/markdown" :disabled="uploading" @change="upload" /></label><button class="primary" :disabled="!canSend || pendingQuestion !== null" @click="submit">发送 ↑</button></div><p v-if="uploading" class="hint">正在上传并导入，请稍候。</p><p v-if="uploadedFile" class="hint">{{ uploadedFile.originalName }}：{{ uploadedFile.parseStatus }}<span v-if="uploadedFile.parseStatus === 'PARSED'">，将随下一条问题作为检索范围线索。</span><span v-else-if="uploadedFile.failureCode">（{{ uploadedFile.failureCode }}）</span></p><p v-if="pendingQuestion" class="hint">请先回答上面的问题，再继续新的描述。</p></div><p class="disclaimer">回答可能包含 SIMULATED 演示数据；知识引用只说明资料记载，不代表本台设备当前配置。</p></div>
+        <section class="messages" aria-label="会话消息">
+          <div v-if="!messages.length" class="empty">
+            <div class="empty-icon"><UiIcon name="spark" /></div>
+            <h2>开始一次新调查</h2>
+            <p>描述设备现象，助手会查找资料并整理可核验的线索。</p>
+          </div>
+          <template v-for="(message, index) in shownMessages" :key="message.messageId">
+            <details v-if="index === 1 && foldedMessages.length" class="earlier-messages">
+              <summary>查看前序对话（{{ foldedMessages.length }} 条）</summary>
+              <article v-for="earlier in foldedMessages" :key="earlier.messageId" class="earlier-message">
+                <strong>{{ earlier.role === 'USER' ? '我' : 'DeviceTruth Agent' }}</strong>
+                <time :datetime="earlier.requestedAt">{{ shortTime.format(new Date(earlier.requestedAt)) }}</time>
+                <p>{{ earlier.content }}</p>
+              </article>
+            </details>
+            <article class="message" :class="{ 'report-message': message.messageId === reportMessageId }">
+              <span class="avatar" :class="{ user: message.role === 'USER' }">
+                <template v-if="message.role === 'USER'">我</template><UiIcon v-else name="spark" />
+              </span>
+              <div class="message-body">
+                <div v-if="message.role === 'ASSISTANT'" class="agent-name">DeviceTruth Agent <span>AI</span></div>
+                <p v-if="message.role === 'USER'" class="bubble">{{ message.content }}</p>
+                <p v-else-if="message.messageId !== reportMessageId">{{ message.content }}</p>
+              </div>
+              <time :datetime="message.requestedAt">{{ shortTime.format(new Date(message.requestedAt)) }}</time>
+            </article>
+          </template>
+        </section>
+
+        <div v-if="run && (visibleEvents.length || !isTerminal)" class="investigation">
+          <RunTimeline :key="run.runId" :events="visibleEvents" :live="timelineLive"
+                       :status="statusLabel" :duration="activeDuration">
+            <button v-if="timelineEvents.length > visibleEvents.length" class="text-button full-events"
+                    @click="openEvidence('events')">完整记录 <UiIcon name="chevron" /></button>
+          </RunTimeline>
+        </div>
+
+        <section v-if="pendingQuestion" class="question">
+          <h2>需要补充信息</h2>
+          <p v-if="messages.at(-1)?.content !== pendingQuestion.question">{{ pendingQuestion.question }}</p>
+          <p v-if="pendingQuestion.requestedFields.length" class="hint">需要：{{ pendingQuestion.requestedFields.join('、') }}</p>
+          <textarea v-model="replyDraft" rows="3" aria-label="补充信息" placeholder="按问题补充信息"
+                    @keydown.enter="submitOnEnter($event, answerQuestion)"></textarea>
+          <button class="primary" :disabled="busy || !replyDraft.trim()" @click="answerQuestion">提交补充信息</button>
+        </section>
+        <DiagnosisReport v-if="run && isTerminal" :status="run.status" :result="run.result"
+                         :failure-code="run.failureCode" :failure-text="failureText"
+                         :references="references" @toggle-reference="showReference" />
+      </div>
+
+      <form class="composer-wrap" @submit.prevent="submit">
+        <div class="composer">
+          <textarea v-model="draft" rows="2" :disabled="busy || pendingQuestion !== null"
+                    aria-label="描述设备问题" placeholder="描述设备现象，或继续追问…"
+                    @keydown.enter="submitOnEnter($event, submit)"></textarea>
+          <div class="composer-actions">
+            <div class="composer-tools">
+              <label class="upload-label" :class="{ disabled: uploading }" title="添加 Markdown 资料">
+                <input class="visually-hidden" type="file" aria-label="添加 Markdown 资料"
+                       accept=".md,text/markdown" :disabled="uploading" @change="upload" />
+                <UiIcon name="attach" />
+              </label>
+              <button type="button" class="composer-tool" @click="openEvidence('assets')">
+                <UiIcon name="layers" /> {{ selectedAssetId || '关联设备' }} <UiIcon name="chevron" />
+              </button>
+              <span v-if="uploadedFile?.parseStatus === 'PARSED'" class="attachment-chip" role="status"
+                    :title="uploadedFile.originalName + '，将随下一条问题作为检索范围线索。'">
+                <UiIcon name="file" /> <span>{{ uploadedFile.originalName }}</span>
+              </span>
+            </div>
+            <button type="submit" class="primary" :disabled="!canSend || pendingQuestion !== null"><UiIcon name="send" /> 发送</button>
+          </div>
+          <p v-if="uploading" class="hint" role="status">正在上传并导入，请稍候。</p>
+          <p v-if="uploadedFile && uploadedFile.parseStatus !== 'PARSED'" class="hint" role="status">
+            {{ uploadedFile.originalName }}：{{ uploadedFile.parseStatus }}
+            <span v-if="uploadedFile.failureCode">（{{ uploadedFile.failureCode }}）</span>
+          </p>
+          <p v-if="pendingQuestion" class="hint">请先回答上面的问题，再继续新的描述。</p>
+        </div>
+        <p class="disclaimer">回答可能包含 SIMULATED 演示数据。知识引用仅反映资料记载，设备现状需现场核验。</p>
+      </form>
     </section>
-    <aside class="evidence-panel" :class="{ open: evidenceOpen }" aria-label="调查依据"><div class="evidence-header"><div><h2>调查依据</h2><p class="hint">设备记录与来源</p></div><button class="close-button" aria-label="关闭依据" @click="evidenceOpen = false">×</button></div><section class="asset-picker"><label for="asset">关联设备（可选）</label><select id="asset" v-model="selectedAssetId" :disabled="busy"><option value="">不指定设备</option><option v-for="asset in assets" :key="asset" :value="asset">{{ asset }}</option></select><p class="hint">不指定设备也可以先做资料问答。</p></section><EvidenceComparison v-if="selectedAssetId" :asset-id="selectedAssetId" :as-of="run?.asOf ?? null" /><p v-else class="hint">选择设备后查看配置和维修记录。</p><section v-if="run?.result?.references.length" class="evidence-references"><h3>引用来源</h3><div v-for="reference in run.result.references" :id="'reference-' + reference.referenceId" :key="reference.referenceId" class="reference"><button class="text-button" :aria-expanded="openReferenceId === reference.referenceId" @click="openReferenceId = openReferenceId === reference.referenceId ? null : reference.referenceId">《{{ reference.title }}》{{ reference.section ?? '' }}</button><p class="hint">{{ reference.sourceType }} · 版本 {{ reference.sourceVersion }} · {{ reference.dataNature }}</p><p v-if="openReferenceId === reference.referenceId">{{ reference.excerpt }}</p></div></section></aside>
+
+    <aside class="evidence-panel" :class="{ open: evidenceOpen }" aria-label="调查依据">
+      <nav class="evidence-tabs" aria-label="依据视图">
+        <button :aria-current="evidenceTab === 'evidence' ? 'true' : undefined" @click="evidenceTab = 'evidence'">调查依据</button>
+        <button :aria-current="evidenceTab === 'assets' ? 'true' : undefined" @click="evidenceTab = 'assets'">相关资产</button>
+        <button :aria-current="evidenceTab === 'events' ? 'true' : undefined" @click="evidenceTab = 'events'">运行记录</button>
+        <button class="icon-button close-button" aria-label="关闭依据" @click="evidenceOpen = false"><UiIcon name="close" /></button>
+      </nav>
+      <div class="evidence-scroll">
+        <template v-if="evidenceTab === 'evidence'">
+          <section class="evidence-card">
+            <h2><UiIcon name="link" /> 本次涉及的关键资料 <small v-if="sources.length">{{ sources.length }} 项</small></h2>
+            <p v-if="!sources.length" class="hint">本次调查暂无已登记的引用资料。</p>
+            <button v-for="source in sources" :key="source.referenceId" class="source-entry" @click="showReference(source.referenceId)">
+              <span class="source-icon"><UiIcon name="file" /></span>
+              <span><strong>{{ source.title }}</strong><small>版本 {{ source.sourceVersion }} · {{ source.dataNature }}</small></span>
+              <UiIcon name="chevron" />
+            </button>
+          </section>
+          <section v-if="safetyNotice" class="evidence-card caution">
+            <h2><UiIcon name="warning" /> 注意事项</h2><p>{{ safetyNotice }}</p>
+          </section>
+          <section v-if="references.length" class="evidence-card">
+            <h2><UiIcon name="file" /> 引用摘录（{{ references.length }}）</h2>
+            <div v-for="reference in references" :id="'reference-' + reference.referenceId" :key="reference.referenceId"
+                 class="reference" :class="{ expanded: openReferenceId === reference.referenceId }">
+              <button :aria-expanded="openReferenceId === reference.referenceId"
+                      @click="openReferenceId = openReferenceId === reference.referenceId ? null : reference.referenceId">
+                <span class="quote-mark" aria-hidden="true">“</span>
+                <span class="quote-text">{{ reference.excerpt || reference.title }}</span>
+                <UiIcon name="chevron" />
+              </button>
+              <p class="quote-source">来自 <strong>{{ reference.title }}</strong><span v-if="reference.section"> · {{ reference.section }}</span></p>
+              <p v-if="openReferenceId === reference.referenceId" class="hint quote-meta">
+                {{ reference.sourceType }} · 版本 {{ reference.sourceVersion }} · {{ reference.dataNature }}
+                <span v-if="reference.page"> · 第 {{ reference.page }} 页</span>
+              </p>
+            </div>
+          </section>
+        </template>
+
+        <template v-else-if="evidenceTab === 'assets'">
+          <section class="evidence-card asset-picker">
+            <h2><UiIcon name="layers" /> <label for="asset">关联设备（可选）</label></h2>
+            <select id="asset" v-model="selectedAssetId" :disabled="busy">
+              <option value="">不指定设备</option>
+              <option v-for="asset in assets" :key="asset" :value="asset">{{ asset }}</option>
+            </select>
+            <p v-if="!selectedAssetId" class="hint">选择设备后查看配置和维修记录。</p>
+          </section>
+          <EvidenceComparison v-if="selectedAssetId" :asset-id="selectedAssetId" :as-of="run?.asOf ?? null" />
+        </template>
+
+        <template v-else>
+          <RunTimeline v-if="timelineEvents.length" :events="timelineEvents" :live="timelineLive"
+                       :status="statusLabel" :duration="activeDuration" />
+          <section v-else class="evidence-card"><h2><UiIcon name="activity" /> 运行记录</h2><p class="hint">暂无运行事件。</p></section>
+        </template>
+      </div>
+    </aside>
   </main>
 </template>
-<style scoped>
-.workbench{height:100dvh;display:grid;grid-template-columns:224px minmax(0,1fr);color:var(--ink)}.workbench.evidence-visible{grid-template-columns:224px minmax(0,1fr) 340px}.sidebar,.evidence-panel{background:#fff;overflow:auto}.sidebar{border-right:1px solid var(--line);padding:22px 14px;display:flex;flex-direction:column}.brand{font-size:16px;font-weight:750;display:flex;align-items:center;gap:9px;margin:0 8px 25px}.brand-mark,.avatar{display:grid;place-items:center;border-radius:9px;width:30px;height:30px;background:var(--primary);color:white}.new-conversation,.secondary{border:1px solid var(--line);border-radius:8px;background:white;padding:9px 12px;color:var(--ink);cursor:pointer}.new-conversation{text-align:left}.side-label,.eyebrow{color:var(--muted);font-size:12px}.side-label{margin:26px 10px 9px;font-weight:700}.nav-current,.conversation-link{padding:10px;border-radius:8px;font-size:13px}.nav-current{color:#556176;font-weight:600}.conversation-link.active{background:var(--soft);color:#414db6;font-weight:700}.history-list{overflow:auto}.conversation-link{display:block;width:100%;text-align:left;border:0;background:transparent;color:#556176;cursor:pointer}.conversation-link.active{background:var(--soft);color:#414db6}.sidebar-foot{margin-top:auto;color:var(--muted);font-size:12px}.main-panel{min-width:0;background:white;display:flex;flex-direction:column;overflow:hidden}.topbar{height:68px;flex:none;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 28px}.top-title{display:flex;align-items:center;gap:12px;min-width:0}.topbar h1{font-size:14px;margin:2px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38vw}.status-badge{white-space:nowrap;background:#f0f1ff;color:#4753b6;border-radius:20px;padding:4px 10px;font-size:12px}.main-scroll{flex:1;overflow:auto;padding:28px 40px}.content,.composer{max-width:760px;margin:auto}.run-actions{display:flex;gap:12px;align-items:center;min-height:26px}.hint{color:var(--muted);font-size:13px;line-height:1.5}.text-button{border:0;background:none;color:#4857bc;cursor:pointer;padding:3px}.error{border:1px solid #efc2c2;background:#fff5f5;color:#9d3333;padding:10px;border-radius:8px}.empty{text-align:center;padding:80px 15px;color:var(--muted)}.empty h2{color:var(--ink);font-size:22px}.empty-icon{display:grid;place-items:center;width:48px;height:48px;background:var(--soft);color:var(--primary);border-radius:15px;margin:auto;font-size:22px}.message{display:flex;gap:12px;margin:20px 0}.avatar{flex:none;background:var(--soft);color:var(--primary);font-size:13px}.avatar.user{background:#edf0f4;color:#596579}.message-body{min-width:0;flex:1;font-size:14px}.message-body p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}.bubble{background:#f5f6fa;padding:12px 15px;border-radius:3px 12px 12px 12px}.card,.timeline-details{border:1px solid var(--line);border-radius:10px;padding:16px;margin:16px 0}.card h2{font-size:15px}.question{background:#f8f9ff}.timeline-details summary{cursor:pointer;font-weight:650}.composer-wrap{border-top:1px solid var(--line);padding:12px 40px 18px}.composer{border:1px solid #dfe3eb;border-radius:11px;padding:12px}.composer textarea,.question textarea{width:100%;border:0;resize:vertical;min-height:45px}.question textarea{border:1px solid var(--line);border-radius:8px;padding:8px}.composer-actions{display:flex;align-items:center;justify-content:space-between}.primary{background:var(--primary);color:white;border:0;border-radius:7px;padding:8px 14px;cursor:pointer}.primary:disabled,button:disabled{opacity:.55;cursor:not-allowed}.conversation-link.active:disabled{opacity:1}.upload-label{color:var(--muted);font-size:13px;cursor:pointer}.upload-label input{display:block;max-width:220px;font-size:12px;margin-top:4px}.disclaimer{text-align:center;color:var(--muted);font-size:12px;margin:8px 0 0}.evidence-panel{display:none;border-left:1px solid var(--line);padding:22px 20px}.evidence-visible .evidence-panel{display:block}.evidence-header{display:flex;align-items:start;justify-content:space-between}.evidence-header h2{font-size:15px;margin:0}.close-button,.mobile-close,.menu-button{border:0;background:none;cursor:pointer;font-size:20px;color:var(--muted)}.mobile-close,.menu-button{display:none}.asset-picker,.evidence-references{border-top:1px solid var(--line);padding:18px 0}.asset-picker label,.evidence-references h3{display:block;font-size:13px;font-weight:700;margin-bottom:10px}.asset-picker select{max-width:100%;padding:7px;border:1px solid var(--line);border-radius:7px}.reference{padding:10px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.scrim{display:none}@media(max-width:1100px){.workbench.evidence-visible{grid-template-columns:224px minmax(0,1fr)}.evidence-visible .evidence-panel{position:fixed;z-index:4;right:0;top:0;bottom:0;width:min(360px,90vw);box-shadow:-10px 0 30px #17233d22}.scrim{display:block;position:fixed;inset:0;background:#19233866;z-index:3}}@media(max-width:680px){.workbench,.workbench.evidence-visible{display:flex}.main-panel{width:100%}.sidebar{display:none;position:fixed;z-index:4;inset:0 auto 0 0;width:260px;box-shadow:10px 0 30px #17233d22}.sidebar.open{display:flex}.menu-button,.mobile-close{display:block}.mobile-close{margin-left:auto}.topbar{padding:0 16px}.main-scroll{padding:20px 16px}.composer-wrap{padding:10px 16px}.topbar h1{max-width:35vw}}
-</style>
+
+<style scoped src="./workbench.css"></style>

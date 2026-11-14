@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import type { RunEvent } from '../api'
+import UiIcon from './UiIcon.vue'
 
 defineProps<{
   events: readonly RunEvent[]
   live: boolean
+  status: string
+  duration: string
 }>()
 
 const TYPE_LABELS: Record<string, string> = {
@@ -15,7 +18,20 @@ const TYPE_LABELS: Record<string, string> = {
   RUN_ANSWER: '答案',
   RUN_FAILED: '失败',
   RUN_CANCELLED: '取消',
-  RUN_LATE_RESPONSE: '迟到响应'
+  RUN_LATE_RESPONSE: '迟到响应',
+  RUN_TERMINAL: '运行结束'
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  search_knowledge: '检索相关资料',
+  get_document_excerpt: '读取资料原文',
+  get_asset: '查询设备档案',
+  get_configuration: '核对设备配置',
+  get_maintenance_history: '查询维修记录',
+  get_observations: '检查设备观测',
+  activate_skill: '加载领域 Skill',
+  read_skill_reference: '读取 Skill 参考资料',
+  generate_diagnosis_report: '整理诊断报告'
 }
 
 function typeLabel(type: string): string {
@@ -115,108 +131,45 @@ function describeEvent(event: RunEvent): string {
 </script>
 
 <template>
-  <section class="card timeline">
-    <h2>
-      运行时间线
-      <span v-if="live" class="live-badge">实时</span>
-      <span v-else class="ended-badge">未连接实时流</span>
-    </h2>
-    <ul class="timeline-list">
-      <li v-for="event in events" :key="event.seq" class="timeline-item">
-        <span class="seq">#{{ event.seq }}</span>
-        <span class="badge" :class="badgeClass(event.type)">{{ typeLabel(event.type) }}</span>
-        <span class="detail">{{ describeEvent(event) }}</span>
-        <time class="time">{{ formatTime(event.recordedAt) }}</time>
+  <section class="timeline">
+    <header>
+      <h2><UiIcon name="activity" /> 调查过程</h2>
+      <span class="timeline-status">{{ status }}<span v-if="live" class="live-badge"> · 实时</span></span>
+      <span v-if="duration" class="duration">耗时 {{ duration }}</span>
+      <slot />
+    </header>
+    <p v-if="!events.length" class="hint">等待运行事件…</p>
+    <ol v-else class="timeline-list">
+      <li v-for="event in events" :key="event.seq" class="timeline-item" :data-seq="event.seq" :data-type="event.type">
+        <span class="event-marker" :class="event.type === 'RUN_TOOL' && event.data?.success !== true ? 'failure' : badgeClass(event.type)">
+          <UiIcon :name="event.type === 'RUN_ANSWER' || (event.type === 'RUN_TOOL' && event.data?.success === true) ? 'check' : 'activity'" />
+        </span>
+        <div class="event-content">
+          <strong>{{ TOOL_LABELS[asString(event.data?.toolName) ?? ''] ?? typeLabel(event.type) }}</strong>
+          <p class="detail">{{ describeEvent(event) }}</p>
+        </div>
+        <time :datetime="event.recordedAt">{{ formatTime(event.recordedAt) }}</time>
       </li>
-    </ul>
+    </ol>
   </section>
 </template>
 
 <style scoped>
-.timeline { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 16px 0; }
-.timeline h2 { font-size: 15px; margin: 0 0 12px; }
-.timeline-item { overflow-wrap: anywhere; }
-
-.timeline h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.live-badge,
-.ended-badge {
-  font-size: 12px;
-  font-weight: 400;
-  border-radius: 10px;
-  padding: 1px 8px;
-}
-.live-badge {
-  color: #0a7a3d;
-  background: #e3f5e9;
-}
-.ended-badge {
-  color: #616e7c;
-  background: #eef2f5;
-}
-.timeline-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 320px;
-  overflow-y: auto;
-}
-.timeline-item {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 13px;
-}
-.seq {
-  color: #9aa5b1;
-  font-variant-numeric: tabular-nums;
-  flex: 0 0 auto;
-}
-.badge {
-  flex: 0 0 auto;
-  border-radius: 10px;
-  padding: 1px 8px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.badge.neutral {
-  color: #334e68;
-  background: #eef2f5;
-}
-.badge.tool {
-  color: #1d4ed8;
-  background: #e0eaff;
-}
-.badge.model {
-  color: #6d28d9;
-  background: #efe6fd;
-}
-.badge.answer {
-  color: #0a7a3d;
-  background: #e3f5e9;
-}
-.badge.warn {
-  color: #a35c00;
-  background: #fdeed3;
-}
-.badge.failure {
-  color: #b42318;
-  background: #fde5e3;
-}
-.detail {
-  flex: 1;
-  min-width: 0;
-}
-.time {
-  flex: 0 0 auto;
-  color: #9aa5b1;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
+.timeline { border: 1px solid #dcdffc; border-radius: 12px; overflow: hidden; background: #f9f9fe; }
+header { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; padding: 9px 13px; background: #f1f1fc; }
+h2 { font-size: 14px; margin: 0; }
+h2 svg { color: var(--accent); margin-right: 4px; }
+.timeline-status, .duration, time { color: var(--muted); font-size: 12px; }
+.duration { margin-left: auto; }
+.timeline-list { list-style: none; margin: 0; padding: 9px 13px; }
+.timeline-item { display: grid; position: relative; grid-template-columns: 17px minmax(0, 1fr) auto; align-items: start; column-gap: 10px; padding: 3px 0 6px; }
+.timeline-item:not(:last-child)::before { content: ""; position: absolute; width: 1px; top: 19px; bottom: -3px; left: 8px; background: #d1d6eb; }
+.event-marker { z-index: 1; display: grid; place-items: center; width: 17px; height: 17px; margin-top: 1px; background: #e6e4ff; color: var(--accent); border-radius: 50%; font-size: 11px; }
+.event-marker.tool, .event-marker.answer { background: #299963; color: #fff; }
+.event-marker.warn { background: #fff0ce; color: var(--warning); }
+.event-marker.failure { background: #fce1e4; color: #a02e3a; }
+.event-content { overflow-wrap: anywhere; }
+.event-content p, .timeline > p { color: var(--muted); margin: 2px 0 0; line-height: 1.4; font-size: 12px; }
+.timeline > p { padding: 9px 13px; }
+time { margin-top: 2px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 </style>

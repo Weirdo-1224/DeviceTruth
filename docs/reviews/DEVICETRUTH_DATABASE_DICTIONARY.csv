@@ -1,0 +1,200 @@
+表名,字段名,数据库类型,可空,默认值,约束/说明,业务含义,写入方,读取方,数据类别
+dt_conversation,id,UUID,否,,主键; UNIQUE(id,owner_id,project_id),会话唯一标识（一次持续的调查对话）,系统运行时(GeneralAgentService.create),前端/服务,系统运行表
+dt_conversation,owner_id,VARCHAR(128),否,,复合唯一/外键组成部分,数据归属人（服务器固定身份 默认 local-owner）,系统运行时,系统运行时,系统运行表
+dt_conversation,project_id,VARCHAR(128),否,,复合唯一/外键组成部分,归属项目（服务器固定身份 默认 local-project）,系统运行时,系统运行时,系统运行表
+dt_conversation,version,BIGINT,否,0,CHECK(version>=0),会话乐观锁版本（并发更新计数）,系统运行时,系统运行时,系统运行表
+dt_conversation,created_at,TIMESTAMPTZ,否,,,会话创建时刻,系统运行时,前端展示,系统运行表
+dt_conversation,updated_at,TIMESTAMPTZ,否,,索引(owner_id,project_id,updated_at DESC),会话最近更新时刻（历史列表排序依据）,系统运行时,前端展示,系统运行表
+dt_message,id,UUID,否,,主键; UNIQUE(id,conversation_id,owner_id,project_id),消息唯一标识,系统运行时,前端/服务,系统运行表
+dt_message,conversation_id,UUID,否,,外键→dt_conversation(id,owner_id,project_id); UNIQUE(conversation_id,seq),所属会话,系统运行时,系统运行时,系统运行表
+dt_message,owner_id,VARCHAR(128),否,,复合外键组成部分,归属人,系统运行时,系统运行时,系统运行表
+dt_message,project_id,VARCHAR(128),否,,复合外键组成部分,归属项目,系统运行时,系统运行时,系统运行表
+dt_message,seq,BIGINT,否,,CHECK(seq>0); UNIQUE(conversation_id,seq),会话内消息序号（严格递增 重建上下文顺序用）,系统运行时,系统运行时,系统运行表
+dt_message,role,VARCHAR(16),否,,"CHECK(role IN ('USER','ASSISTANT'))",消息角色：用户提问/助手回答或追问,系统运行时,前端展示,系统运行表
+dt_message,content,TEXT,否,,"CHECK(length(btrim(content))>0 AND char_length(content)<=8000)",消息正文（用户问题/助手答复文本）,系统运行时,前端展示,系统运行表
+dt_message,request_key,UUID,可空,,UNIQUE(conversation_id,request_key),幂等键（防止同一请求重复落库）,前端(Idempotency-Key头),系统运行时,系统运行表
+dt_message,selected_asset_id,VARCHAR(128),可空,,,本条消息关联的设备ID（用户发起时选定）,系统运行时(取用户输入),系统运行时,系统运行表
+dt_message,requested_at,TIMESTAMPTZ,否,,,消息到达服务器时刻,系统运行时,前端展示,系统运行表
+dt_message,as_of,TIMESTAMPTZ,否,,,业务时点（调查所依据的"截至何时" 缺省=提交时刻）,系统运行时(可用请求体asOf指定),系统运行时/工具,系统运行表
+dt_message,schema_version,INTEGER,否,1,CHECK(schema_version=1),消息协议版本,系统运行时,系统运行时,系统运行表
+dt_message,attachment_refs,JSONB,否,'[]',,附件引用列表（已导入知识文档 格式[{fileId...}]服务端校验后落库）,系统运行时,系统运行时,系统运行表
+dt_message,context_refs,JSONB,否,'[]',,上下文引用列表,系统运行时,系统运行时,系统运行表
+dt_message,reply_to_run_id,UUID,可空,,,补答指向的 run（多轮追问时关联）,系统运行时,系统运行时,系统运行表
+dt_message,reply_to_question_id,UUID,可空,,,补答指向的待答问题ID,系统运行时,系统运行时,系统运行表
+dt_message,reply_to_question_version,INTEGER,可空,,,待答问题版本（乐观锁）,系统运行时,系统运行时,系统运行表
+dt_message,run_id,UUID,可空,,V5新增; 外键→dt_agent_run; CHECK(run_id IS NULL OR role='ASSISTANT' OR run_id=reply_to_run_id),消息所属run（补答/助手消息挂到同一run 便于精确重建run消息序列）,系统运行时,系统运行时,系统运行表
+dt_agent_run,id,UUID,否,,主键; UNIQUE(id,conversation_id,owner_id,project_id),Agent运行（一次完整调查任务）唯一标识,系统运行时,前端/服务,系统运行表
+dt_agent_run,conversation_id,UUID,否,,外键组成部分,所属会话,系统运行时,系统运行时,系统运行表
+dt_agent_run,owner_id,VARCHAR(128),否,,,归属人,系统运行时,系统运行时,系统运行表
+dt_agent_run,project_id,VARCHAR(128),否,,,归属项目,系统运行时,系统运行时,系统运行表
+dt_agent_run,goal_message_id,UUID,否,,UNIQUE; 外键→dt_message(id,conversation_id,owner_id,project_id),触发本run的目标用户消息,系统运行时,系统运行时,系统运行表
+dt_agent_run,status,VARCHAR(32),否,,"CHECK(status IN ('QUEUED','RUNNING','WAITING_FOR_USER','COMPLETED','FAILED','CANCELLED'))",运行状态机当前态,worker/恢复服务,前端展示/服务,系统运行表
+dt_agent_run,version,BIGINT,否,0,CHECK(version>=0),乐观锁版本（状态CAS用）,系统运行时,系统运行时,系统运行表
+dt_agent_run,schema_version,INTEGER,否,1,CHECK(schema_version=1),运行协议版本,系统运行时,系统运行时,系统运行表
+dt_agent_run,requested_at,TIMESTAMPTZ,否,,,请求进入队列时刻,系统运行时,前端展示,系统运行表
+dt_agent_run,as_of,TIMESTAMPTZ,否,,,业务时点（所有工具查询的时间上限）,系统运行时(可用请求体asOf指定),工具/前端,系统运行表
+dt_agent_run,pending_question_id,UUID,可空,,,当前待答问题ID（仅WAITING_FOR_USER时非空）,系统运行时,前端补答,系统运行表
+dt_agent_run,question_version,INTEGER,否,0,CHECK(question_version>=0),待答问题版本号,系统运行时,系统运行时,系统运行表
+dt_agent_run,pending_question,JSONB,可空,,CHECK：状态=WAITING ↔ (问题ID+版本+内容)三者齐备,待答问题完整内容（问题文本/请求字段/askedAt）,系统运行时,前端展示,系统运行表
+dt_agent_run,context_summary,TEXT,否,'',,run上下文摘要（持久化恢复用）,系统运行时,系统运行时,系统运行表
+dt_agent_run,tool_output_refs,JSONB,否,'[]',,工具输出引用列表,系统运行时,系统运行时,系统运行表
+dt_agent_run,source_references,JSONB,否,'[]',,答案引用列表（落库的引用快照）,系统运行时,前端/服务,系统运行表
+dt_agent_run,budget,JSONB,否,,,执行预算（步数/时限等 有界循环约束）,系统运行时,系统运行时,系统运行表
+dt_agent_run,result_ref,UUID,可空,,,结果引用（指向结果存储）,系统运行时,系统运行时,系统运行表
+dt_agent_run,created_at,TIMESTAMPTZ,否,,,run创建时刻,系统运行时,系统运行时,系统运行表
+dt_agent_run,updated_at,TIMESTAMPTZ,否,,,run最近更新时刻,系统运行时,系统运行时,系统运行表
+dt_agent_run,lease_owner,VARCHAR(64),可空,,V12新增,执行租约持有者（worker标识 崩溃判活用）,worker领取/续租,恢复服务,系统运行表
+dt_agent_run,lease_expires_at,TIMESTAMPTZ,可空,,V12新增,租约过期时刻（过期后遗留RUNNING可回收）,worker续租,恢复服务,系统运行表
+dt_agent_run,lease_heartbeat_at,TIMESTAMPTZ,可空,,V12新增,租约最近心跳时刻,worker,恢复服务,系统运行表
+dt_agent_run,attempts,INTEGER,否,0,CHECK(attempts>=0),执行尝试次数（恢复重调度上限3次）,worker/恢复服务,系统运行时,系统运行表
+dt_agent_run,cancel_requested_at,TIMESTAMPTZ,可空,,V13新增,取消请求时刻（协作式取消标记）,取消API,worker,系统运行表
+dt_agent_run,started_at,TIMESTAMPTZ,可空,,V13新增,最近执行段开始时刻,worker,系统运行时,系统运行表
+dt_agent_run,finished_at,TIMESTAMPTZ,可空,,V13新增,最近执行段结束时刻,worker,系统运行时,系统运行表
+dt_agent_run,active_duration_ms,BIGINT,否,0,CHECK(active_duration_ms>=0),累计执行时长毫秒（不含等待用户 超120s判TOTAL_TIMEOUT）,worker,系统运行时,系统运行表
+dt_run_event,run_id,UUID,否,,主键组成部分; 外键→dt_agent_run,所属run,worker,前端SSE/事件回读,系统运行表
+dt_run_event,seq,BIGINT,否,,CHECK(seq>0); 主键(run_id,seq),run内事件序号（严格递增 断线续传游标）,worker,前端SSE/事件回读,系统运行表
+dt_run_event,conversation_id,UUID,否,,外键组成部分,所属会话,worker,系统运行时,系统运行表
+dt_run_event,owner_id,VARCHAR(128),否,,,归属人,worker,系统运行时,系统运行表
+dt_run_event,project_id,VARCHAR(128),否,,,归属项目,worker,系统运行时,系统运行表
+dt_run_event,type,VARCHAR(64),否,,,事件类型（RUN_QUEUED/RUN_TOOL/RUN_MODEL/RUN_ANSWER/RUN_WAITING/RUN_TERMINAL等）,worker,前端展示,系统运行表
+dt_run_event,recorded_at,TIMESTAMPTZ,否,,,事件发生时刻,worker,前端展示,系统运行表
+dt_run_event,safe_payload,JSONB,否,,,白名单安全载荷（工具名/参数摘要/结果状态 不含prompt密钥原始输出）,worker(SafeAgentEventViews映射),前端展示,系统运行表
+dt_run_event,attempt,INT,否,1,V16新增; CHECK默认1,产生事件的执行尝试号（恢复重排时区分新旧尝试）,worker,系统运行时,系统运行表
+dt_uploaded_file,id,UUID,否,,主键; UNIQUE(id,owner_id,project_id),上传文件唯一标识,上传API,前端/服务,知识库表
+dt_uploaded_file,owner_id,VARCHAR(128),否,,,归属人,上传API(服务器身份),系统运行时,知识库表
+dt_uploaded_file,project_id,VARCHAR(128),否,,,归属项目,上传API,系统运行时,知识库表
+dt_uploaded_file,path_key,VARCHAR(256),否,,UNIQUE,受控存储路径键（knowledge/{uuid} 原文件名不参与路径）,上传API,文件服务,知识库表
+dt_uploaded_file,original_name,VARCHAR(256),否,,,用户原始文件名（仅展示）,上传API,前端展示,知识库表
+dt_uploaded_file,mime,VARCHAR(128),否,,,MIME类型（.md 须 text/markdown 或 text/x-markdown）,上传API,系统运行时,知识库表
+dt_uploaded_file,checksum,CHAR(64),否,,"CHECK(~'^[0-9a-f]{64}$')",内容SHA-256（同归属内唯一）,上传API,系统运行时(去重/复用),知识库表
+dt_uploaded_file,byte_size,INTEGER,否,,"CHECK(>0 AND <=1000000)",文件字节数（上限1MB）,上传API,系统运行时,知识库表
+dt_uploaded_file,parse_status,VARCHAR(16),否,,"CHECK(IN ('UPLOADED','PROCESSING','PARSED','FAILED','OCR_REQUIRED'))",导入状态机（V6扩展：OCR_REQUIRED=PDF暂存态）,导入worker,前端展示/重试,知识库表
+dt_uploaded_file,parse_error,VARCHAR(64),可空,,V6新增,失败原因码（PDF_NOT_SUPPORTED/IMPORT_FAILED等白名单）,导入worker,前端展示,知识库表
+dt_uploaded_file,import_title,TEXT,可空,,V6新增,导入时登记的文档标题,上传API表单参数,前端/服务,知识库表
+dt_uploaded_file,import_domain,VARCHAR(64),可空,,V6新增,导入时登记的领域标签,上传API表单参数(domain 默认general),检索过滤,知识库表
+dt_uploaded_file,import_device_model,VARCHAR(128),可空,,V6新增,导入时登记的适用设备型号,上传API表单参数,检索过滤,知识库表
+dt_uploaded_file,import_version,VARCHAR(64),可空,,V6新增,导入时登记的文档版本,上传API表单参数(version 默认1.0),版本管理,知识库表
+dt_uploaded_file,import_data_nature,VARCHAR(16),否,'SIMULATED',"CHECK(IN ('SIMULATED','AUTHORIZED'))",真实/模拟标识,上传API表单参数(dataNature),前端/答案,知识库表
+dt_uploaded_file,created_at,TIMESTAMPTZ,否,,,上传时刻,上传API,前端展示,知识库表
+dt_knowledge_document,id,UUID,否,,主键; UNIQUE(id,owner_id,project_id),知识文档唯一标识,导入服务,检索/引用,知识库表
+dt_knowledge_document,owner_id,VARCHAR(128),否,,,归属人,导入服务,检索过滤,知识库表
+dt_knowledge_document,project_id,VARCHAR(128),否,,,归属项目,导入服务,检索过滤,知识库表
+dt_knowledge_document,title,TEXT,否,,"CHECK(非空且<=500字符)",文档标题（引用展示用）,导入服务,检索/前端,知识库表
+dt_knowledge_document,domain,VARCHAR(64),否,,索引(owner_id,project_id,domain,device_model),领域标签（检索过滤维度）,导入服务,search_knowledge过滤,知识库表
+dt_knowledge_document,device_model,VARCHAR(128),可空,,,适用设备型号（为空表示通用）,导入服务,search_knowledge过滤,知识库表
+dt_knowledge_document,doc_version,VARCHAR(64),否,,UNIQUE(owner_id,project_id,checksum,doc_version),文档版本号（同内容同版本复用文档）,导入服务,版本管理/引用,知识库表
+dt_knowledge_document,source_file_id,UUID,否,,外键→dt_uploaded_file(id,owner_id,project_id),首个来源上传文件,导入服务,系统运行时,知识库表
+dt_knowledge_document,checksum,CHAR(64),否,,"CHECK(~'^[0-9a-f]{64}$')",内容SHA-256,导入服务,去重/复用判断,知识库表
+dt_knowledge_document,ingest_status,VARCHAR(16),否,,"CHECK(IN ('READY','FAILED','NEEDS_REBUILD'))(V4扩展)",导入状态：READY可检索/NEEDS_REBUILD=V3/V4遗留向量需重建,导入服务/V4迁移,检索过滤,知识库表
+dt_knowledge_document,embedding_profile,VARCHAR(128),否,,格式provider:model@dimension-cosine-r<revision>,embedding档案标签（换模型必须整体重建索引）,导入服务,检索一致性校验,知识库表
+dt_knowledge_document,embedding_model,VARCHAR(128),否,,,向量模型名（默认text-embedding-v4）,导入服务(EmbeddingClient),检索一致性校验,知识库表
+dt_knowledge_document,embedding_dimension,INTEGER,否,,CHECK(>0),向量维度（必须与库索引一致 默认1024）,导入服务,检索前置校验,知识库表
+dt_knowledge_document,chunking_profile,VARCHAR(64),否,,"固定值 section-paragraph-v1",切片策略标识,导入服务(KnowledgeChunker),系统运行时,知识库表
+dt_knowledge_document,chunk_count,INTEGER,否,,CHECK(>0),切片数量,导入服务,元数据展示,知识库表
+dt_knowledge_document,data_nature,VARCHAR(16),否,,"CHECK(IN ('SIMULATED','AUTHORIZED'))",真实/模拟标识（随引用进入答案）,导入服务,答案展示,知识库表
+dt_knowledge_document,created_at,TIMESTAMPTZ,否,,,导入完成时刻,导入服务,前端展示,知识库表
+dt_knowledge_chunk,id,UUID,否,,主键; UNIQUE(id,owner_id,project_id),知识切片唯一标识,导入服务,检索/引用定位,知识库表
+dt_knowledge_chunk,document_id,UUID,否,,外键→dt_knowledge_document; UNIQUE(document_id,chunk_no),所属文档,导入服务,检索JOIN,知识库表
+dt_knowledge_chunk,owner_id,VARCHAR(128),否,,,归属人,导入服务,检索过滤,知识库表
+dt_knowledge_chunk,project_id,VARCHAR(128),否,,,归属项目,导入服务,检索过滤,知识库表
+dt_knowledge_chunk,chunk_no,INTEGER,否,,CHECK(>0),文档内切片序号,导入服务,定位展示,知识库表
+dt_knowledge_chunk,content,TEXT,否,,"CHECK(非空且<=4000字符)",切片正文（检索展示与向量来源）,导入服务,检索/引用摘录,知识库表
+dt_knowledge_chunk,page_no,INTEGER,可空,,CHECK(>0),页码（仅PDF有 当前MD导入恒为NULL）,导入服务,引用定位,知识库表
+dt_knowledge_chunk,section,TEXT,可空,,,章节路径（如"3 直流快充中断" 保证可定位）,导入服务(KnowledgeChunker),引用定位/展示,知识库表
+dt_knowledge_chunk,embedding,vector(1024),否,,HNSW cosine索引,文本向量（1024维 pgvector）,导入服务(EmbeddingClient),向量召回,知识库表
+dt_knowledge_chunk,embedding_profile,VARCHAR(128),否,,,向量档案标签（检索时与文档双重校验一致）,导入服务,检索一致性校验,知识库表
+dt_knowledge_document_file,file_id,UUID,否,,主键; 外键→dt_uploaded_file,上传文件（V7起每次上传独立成行）,导入服务,文件视图JOIN,知识库表
+dt_knowledge_document_file,document_id,UUID,否,,外键→dt_knowledge_document; 索引(document_id),可复用知识文档（同内容同版本复用）,导入服务,文件视图JOIN,知识库表
+dt_knowledge_document_file,owner_id,VARCHAR(128),否,,,归属人,导入服务,系统运行时,知识库表
+dt_knowledge_document_file,project_id,VARCHAR(128),否,,,归属项目,导入服务,系统运行时,知识库表
+dt_evidence_reference,id,UUID,否,,主键; UNIQUE(run_id,owner_id,project_id,chunk_id),证据引用唯一标识（答案referenceId）,工具执行/检索登记,AnswerGuard校验/前端,系统运行表
+dt_evidence_reference,run_id,UUID,否,,外键→dt_agent_run; 索引(run_id,retrieved_at),所属run（引用按run隔离）,工具执行/检索登记,答案引用/原文读取,系统运行表
+dt_evidence_reference,conversation_id,UUID,否,,外键组成部分,所属会话,工具执行/检索登记,系统运行时,系统运行表
+dt_evidence_reference,owner_id,VARCHAR(128),否,,,归属人,工具执行/检索登记,系统运行时,系统运行表
+dt_evidence_reference,project_id,VARCHAR(128),否,,,归属项目,工具执行/检索登记,系统运行时,系统运行表
+dt_evidence_reference,source_type,VARCHAR(32),否,,"CHECK(IN ('KNOWLEDGE_DOCUMENT','FACTORY','MAINTENANCE','CONFIGURATION','FIELD_OBSERVATION','USER_STATEMENT'))",来源类型：知识文档/出厂/维修/配置/现场观测/用户陈述,工具执行/检索登记,前端展示/分类,系统运行表
+dt_evidence_reference,source_id,VARCHAR(128),否,,,来源标识（知识文档=文档UUID 配置/维修=事实记录ID 观测=sourceId）,工具执行/检索登记,引用核对,系统运行表
+dt_evidence_reference,source_version,VARCHAR(64),否,,,来源版本（知识=docVersion 事实=recordedAt 观测=observedAt）,工具执行/检索登记,版本核对,系统运行表
+dt_evidence_reference,chunk_id,UUID,可空,,V9删除外键（资产来源无切片概念）; CHECK(知识引用必须有chunk_id),定位切片ID（知识引用指向真实chunk 资产/观测来源为派生UUID）,工具执行/检索登记,原文读取校验,系统运行表
+dt_evidence_reference,asset_id,VARCHAR(128),可空,,,引用涉及的设备ID,工具执行登记,前端展示,系统运行表
+dt_evidence_reference,as_of,TIMESTAMPTZ,可空,,,引用查询的业务时点,工具执行登记,系统运行时,系统运行表
+dt_evidence_reference,citation_page,INTEGER,可空,,CHECK(>0),引用页码（仅PDF场景）,工具执行/检索登记,引用展示,系统运行表
+dt_evidence_reference,citation_section,TEXT,可空,,,引用章节（知识=切片section 事实=记录标题）,工具执行/检索登记,引用展示,系统运行表
+dt_evidence_reference,retrieved_at,TIMESTAMPTZ,否,,,取回时刻（重复取回时刷新）,工具执行/检索登记,系统运行时,系统运行表
+dt_evidence_reference,data_nature,VARCHAR(16),否,,"CHECK(IN ('SIMULATED','AUTHORIZED'))",真实/模拟标识（随答案展示）,工具执行/检索登记,前端展示,系统运行表
+dt_evidence_reference,schema_version,INTEGER,否,1,CHECK(schema_version=1),引用协议版本,工具执行/检索登记,系统运行时,系统运行表
+dt_evidence_reference,citation_excerpt,TEXT,可空,,V10新增,事实摘要（如attribute=value;source=...;verification=...）供核对,工具执行登记,前端展开/审计,系统运行表
+dt_asset,id,VARCHAR(128),否,,主键; UNIQUE(id,owner_id,project_id),设备唯一标识（业务编号 如SC-0245-B/CAR-B）,Seeder/运维导入,全部资产工具,领域数据表
+dt_asset,owner_id,VARCHAR(128),否,,,归属人,Seeder/运维导入,系统运行时,领域数据表
+dt_asset,project_id,VARCHAR(128),否,,,归属项目,Seeder/运维导入,系统运行时,领域数据表
+dt_asset,created_at,TIMESTAMPTZ,否,,,登记时刻,Seeder/运维导入,系统运行时,领域数据表
+dt_asset_component,asset_id,VARCHAR(128),否,,主键组成部分; 外键→dt_asset; UNIQUE(asset_id,component_id,owner_id,project_id); 索引(owner_id,project_id,asset_id),所属设备,Seeder/运维导入,get_asset组件清单,领域数据表
+dt_asset_component,component_id,VARCHAR(128),否,,,部件ID（业务命名 如CTRL-01）,Seeder/运维导入,工具参数/展示,领域数据表
+dt_asset_component,owner_id,VARCHAR(128),否,,,归属人,Seeder/运维导入,系统运行时,领域数据表
+dt_asset_component,project_id,VARCHAR(128),否,,,归属项目,Seeder/运维导入,系统运行时,领域数据表
+dt_asset_component,label,VARCHAR(256),否,,"CHECK(非空)",部件显示名称,Seeder/运维导入,前端展示,领域数据表
+dt_asset_component,created_at,TIMESTAMPTZ,否,,,登记时刻,Seeder/运维导入,系统运行时,领域数据表
+dt_asset_configuration,id,UUID,否,,主键,配置事实记录唯一ID（=引用recordId）,Seeder/运维导入,工具返回/引用,领域数据表
+dt_asset_configuration,asset_id,VARCHAR(128),否,,外键→dt_asset; 索引(owner_id,project_id,asset_id,component_id,valid_from),所属设备,Seeder/运维导入,get_configuration,领域数据表
+dt_asset_configuration,owner_id,VARCHAR(128),否,,,归属人,Seeder/运维导入,系统运行时,领域数据表
+dt_asset_configuration,project_id,VARCHAR(128),否,,,归属项目,Seeder/运维导入,系统运行时,领域数据表
+dt_asset_configuration,component_id,VARCHAR(128),否,,外键→dt_asset_component,所属部件,Seeder/运维导入,工具参数/分组判定,领域数据表
+dt_asset_configuration,attribute,VARCHAR(128),否,,,配置属性名（如moduleVersion/firmwareVersion）,Seeder/运维导入,工具必填参数,领域数据表
+dt_asset_configuration,value,VARCHAR(512),否,,"CHECK(非空)",配置取值,Seeder/运维导入,冲突/确认判定,领域数据表
+dt_asset_configuration,source_type,VARCHAR(32),否,,"CHECK(IN ('FACTORY','REPLACEMENT','CONFIGURATION','FIELD_CONFIRMATION','FIELD_OBSERVATION','USER_STATEMENT'))",来源类型：出厂BOM/维修更换/技改模板/现场确认/现场观测/用户口述,Seeder/运维导入,核实状态与权威判定,领域数据表
+dt_asset_configuration,source_id,VARCHAR(128),否,,V11唯一键组成部分,来源单据ID（BOM号/工单号/模板号）,Seeder/运维导入,幂等导入键,领域数据表
+dt_asset_configuration,source_ref,TEXT,否,,,来源引用（如simulated:SC-0245-B/EX-FACTORY-BOM-2024-03）,Seeder/运维导入,审计追溯,领域数据表
+dt_asset_configuration,data_nature,VARCHAR(16),否,,"CHECK(IN ('SIMULATED','AUTHORIZED'))",真实/模拟标识,Seeder/运维导入,保守聚合进答案,领域数据表
+dt_asset_configuration,verification_status,VARCHAR(16),否,,"CHECK(IN ('DOCUMENTED','FIELD_VERIFIED'))",核实状态：资料记载/现场已核实（仅FIELD_CONFIRMATION+observedAt非空才是后者）,Seeder/运维导入,装机确认判定核心,领域数据表
+dt_asset_configuration,authority,INTEGER,否,,CHECK(>=0),来源权威等级（同组内高权威优先 如出厂10>模板5）,Seeder/运维导入,冲突/确认判定,领域数据表
+dt_asset_configuration,valid_from,TIMESTAMPTZ,否,,CHECK(valid_to为NULL或>valid_from),生效时刻（业务时点过滤依据）,Seeder/运维导入,时点查询,领域数据表
+dt_asset_configuration,valid_to,TIMESTAMPTZ,可空,,NULL=未失效,失效时刻,Seeder/运维导入,时点查询,领域数据表
+dt_asset_configuration,recorded_at,TIMESTAMPTZ,否,,CHECK(>=COALESCE(observed_at,valid_from)),录入系统时刻（不参与时点过滤 防"资料最新"伪装）,Seeder/运维导入,引用版本,领域数据表
+dt_asset_configuration,observed_at,TIMESTAMPTZ,可空,,仅现场核验类记录存在,现场观察时刻,Seeder/运维导入,FIELD_VERIFIED必要条件,领域数据表
+dt_asset_maintenance,id,UUID,否,,主键,维修事实记录唯一ID,Seeder/运维导入,工具返回/引用,领域数据表
+dt_asset_maintenance,asset_id,VARCHAR(128),否,,外键→dt_asset; 索引(owner_id,project_id,asset_id,component_id,valid_from),所属设备,Seeder/运维导入,get_maintenance_history,领域数据表
+dt_asset_maintenance,owner_id,VARCHAR(128),否,,,归属人,Seeder/运维导入,系统运行时,领域数据表
+dt_asset_maintenance,project_id,VARCHAR(128),否,,,归属项目,Seeder/运维导入,系统运行时,领域数据表
+dt_asset_maintenance,component_id,VARCHAR(128),否,,外键→dt_asset_component,所维修/更换的部件,Seeder/运维导入,工具参数/展示,领域数据表
+dt_asset_maintenance,operation,VARCHAR(64),否,,"CHECK(非空)",操作类型（如REPLACEMENT更换）,Seeder/运维导入,展示/幂等键,领域数据表
+dt_asset_maintenance,before_value,VARCHAR(128),可空,,,维修前取值（如旧模块型号）,Seeder/运维导入,前后对照,领域数据表
+dt_asset_maintenance,after_value,VARCHAR(128),可空,,,维修后取值（如新模块型号）,Seeder/运维导入,前后对照,领域数据表
+dt_asset_maintenance,source_type,VARCHAR(32),否,,"同dt_asset_configuration六类",来源类型,Seeder/运维导入,核实状态判定,领域数据表
+dt_asset_maintenance,source_id,VARCHAR(128),否,,V10唯一键组成部分,来源单据ID（工单号）,Seeder/运维导入,幂等导入键,领域数据表
+dt_asset_maintenance,source_ref,TEXT,否,,,来源引用,Seeder/运维导入,审计追溯,领域数据表
+dt_asset_maintenance,data_nature,VARCHAR(16),否,,"CHECK(IN ('SIMULATED','AUTHORIZED'))",真实/模拟标识,Seeder/运维导入,保守聚合进答案,领域数据表
+dt_asset_maintenance,verification_status,VARCHAR(16),否,,"CHECK(IN ('DOCUMENTED','FIELD_VERIFIED'))",核实状态,Seeder/运维导入,展示/判定,领域数据表
+dt_asset_maintenance,authority,INTEGER,否,,CHECK(>=0),来源权威等级,Seeder/运维导入,判定,领域数据表
+dt_asset_maintenance,valid_from,TIMESTAMPTZ,否,,,维修生效时刻,Seeder/运维导入,时点查询,领域数据表
+dt_asset_maintenance,valid_to,TIMESTAMPTZ,可空,,,失效时刻,Seeder/运维导入,时点查询,领域数据表
+dt_asset_maintenance,recorded_at,TIMESTAMPTZ,否,,CHECK(>=COALESCE(observed_at,valid_from)),录入时刻,Seeder/运维导入,引用版本,领域数据表
+dt_asset_maintenance,observed_at,TIMESTAMPTZ,可空,,,现场观察时刻,Seeder/运维导入,FIELD_VERIFIED必要条件,领域数据表
+dt_asset_observation,asset_id,VARCHAR(128),否,,主键组成部分; 外键→dt_asset; 索引(owner_id,project_id,asset_id,observed_at DESC),所属设备,测试SQL直写/未来采集通道,get_observations,领域数据表
+dt_asset_observation,owner_id,VARCHAR(128),否,,,归属人,测试SQL直写,系统运行时,领域数据表
+dt_asset_observation,project_id,VARCHAR(128),否,,,归属项目,测试SQL直写,系统运行时,领域数据表
+dt_asset_observation,observed_at,TIMESTAMPTZ,否,,主键组成部分,观测时刻（信号+时刻+来源共同唯一）,测试SQL直写,工具时间过滤,领域数据表
+dt_asset_observation,signal,VARCHAR(128),否,,"CHECK(非空)",信号名（如绝缘电阻/温度）,测试SQL直写,工具signal过滤,领域数据表
+dt_asset_observation,value,VARCHAR(256),否,,"CHECK(非空)",观测值,测试SQL直写,工具返回,领域数据表
+dt_asset_observation,unit,VARCHAR(32),否,,,计量单位,测试SQL直写,工具返回,领域数据表
+dt_asset_observation,source_id,VARCHAR(128),否,,"CHECK(非空)",数据来源标识,测试SQL直写,引用登记,领域数据表
+dt_asset_observation,quality,VARCHAR(16),否,,"CHECK(IN ('GOOD','UNCERTAIN','BAD'))",数据质量,测试SQL直写,工具quality过滤,领域数据表
+dt_asset_observation,data_nature,VARCHAR(16),否,'SIMULATED',"CHECK(='SIMULATED')",强制模拟标识（当前不可能写入真实观测）,测试SQL直写,工具返回/答案展示,领域数据表
+dt_skill_installation,owner_id,VARCHAR(128),否,,主键组成部分,归属人,启动时installDefault(按服务端配置),SkillRuntime,系统运行表
+dt_skill_installation,project_id,VARCHAR(128),否,,主键组成部分,归属项目,启动时installDefault,SkillRuntime,系统运行表
+dt_skill_installation,skill_id,VARCHAR(64),否,,主键组成部分,Skill标识（=目录名）,启动时installDefault,SkillRuntime,系统运行表
+dt_skill_installation,version,TEXT,否,,主键组成部分,启用版本号,启动时installDefault,SkillRuntime/外键目标,系统运行表
+dt_skill_installation,enabled,BOOLEAN,否,TRUE,,是否启用（停用后激活即SKILL_UNAVAILABLE）,启动时installDefault(不覆盖已有停用),SkillRuntime,系统运行表
+dt_skill_installation,allowed_tools,TEXT[],否,,,该版本允许的工具白名单,启动时installDefault,激活时四重交集,系统运行表
+dt_run_skill,run_id,UUID,否,,主键; 外键→dt_agent_run,选中Skill的run,SkillRuntime.activate,GET /api/runs/{id}/skill,系统运行表
+dt_run_skill,conversation_id,UUID,否,,外键组成部分,所属会话,SkillRuntime.activate,系统运行时,系统运行表
+dt_run_skill,owner_id,VARCHAR(128),否,,,归属人,SkillRuntime.activate,系统运行时,系统运行表
+dt_run_skill,project_id,VARCHAR(128),否,,,归属项目,SkillRuntime.activate,系统运行时,系统运行表
+dt_run_skill,skill_id,VARCHAR(64),否,,外键→dt_skill_installation,选中的Skill,SkillRuntime.activate,前端徽章展示,系统运行表
+dt_run_skill,version,TEXT,否,,,选中版本,SkillRuntime.activate,前端展示,系统运行表
+dt_run_skill,devices,TEXT[],否,,,激活时快照的适用范围devices,SkillRuntime.activate,展示,系统运行表
+dt_run_skill,tasks,TEXT[],否,,,激活时快照的任务关键词tasks,SkillRuntime.activate,展示,系统运行表
+dt_run_skill,allowed_tools,TEXT[],否,,,激活时快照的有效工具白名单（四重交集结果）,SkillRuntime.activate,工具执行校验,系统运行表
+dt_run_skill,document_digest,CHAR(64),否,,,SKILL.md内容SHA-256钉存（运行期改动即SKILL_CHANGED拒绝）,SkillRuntime.activate,变更检测,系统运行表
+dt_run_skill_reference,run_id,UUID,否,,主键组成部分; 外键→dt_run_skill,所属run,SkillContextLoader.readReference,审计,系统运行表
+dt_run_skill_reference,name,VARCHAR(128),否,,主键组成部分,reference文件名,SkillContextLoader.readReference,审计,系统运行表
+dt_run_skill_reference,content_digest,CHAR(64),否,,,读取时内容SHA-256钉存,SkillContextLoader.readReference,变更检测,系统运行表
