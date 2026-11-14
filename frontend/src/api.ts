@@ -511,12 +511,13 @@ export function cancelRun(runId: string): Promise<RunView> {
   return call<RunView>('/api/runs/' + encodeURIComponent(runId) + '/cancel', { method: 'POST' })
 }
 
-/** 本 run 选中的领域 Skill（版本与适用范围）；未选择时服务器返回 404 SKILL_NOT_SELECTED，这里归一为 null。 */
+/** 本 run 选中的领域 Skill（版本与适用范围）；未选择时服务器返回 404 SKILL_NOT_SELECTED，这里归一为 null。
+ *  合同与后端 SkillRuntime.SelectionView 一致：skillId 即 Skill 名（目录名同名），适用范围分 devices/tasks。 */
 export interface SkillSelection {
   skillId: string
-  name: string
   version: string
-  scope: string[]
+  devices: string[]
+  tasks: string[]
 }
 
 export async function readRunSkill(runId: string): Promise<SkillSelection | null> {

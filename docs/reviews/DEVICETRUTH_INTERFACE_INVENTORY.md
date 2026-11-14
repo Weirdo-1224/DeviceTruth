@@ -14,7 +14,7 @@
 | `GET /api/conversations/{id}` | 会话详情（消息+runs） | — | ConversationDetail | 跨归属 404 |
 | `POST /api/conversations/{id}/messages` | 提交新问题或补答 | 头 `Idempotency-Key: UUID`（必填）；体 `{schemaVersion:1, userMessage, selectedAssetId?, attachments?[{fileId}], asOf?, replyTo?{runId,pendingQuestionId,questionVersion}}` | 202 + RunView（Location: /api/runs/{runId}） | 无 replyTo 开新 run；带 replyTo 必须命中 WAITING 中的 pendingQuestion，版本不符 409；附件必须已 PARSED 否则 409 |
 | `GET /api/runs/{id}` | run 状态/结果 | — | RunView（status/pendingQuestion/result/failureCode/usage） | 跨归属 404 |
-| `GET /api/runs/{id}/skill` | 本 run 选中的 Skill 公开视图 | — | `{skillId,name,version,scope[]}` | 未选 404 `SKILL_NOT_SELECTED` |
+| `GET /api/runs/{id}/skill` | 本 run 选中的 Skill 公开视图 | — | `{skillId,version,devices[],tasks[]}`（`SkillRuntime.SelectionView`；skillId 即 Skill 名） | 未选 404 `SKILL_NOT_SELECTED` |
 | `GET /api/runs/{id}/references` | 本 run 已登记引用 | — | Reference[]（sourceType/sourceId/sourceVersion/excerpt/dataNature 等） | 跨归属 404 |
 | `GET /api/runs/{id}/tool-events` | 工具执行轨迹（审计） | — | ToolEvent[] | — |
 | `GET /api/runs/{id}/model-events` | 模型尝试审计（无 prompt/密钥/原文） | — | ModelEvent[] | — |

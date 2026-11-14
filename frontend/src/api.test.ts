@@ -714,12 +714,15 @@ describe('运行事件与时间线', () => {
   it('领域 Skill：已选择时返回版本与适用范围，SKILL_NOT_SELECTED 归一为 null', async () => {
     stubFetchByUrl((url) =>
       url === '/api/runs/' + RUN_ID + '/skill'
-        ? jsonResponse({ skillId: 'automotive-diagnosis', name: '汽车诊断', version: '1.0.0', scope: ['汽车'] })
+        ? jsonResponse({ skillId: 'automotive-diagnosis', version: '1.0.0',
+            devices: ['car'], tasks: ['diagnosis'] })
         : jsonResponse({ code: 'SKILL_NOT_SELECTED', message: '未选择', retryable: false, traceId: 't' }, 404)
     )
     const skill = await readRunSkill(RUN_ID)
     expect(skill?.version).toBe('1.0.0')
     expect(skill?.skillId).toBe('automotive-diagnosis')
+    expect(skill?.devices).toEqual(['car'])
+    expect(skill?.tasks).toEqual(['diagnosis'])
     expect(await readRunSkill('22222222-2222-4222-8222-222222222222')).toBeNull()
   })
 

@@ -451,7 +451,7 @@ onUnmounted(() => {
           <span v-if="goalMessage?.selectedAssetId"><UiIcon name="layers" /> {{ goalMessage.selectedAssetId }}</span>
           <span><UiIcon name="clock" /> {{ dateTime.format(new Date(run.requestedAt)) }}</span>
           <span v-if="activeDuration">耗时 {{ activeDuration }}</span>
-          <span v-if="selectedSkill">领域包 {{ selectedSkill.name }} v{{ selectedSkill.version }}</span>
+          <span v-if="selectedSkill">领域包 {{ selectedSkill.skillId }} v{{ selectedSkill.version }}</span>
           <span v-if="resumingRunId === run.runId">正在恢复调查…</span>
         </div>
       </div>
