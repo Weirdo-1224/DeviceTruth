@@ -16,7 +16,9 @@ class SkillRegistryTest {
         SkillRegistry registry = SkillRegistry.load(Path.of("skills"));
 
         assertThat(registry.skills()).extracting(SkillMetadata::name)
-                .containsExactly("automotive-diagnosis", "factory-equipment");
+                .containsExactly("automotive-diagnosis", "carrier-rtu-evidence-triage",
+                        "ev-charging-triage", "ev-maintenance-inspection", "ev-powertrain-safety-investigation",
+                        "factory-equipment", "industrial-configuration-investigation", "industrial-controller-fault-triage");
         SkillMetadata automotive = registry.require("automotive-diagnosis");
         assertThat(automotive.version()).matches(SkillMetadata.VERSION_PATTERN);
         assertThat(automotive.tools()).contains("search_knowledge", "get_document_excerpt", "get_asset",
@@ -26,6 +28,23 @@ class SkillRegistryTest {
         assertThat(registry.require("factory-equipment").declaresTool("run_shell")).isFalse();
         assertThat(registry.find("automotive-demo")).isEmpty();
         assertThat(registry.find("rules")).isEmpty();
+    }
+
+    @Test void importedSkillsLoadAllReferencesAndDeclareOnlySupportedReadTools() {
+        SkillRegistry registry = SkillRegistry.load(Path.of("skills"));
+        SkillContextLoader loader = new SkillContextLoader(registry);
+        var supported = java.util.Set.of("get_asset", "get_configuration", "get_maintenance_history",
+                "get_observations", "search_knowledge", "get_document_excerpt");
+        for (SkillMetadata skill : registry.skills()) {
+            assertThat(loader.instructions(skill.name()).content()).isNotBlank();
+            assertThat(supported).containsAll(skill.tools());
+            assertThat(skill.references()).contains("domain-knowledge.md", "investigation-guide.md",
+                    "evidence-requirements.md", "decision-rules.md", "safety-guidelines.md");
+            for (String reference : skill.references()) {
+                assertThat(loader.readReference(skill.name(), reference)).isNotBlank();
+            }
+        }
+        assertThat(registry.require("carrier-rtu-evidence-triage").declaresTool("get_observations")).isFalse();
     }
 
     @Test void metadataFieldsComeFromFrontmatter(@TempDir Path root) throws Exception {

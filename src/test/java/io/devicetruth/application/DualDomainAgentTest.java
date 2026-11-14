@@ -206,7 +206,8 @@ class DualDomainAgentTest {
     private static void assertSkill(String run, String skillId) throws Exception {
         var skill = get("/api/runs/" + run + "/skill");
         assertThat(skill.path("skillId").asText()).isEqualTo(skillId);
-        assertThat(skill.path("version").asText()).isEqualTo("1.0.0");
+        assertThat(skill.path("version").asText()).isEqualTo(
+                io.devicetruth.skill.SkillRegistry.load(Path.of("skills")).require(skillId).version());
     }
 
     private static String conversation() throws Exception {
