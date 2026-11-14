@@ -148,7 +148,7 @@ class SkillRuntimeIntegrationTest {
         try (var restarted = open(); var second = service(restarted, context -> {
             assertThat(context.activeSkill().metadata().skillId()).isEqualTo(ID);
             assertThat(context.activeSkill().metadata().version()).isEqualTo("2.1.0");
-            assertThat(context.activeSkill().reference()).isNull();
+            assertThat(context.activeSkill().reference().content()).isEqualTo(ORIGINAL_GUIDE);
             return answer();
         })) {
             assertThat(resume(second.service(), waiting).status()).isEqualTo("COMPLETED");
@@ -177,7 +177,7 @@ class SkillRuntimeIntegrationTest {
         }
     }
 
-    @Test void rejectsChangedReferenceAndLateProposalAfterRevocation() throws Exception {
+    @Test void rejectsChangedReferenceBeforeResumedModel() throws Exception {
         RunView waiting;
         try (var first = service(app, context -> {
             if (context.activeSkill() == null) return activate();
@@ -187,15 +187,11 @@ class SkillRuntimeIntegrationTest {
         }
         Files.writeString(guide, "# 已更改的同版本参考资料\n");
         try (var second = service(app, context -> {
-            assertThat(context.activeSkill().reference()).isNull();
-            if (!context.attempted("read_skill_reference")) return readReference();
-            assertThat(context.feedback()).contains("SKILL_CHANGED");
-            setEnabled(false);
-            return answer();
+            throw new AssertionError("Changed reference must be rejected before entering the model");
         })) {
             var result = resume(second.service(), waiting);
             assertThat(result.status()).isEqualTo("FAILED");
-            assertThat(result.failureCode()).isEqualTo("SKILL_UNAVAILABLE");
+            assertThat(result.failureCode()).isEqualTo("SKILL_CHANGED");
             assertThat(result.result()).isNull();
         } finally {
             Files.writeString(guide, ORIGINAL_GUIDE);

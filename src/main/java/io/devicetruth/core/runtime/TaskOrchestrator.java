@@ -26,7 +26,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.UUID;
 
 /** 任务编排器：诊断运行的主循环。每轮迭代中推理器提出恰好一个动作，
@@ -252,20 +251,36 @@ public final class TaskOrchestrator {
                                     java.util.function.Supplier<String> abortCode,
                                     java.util.function.Supplier<SkillStep> skillStep,
                                     java.util.function.Consumer<RunEvent> progress) {
+        return runAgent(input, gateway, toolContext, seedReferences, reasoner, abortCode, skillStep,
+                progress, List.of(), null, step -> {}, java.util.function.Supplier::get, checkpoint -> {});
+    }
+
+    public record ToolStep(AgentExecutionCheckpoint checkpoint, Map<String, Object> audit) {}
+
+    public AgentRunOutcome runAgent(AgentTaskInput input, CapabilityGateway gateway, ToolContext toolContext,
+                                    List<Reference> seedReferences, GeneralReasoner reasoner,
+                                    java.util.function.Supplier<String> abortCode,
+                                    java.util.function.Supplier<SkillStep> skillStep,
+                                    java.util.function.Consumer<RunEvent> progress,
+                                    List<AgentTaskInput.Message> conversationHistory,
+                                    AgentExecutionCheckpoint checkpoint, java.util.function.IntConsumer reserveStep,
+                                    java.util.function.Function<java.util.function.Supplier<ToolStep>, ToolStep> executeTool,
+                                    java.util.function.Consumer<AgentExecutionCheckpoint> saveCheckpoint) {
         if (input == null || gateway == null || toolContext == null || reasoner == null)
             throw new IllegalArgumentException("input, gateway, toolContext and reasoner are required");
         var events = new ArrayList<RunEvent>();
         var messages = new ArrayList<>(input.messages());
         var references = new LinkedHashMap<String, Reference>();
         for (Reference reference : Checks.list(seedReferences)) mergeReference(references, reference);
-        var attemptedTools = new ArrayList<String>();
-        // 重复调用控制：规范化参数键 → 上次执行是否成功。仅拦截“已成功且无新信息”的完全相同调用；
-        // 失败调用允许换参数或原样重试，不同参数不受工具名影响。
-        var attemptedCalls = new LinkedHashMap<String, Boolean>();
-        var toolResults = new ArrayList<GeneralReasoner.ToolResult>();
-        String feedback = null;
+        if (checkpoint != null && (!input.runId().equals(checkpoint.runId())
+                || checkpoint.step() > input.stepsUsed()))
+            throw new IllegalArgumentException("Checkpoint does not match the run budget");
+        var attemptedTools = new ArrayList<>(checkpoint == null ? List.<String>of() : checkpoint.attemptedTools());
+        var toolResults = new ArrayList<>(checkpoint == null ? List.<GeneralReasoner.ToolResult>of()
+                : checkpoint.toolResults());
+        String feedback = checkpoint == null ? null : checkpoint.feedback();
         int steps = input.stepsUsed();
-        int rejections = 0;
+        int rejections = checkpoint == null ? 0 : checkpoint.rejections();
         while (true) {
             // 协作式取消/总时限：模型每步之间检查，终态由持久层 CAS 收口
             String abort = abortCode == null ? null : abortCode.get();
@@ -278,10 +293,12 @@ public final class TaskOrchestrator {
             var skill = skillStep.get();
             var context = new GeneralReasoner.Context(input.goalText(), messages, gateway.toolCatalog(skill.toolContext()),
                     List.copyOf(references.values()), attemptedTools, steps, input.maxSteps(), feedback,
-                    skill.availableSkills(), skill.activeSkill(), input.selectedAssetId(), input.asOf(), toolResults);
+                    skill.availableSkills(), skill.activeSkill(), input.selectedAssetId(), input.asOf(), toolResults,
+                    conversationHistory);
             event(events, "REASON_INPUT", input.runVersion(),
                     Map.of("stepsUsed", steps, "tools", context.tools().size(), "references", context.references().size()),
                     progress);
+            reserveStep.accept(++steps);
             ActionProposal action;
             try {
                 action = reasoner.propose(context, abortCode == null ? () -> null : abortCode);
@@ -306,45 +323,48 @@ public final class TaskOrchestrator {
                 return aborted(input, messages, references, events, steps, abort, progress);
             }
             // 模型调用期间可能撤销许可。执行动作前重新核验，核验耗时也计入总时限。
-            var authorizedContext = skillStep.get().toolContext();
+            var authorizedStep = skillStep.get();
+            var authorizedContext = authorizedStep.toolContext();
             abort = abortCode == null ? null : abortCode.get();
             if (abort != null) {
                 event(events, "RUN_LATE_RESPONSE", input.runVersion(), Map.of("code", abort), progress);
                 return aborted(input, messages, references, events, steps, abort, progress);
             }
-            steps++;
             if (action instanceof CallTool call) {
-                attemptedTools.add(call.toolName());
-                String callKey = call.toolName() + "|" + canonicalJson(call.arguments());
-                Boolean previous = attemptedCalls.get(callKey);
-                if (previous != null && previous) {
-                    // 相同工具+参数已成功执行过：无新信息，不重复取证、不绕过网关、不算成功证据
-                    feedback = "相同工具与参数已查询过，结果已在上下文的引用与工具结果中；请改用其他检索、向用户追问或给出回答";
-                    event(events, "TOOL_RESULT", input.runVersion(), Map.of("toolName", call.toolName(),
-                            "success", false, "errorCode", "DUPLICATE_CALL", "references", 0,
-                            "durationMs", 0, "retryable", false), progress);
-                    continue;
-                }
-                long toolStartedNanos = System.nanoTime();
-                var outcome = gateway.executeTool(authorizedContext, call.toolName(), call.arguments());
-                long toolDurationMs = (System.nanoTime() - toolStartedNanos) / 1_000_000;
-                attemptedCalls.put(callKey, outcome.success());
-                if (outcome.success()) {
-                    for (Reference reference : outcome.references()) mergeReference(references, reference);
-                    feedback = null;
-                } else {
-                    // 工具失败不可当成功证据：只把稳定错误码回给模型，由它决定是否换一种检索
-                    feedback = "工具调用失败：" + outcome.error().code();
-                }
-                // 无论成败都给模型一条受控白名单摘要（成败、错误码、关键字段、dataNature、引用ID），
-                // 不再依赖各工具是否恰好填了 modelContext；原始 data 永不进入上下文。
-                toolResults.add(boundedToolResult(outcome));
-                trimToolResults(toolResults);
-                event(events, "TOOL_RESULT", input.runVersion(), Map.of("toolName", outcome.toolName(),
-                        "success", outcome.success(), "errorCode",
-                        outcome.error() == null ? "" : outcome.error().code(),
-                        "references", outcome.references().size(), "durationMs", toolDurationMs,
-                        "retryable", outcome.error() != null && outcome.error().retryable()), progress);
+                int step = steps;
+                int rejected = rejections;
+                ToolStep completed = executeTool.apply(() -> {
+                    String signature = reusableSignature(call, context.userMessageCount());
+                    String toolFeedback;
+                    Map<String, Object> audit;
+                    if (authorizedContext.allows(call.toolName())
+                            && canReuse(call, signature, toolResults, authorizedStep.activeSkill())) {
+                        attemptedTools.add(call.toolName());
+                        toolFeedback = "相同工具与参数的结果仍可使用，请结合现有上下文继续调查或回答";
+                        audit = Map.of("toolName", call.toolName(), "success", false, "errorCode", "DUPLICATE_CALL",
+                                "references", 0, "durationMs", 0, "retryable", false);
+                    } else {
+                        long started = System.nanoTime();
+                        var outcome = gateway.executeTool(authorizedContext, call.toolName(), call.arguments());
+                        attemptedTools.add(outcome.toolName());
+                        if (outcome.success()) {
+                            for (Reference reference : outcome.references()) mergeReference(references, reference);
+                            if (!"generate_diagnosis_report".equals(call.toolName()))
+                                toolResults.removeIf(result -> "generate_diagnosis_report".equals(result.toolName()));
+                        }
+                        toolFeedback = outcome.success() ? null : "工具调用失败：" + outcome.error().code();
+                        toolResults.add(boundedToolResult(outcome, signature));
+                        trimToolResults(toolResults);
+                        audit = Map.of("toolName", outcome.toolName(), "success", outcome.success(), "errorCode",
+                                outcome.error() == null ? "" : outcome.error().code(), "references",
+                                outcome.references().size(), "durationMs", (System.nanoTime() - started) / 1_000_000,
+                                "retryable", outcome.error() != null && outcome.error().retryable());
+                    }
+                    return new ToolStep(checkpoint(input, step, attemptedTools, toolResults,
+                            toolFeedback, rejected), audit);
+                });
+                feedback = completed.checkpoint().feedback();
+                event(events, "TOOL_RESULT", input.runVersion(), completed.audit(), progress);
                 continue;
             }
             if (action instanceof AskUser ask) {
@@ -361,6 +381,8 @@ public final class TaskOrchestrator {
                         return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                                 List.copyOf(references.values()), events, steps, "UNSAFE_ANSWER");
                     }
+                    saveCheckpoint.accept(checkpoint(input, steps, attemptedTools, toolResults,
+                            feedback, rejections));
                     continue;
                 }
                 // 版本号由持久层按 run 的 question_version 递增，这里只给初值
@@ -388,6 +410,8 @@ public final class TaskOrchestrator {
                         return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                                 List.copyOf(references.values()), events, steps, verdict.code());
                     }
+                    saveCheckpoint.accept(checkpoint(input, steps, attemptedTools, toolResults,
+                            feedback, rejections));
                     continue;
                 }
                 messages.add(new AgentTaskInput.Message("ASSISTANT", verdict.answer().summary()));
@@ -407,8 +431,22 @@ public final class TaskOrchestrator {
                 return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                         List.copyOf(references.values()), events, steps, "MODEL_OUTPUT_INVALID");
             }
+            saveCheckpoint.accept(checkpoint(input, steps, attemptedTools, toolResults, feedback,
+                    rejections));
         }
     }
+
+    private static AgentExecutionCheckpoint checkpoint(AgentTaskInput input, int steps, List<String> attemptedTools,
+            List<GeneralReasoner.ToolResult> results, String feedback,
+            int rejections) {
+        var successfulCalls = new java.util.HashSet<String>();
+        for (var result : results)
+            if (result.callSignature() != null && "true".equals(result.status().get("success")))
+                successfulCalls.add(result.callSignature());
+        return new AgentExecutionCheckpoint(1, input.runId(), steps, attemptedTools, successfulCalls, results,
+                feedback, rejections);
+    }
+
     /** 单个状态值的最大长度；超出截断并加标记，防止一条记录撑爆上下文。 */
     static final int RESULT_VALUE_MAX_CHARS = 1000;
     /** 单条工具结果（状态键值合计）的最大长度。 */
@@ -424,38 +462,61 @@ public final class TaskOrchestrator {
      * 引用数量与 ID）在前，工具自述的 modelContext 键值以 putIfAbsent 补充在后；
      * 任何值都不直接取自 outcome.data() 的原始序列化。
      */
-    private static GeneralReasoner.ToolResult boundedToolResult(ToolOutcome outcome) {
+    private static final List<String> PRIORITY_FIELDS = List.of(
+            "installationStatus", "verificationStatus", "verification", "conflict",
+            "sourceType", "sourceId", "sourceVersion", "source", "requiredChecks");
+
+    private static GeneralReasoner.ToolResult boundedToolResult(ToolOutcome outcome, String signature) {
         var status = new LinkedHashMap<String, String>();
         status.put("success", String.valueOf(outcome.success()));
         if (!outcome.success() && outcome.error() != null) status.put("errorCode", outcome.error().code());
         status.put("dataNature", outcome.dataNature());
         status.put("referenceCount", String.valueOf(outcome.references().size()));
         if (!outcome.references().isEmpty()) status.put("referenceIds", boundedReferenceIds(outcome.references()));
-        if (outcome.modelContext() != null)
-            for (var entry : outcome.modelContext().entrySet())
-                status.putIfAbsent(entry.getKey(), entry.getValue() == null ? "" : entry.getValue());
-        var bounded = new LinkedHashMap<String, String>();
-        int used = 0;
-        for (var entry : status.entrySet()) {
-            String value = entry.getValue();
-            if (value.length() > RESULT_VALUE_MAX_CHARS)
-                value = value.substring(0, RESULT_VALUE_MAX_CHARS) + TRUNCATION_MARKER;
-            int cost = entry.getKey().length() + value.length();
-            // 首键必留（含 success/errorCode），后续可选键超出条目预算时丢弃而不是截断键名
-            if (!bounded.isEmpty() && used + cost > RESULT_ENTRY_MAX_CHARS) continue;
-            bounded.put(entry.getKey(), value);
-            used += cost;
+        String omissionKey = "omittedFields";
+        int remaining = RESULT_ENTRY_MAX_CHARS - omissionKey.length() - TRUNCATION_MARKER.length();
+        remaining -= status.entrySet().stream().mapToInt(entry -> entry.getKey().length() + entry.getValue().length()).sum();
+        var fields = new java.util.TreeMap<>(outcome.modelContext());
+        fields.keySet().removeAll(status.keySet());
+        fields.remove(omissionKey);
+        var ordered = new ArrayList<>(PRIORITY_FIELDS);
+        fields.keySet().stream().filter(key -> !PRIORITY_FIELDS.contains(key)).forEach(ordered::add);
+        boolean omitted = false;
+        for (String key : ordered) {
+            if (!fields.containsKey(key)) continue;
+            int cap = Math.min(remaining - key.length(), RESULT_VALUE_MAX_CHARS);
+            // 为来源字段和待核验项都留空间，长来源描述不会独占条目预算。
+            if (PRIORITY_FIELDS.contains(key) && !"requiredChecks".equals(key)) cap = Math.min(cap, 96);
+            String value = fields.get(key);
+            if (cap < 0 || (value.length() > cap && cap < TRUNCATION_MARKER.length())) {
+                omitted = true;
+                continue;
+            }
+            value = truncateResultValue(value, cap);
+            status.put(key, value);
+            remaining -= key.length() + value.length();
         }
-        return new GeneralReasoner.ToolResult(outcome.toolName(), outcome.dataNature(), Map.copyOf(bounded));
+        if (omitted) status.put(omissionKey, TRUNCATION_MARKER);
+        return new GeneralReasoner.ToolResult(outcome.toolName(), outcome.dataNature(), Map.copyOf(status), signature);
+    }
+
+    private static String truncateResultValue(String value, int cap) {
+        if (value.length() <= cap) return value;
+        int end = cap - TRUNCATION_MARKER.length();
+        if (end > 0 && Character.isHighSurrogate(value.charAt(end - 1))) end--;
+        return value.substring(0, end) + TRUNCATION_MARKER;
     }
 
     /** 引用 ID 列表只给到长度上限，ID 本体可在 references 中按 ID 找到。 */
     private static String boundedReferenceIds(List<Reference> references) {
         StringBuilder ids = new StringBuilder();
-        for (Reference reference : references) {
-            if (!ids.isEmpty()) ids.append(',');
-            if (ids.length() + reference.referenceId().length() > 256)
+        for (int index = 0; index < references.size(); index++) {
+            Reference reference = references.get(index);
+            int separator = ids.isEmpty() ? 0 : 1;
+            int suffix = index == references.size() - 1 ? 0 : TRUNCATION_MARKER.length();
+            if (ids.length() + separator + reference.referenceId().length() + suffix > 256)
                 return ids + TRUNCATION_MARKER;
+            if (!ids.isEmpty()) ids.append(',');
             ids.append(reference.referenceId());
         }
         return ids.toString();
@@ -469,7 +530,7 @@ public final class TaskOrchestrator {
             total -= resultLength(toolResults.removeFirst());
     }
 
-    private static int resultLength(GeneralReasoner.ToolResult result) {
+    static int resultLength(GeneralReasoner.ToolResult result) {
         int sum = result.toolName().length() + result.dataNature().length();
         for (var entry : result.status().entrySet()) sum += entry.getKey().length() + entry.getValue().length();
         return sum;
@@ -494,19 +555,29 @@ public final class TaskOrchestrator {
             references.put(candidate.referenceId(), candidate);
     }
 
-    /** 参数规范化序列化：键递归排序，保证结构等价的两次调用得到相同的去重键。 */
-    private static String canonicalJson(Map<String, Object> arguments) {
-        return Json.write(sortKeys(arguments == null ? Map.of() : arguments));
+    /** 动态资产查询和报告在用户推进调查时重新读取，同一补答内仍受去重保护。 */
+    private static String reusableSignature(CallTool call, long userMessages) {
+        return switch (call.toolName()) {
+            case "get_asset", "get_configuration", "get_maintenance_history", "get_observations",
+                 "generate_diagnosis_report" ->
+                new CallTool(call.toolName(), Map.of("arguments", call.arguments(), "userMessages", userMessages),
+                        call.purpose()).signature();
+            default -> call.signature();
+        };
     }
 
-    private static Object sortKeys(Object value) {
-        if (value instanceof Map<?, ?> map) {
-            var sorted = new TreeMap<String, Object>();
-            for (var entry : map.entrySet()) sorted.put(String.valueOf(entry.getKey()), sortKeys(entry.getValue()));
-            return sorted;
-        }
-        if (value instanceof List<?> list) return list.stream().map(TaskOrchestrator::sortKeys).toList();
-        return value;
+    private static boolean canReuse(CallTool call, String signature, List<GeneralReasoner.ToolResult> results,
+                                    GeneralReasoner.ActiveSkill activeSkill) {
+        return switch (call.toolName()) {
+            case "read_skill_reference" -> activeSkill != null && activeSkill.reference() != null
+                    && call.arguments().size() == 1
+                    && activeSkill.reference().name().equals(call.arguments().get("name"));
+            case "activate_skill" -> activeSkill != null
+                    && call.arguments().size() == 1
+                    && activeSkill.metadata().skillId().equals(call.arguments().get("skillId"));
+            default -> results.stream().anyMatch(result -> signature.equals(result.callSignature())
+                    && "true".equals(result.status().get("success")));
+        };
     }
 
     private static EvidenceNeed need(String id,String description,NeedSource source,String ruleId) { return new EvidenceNeed(id,description,source,NeedStatus.OPEN,ruleId); }

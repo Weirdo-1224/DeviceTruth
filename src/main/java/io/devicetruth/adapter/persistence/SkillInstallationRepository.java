@@ -54,7 +54,7 @@ public final class SkillInstallationRepository {
                 WITH current_run AS (
                     SELECT id, conversation_id, owner_id, project_id FROM dt_agent_run
                     WHERE id=? AND owner_id=? AND project_id=? AND version=? AND status='RUNNING'
-                      AND cancel_requested_at IS NULL FOR UPDATE
+                      AND cancel_requested_at IS NULL AND lease_expires_at > clock_timestamp() FOR NO KEY UPDATE
                 )
                 INSERT INTO dt_run_skill(run_id,conversation_id,owner_id,project_id,skill_id,version,devices,tasks,
                     allowed_tools,document_digest)
@@ -89,17 +89,30 @@ public final class SkillInstallationRepository {
                 name).stream().findFirst().orElse(null);
     }
 
+    public String lastReferenceName(ServerIdentity identity, UUID runId) {
+        return jdbc.query("""
+                SELECT active_reference_name FROM dt_run_skill WHERE run_id=? AND owner_id=? AND project_id=?
+                """, (row, index) -> row.getString(1), runId, identity.ownerId(), identity.projectId()).getFirst();
+    }
+
     public void pinReference(ServerIdentity identity, UUID runId, long leaseVersion, String name, String digest) {
         jdbc.update("""
                 WITH current_run AS (
                     SELECT id FROM dt_agent_run
                     WHERE id=? AND owner_id=? AND project_id=? AND version=? AND status='RUNNING'
-                      AND cancel_requested_at IS NULL FOR UPDATE
+                      AND cancel_requested_at IS NULL AND lease_expires_at > clock_timestamp() FOR NO KEY UPDATE
+                ), pinned AS (
+                    INSERT INTO dt_run_skill_reference(run_id,name,content_digest)
+                    SELECT id,?,? FROM current_run
+                    ON CONFLICT DO NOTHING RETURNING run_id
                 )
-                INSERT INTO dt_run_skill_reference(run_id,name,content_digest)
-                SELECT id,?,? FROM current_run
-                ON CONFLICT DO NOTHING
-                """, runId, identity.ownerId(), identity.projectId(), leaseVersion, name, digest);
+                UPDATE dt_run_skill s SET active_reference_name=?
+                FROM current_run r
+                WHERE s.run_id=r.id AND (EXISTS(SELECT 1 FROM pinned) OR EXISTS(
+                    SELECT 1 FROM dt_run_skill_reference p
+                    WHERE p.run_id=r.id AND p.name=? AND p.content_digest=?
+                ))
+                """, runId, identity.ownerId(), identity.projectId(), leaseVersion, name, digest, name, name, digest);
     }
 
     private static List<String> strings(ResultSet row, String column) throws SQLException {

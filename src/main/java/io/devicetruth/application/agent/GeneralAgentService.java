@@ -12,6 +12,7 @@ import io.devicetruth.core.contract.Checks;
 import io.devicetruth.core.reasoning.GeneralReasoner;
 import io.devicetruth.core.reasoning.Reasoner;
 import io.devicetruth.core.runtime.TaskOrchestrator;
+import io.devicetruth.core.runtime.AgentExecutionCheckpoint;
 import io.devicetruth.core.runtime.TaskOrchestrator.AgentRunOutcome;
 import io.devicetruth.skill.SkillException;
 import io.devicetruth.skill.SkillRuntime;
@@ -85,6 +86,8 @@ public final class GeneralAgentService {
     /** 事件落库事务提交后的内存通知钩子（先提交后发布）；缺省无操作。 */
     private final java.util.function.Consumer<UUID> eventNotifier;
     private final java.time.Duration leaseDuration;
+    private final java.util.concurrent.atomic.AtomicBoolean recoveryScheduled =
+            new java.util.concurrent.atomic.AtomicBoolean();
     private final RunRecoveryService recovery;
     private final java.util.concurrent.ScheduledExecutorService heartbeats;
 
@@ -213,6 +216,10 @@ public final class GeneralAgentService {
      */
     public void recoverQueued() {
         recovery.reconcile(identity, workerEnabled, this::dispatch);
+        // 启动时尚未过期的租约也需要在到期后回收。
+        if (workerEnabled && recoveryScheduled.compareAndSet(false, true))
+            heartbeats.scheduleWithFixedDelay(() -> recovery.reconcileExpired(identity, this::dispatch),
+                    leaseDuration.toMillis(), leaseDuration.toMillis(), TimeUnit.MILLISECONDS);
     }
 
     /** 本 run 已取回的知识引用；读取仍按归属过滤。 */
@@ -382,14 +389,14 @@ public final class GeneralAgentService {
         // 长任务运行期间周期性续租；worker 存活时租约不过期，崩溃后租约自然失效供启动对账回收。
         java.util.concurrent.ScheduledFuture<?> heartbeat = heartbeats.scheduleWithFixedDelay(() -> {
             try {
-                runs.heartbeat(identity, runId, workerId, Instant.now().plus(leaseDuration), Instant.now());
+                runs.heartbeat(identity, runId, workerId, run.version() + 1, Instant.now().plus(leaseDuration), Instant.now());
             } catch (RuntimeException e) {
                 LOG.error("Agent lease heartbeat failed: runId={} type={}", runId, e.getClass().getSimpleName());
             }
         }, leaseDuration.toMillis() / 3, leaseDuration.toMillis() / 3, TimeUnit.MILLISECONDS);
         long segmentStartNanos = System.nanoTime();
         try {
-            AgentRunOutcome outcome = doRun(run, abortCheck(run, segmentStartNanos));
+            AgentRunOutcome outcome = doRun(run, segmentStartNanos);
             if (outcome == null) return; // doRun 内已按稳定错误码置 FAILED，无需再提交结果
             try {
                 persist(run, outcome, segmentStartNanos);
@@ -419,13 +426,16 @@ public final class GeneralAgentService {
     }
 
     /** 从 PG 重建上下文并执行唯一主循环；上下文全部来自持久层，新进程也能从同一检查点继续。 */
-    private AgentRunOutcome doRun(RunRecord run, java.util.function.Supplier<String> abortCode) {
+    private AgentRunOutcome doRun(RunRecord run, long segmentStartNanos) {
         UUID runId = run.runId();
         try {
             var messages = conversations.runContextMessages(identity, runId, run.goalMessageId()).stream()
                     .map(message -> new io.devicetruth.core.contract.AgentTaskInput.Message(message.role(),
                             message.content(), message.attachments()))
                     .toList();
+            var history = conversations.recentConversationHistory(identity, run.conversationId(), run.goalMessageId())
+                    .stream().map(message -> new io.devicetruth.core.contract.AgentTaskInput.Message(
+                            message.role(), message.content())).toList();
             var input = new io.devicetruth.core.contract.AgentTaskInput(identity.ownerId(), identity.projectId(),
                     run.conversationId(), runId, run.goalMessageId(), run.goalText(), messages,
                     run.selectedAssetId(), run.requestedAt(), run.asOf(), run.version(), run.stepsUsed(),
@@ -442,14 +452,23 @@ public final class GeneralAgentService {
                 return null;
             }
             var references = runs.references(identity, runId);
-            // 当前执行尝试号 = 领取 RUNNING 时 attempts+1 后的值（渐进持久步骤事件归属，§8.1）
-            var progress = progressWriter(run);
-            if (skills == null)
-                return orchestrator.runAgent(input, gateway, toolContext, references, reasoner, abortCode,
-                        () -> new TaskOrchestrator.SkillStep(toolContext, List.of(), null), progress);
-            var skillSession = skills.open(gateway, toolContext, run.version() + 1);
-            return orchestrator.runAgent(input, skillSession.gateway(), toolContext, references, reasoner,
-                    abortCode, skillSession::step, progress);
+            var checkpoint = runs.checkpoint(identity, runId);
+            var session = skills == null ? null : skills.open(gateway, toolContext, run.version() + 1);
+            return orchestrator.runAgent(input, session == null ? gateway : session.gateway(),
+                    toolContext, references, reasoner, abortCheck(run, segmentStartNanos),
+                    session == null ? () -> new TaskOrchestrator.SkillStep(toolContext, List.of(), null)
+                            : session::step,
+                    progressWriter(run), history, checkpoint,
+                    step -> writeCheckpoint(run, () -> requireUpdated(
+                            runs.reserveStep(identity, runId, step, totalActiveMs(run, segmentStartNanos)))),
+                    action -> persistToolStep(run, action, segmentStartNanos),
+                    saved -> writeCheckpoint(run, () -> requireUpdated(
+                            runs.saveCheckpoint(identity, saved, totalActiveMs(run, segmentStartNanos), false))));
+        } catch (CheckpointFailure e) {
+            LOG.error("Agent execution checkpoint failed: runId={} type={}", runId,
+                    e.getCause().getClass().getSimpleName());
+            failClaimedQuietly(run, "CHECKPOINT_PERSIST_FAILURE");
+            return null;
         } catch (SkillException e) {
             failClaimedQuietly(run, e.code());
             return null;
@@ -463,41 +482,24 @@ public final class GeneralAgentService {
     /**
      * 一次运行的结果在一个事务里落库：助手消息、run 状态、预算步数与白名单事件。
      * 加锁顺序固定为“会话行 → run 行”，与提交/补答入口一致，避免与并发补答互相等待。
-     * 取消竞态在锁内重查：已打取消标记或已不再是 RUNNING 时，本轮模型响应只记
-     * RUN_LATE_RESPONSE 事件，绝不覆盖 CANCELLED/FAILED 等既有终态。
+     * 在锁内重查取消和租约。仍持租约的迟到模型响应记录 RUN_LATE_RESPONSE，失去租约时放弃写入。
      */
     private void persist(RunRecord run, AgentRunOutcome outcome, long segmentStartNanos) {
-        int modelAttempts = 0;
-        int toolCalls = 0;
-        for (var event : outcome.events()) {
-            if ("MODEL_ATTEMPT".equals(event.type())) modelAttempts++;
-            if ("TOOL_RESULT".equals(event.type())) toolCalls++;
-        }
-        int attempts = modelAttempts;
-        int tools = toolCalls;
         transactions.execute(status -> {
             conversations.require(identity, run.conversationId(), true);
+            if (!lockClaim(run)) return null;
             RunRecord current = runs.load(identity, run.runId(), true);
-            if (!ownsClaim(run, current)) {
-                runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_LATE_RESPONSE",
-                        Map.of("status", current.status(), "code", outcome.stopReason()), Instant.now());
-                return null;
-            }
-            // 步骤事件（RUN_TOOL/RUN_MODEL）已由执行中的渐进持久回调写入，收尾不再重复写；
-            // 用量汇总保持幂等重算，终态迁移仍与下面的状态更新同事务。
-            if (attempts > 0) runs.updateModelUsage(identity, run.runId());
-
-            // 锁内重新计时，避免模型返回后在等待锁或保存审计的时间里超限却仍提交问答。
-            long segmentMs = (System.nanoTime() - segmentStartNanos) / 1_000_000;
-            boolean timedOut = current.activeDurationMs() + segmentMs >= current.maxActiveDurationMs();
-            boolean hasLateResponse = outcome.events().stream().anyMatch(event -> "RUN_LATE_RESPONSE".equals(event.type()));
             boolean hasAssistantResponse = outcome.status() == TaskOrchestrator.AgentStatus.WAITING_FOR_USER
                     || outcome.status() == TaskOrchestrator.AgentStatus.COMPLETED;
-            if (!current.cancelRequested() && !timedOut && hasAssistantResponse && skills != null) {
+            if (!current.cancelRequested() && hasAssistantResponse && skills != null
+                    && totalActiveMs(run, segmentStartNanos) < current.maxActiveDurationMs())
                 skills.verifyActiveGrant(run.runId());
-                segmentMs = (System.nanoTime() - segmentStartNanos) / 1_000_000;
-                timedOut = current.activeDurationMs() + segmentMs >= current.maxActiveDurationMs();
-            }
+            if (!lockClaim(run)) return null;
+
+            long totalMs = totalActiveMs(run, segmentStartNanos);
+            long segmentMs = Math.max(0, totalMs - current.activeDurationMs());
+            boolean timedOut = totalMs >= current.maxActiveDurationMs();
+            boolean hasLateResponse = outcome.events().stream().anyMatch(event -> "RUN_LATE_RESPONSE".equals(event.type()));
             Instant now = Instant.now();
             if (current.cancelRequested() || hasLateResponse || (timedOut && hasAssistantResponse)) {
                 String code = current.cancelRequested() ? "CANCELLED" : "TOTAL_TIMEOUT";
@@ -505,67 +507,102 @@ public final class GeneralAgentService {
                         Map.of("status", current.cancelRequested() ? "CANCELLED" : "FAILED", "code", code), now);
             }
             if (current.cancelRequested()) {
-                runs.cancelRunning(identity, current, outcome.stepsUsed(), segmentMs, attempts, tools, now);
+                runs.cancelRunning(identity, current, outcome.stepsUsed(), segmentMs, 0, 0, now);
             } else if (timedOut) {
-                runs.fail(identity, current, "TOTAL_TIMEOUT", outcome.stepsUsed(), segmentMs, attempts, tools, now);
+                runs.fail(identity, current, "TOTAL_TIMEOUT", outcome.stepsUsed(), segmentMs, 0, 0, now);
             } else if (outcome.status() == TaskOrchestrator.AgentStatus.WAITING_FOR_USER) {
                 var question = outcome.question().withVersion(run.questionVersion() + 1);
                 conversations.appendAssistant(identity, run.conversationId(), run.runId(), question.question(),
                         now, run.asOf());
-                // 等待补充信息是持久状态迁移（非终态）：事件与 waitForUser 同事务写入，流保持打开；
-                // 事件写在 CAS 成功之后，迁移被并发打断时不留悬挂事件。
-                int waiting = runs.waitForUser(identity, current, question, outcome.stepsUsed(),
-                        outcome.references().size(), segmentMs, attempts, tools, now);
-                if (waiting == 1)
-                    runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_WAITING",
-                            Map.of("questionVersion", question.questionVersion()), now);
+                requireUpdated(runs.waitForUser(identity, current, question, outcome.stepsUsed(),
+                        outcome.references().size(), segmentMs, 0, 0, now));
+                runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_WAITING",
+                        Map.of("questionVersion", question.questionVersion()), now);
             } else if (outcome.status() == TaskOrchestrator.AgentStatus.COMPLETED) {
                 conversations.appendAssistant(identity, run.conversationId(), run.runId(),
                         outcome.answer().summary(), now, run.asOf());
-                runs.complete(identity, current, outcome.answer(), outcome.stepsUsed(), segmentMs,
-                        attempts, tools, now);
+                requireUpdated(runs.complete(identity, current, outcome.answer(), outcome.stepsUsed(), segmentMs,
+                        0, 0, now));
             } else {
-                runs.fail(identity, current, outcome.stopReason(), outcome.stepsUsed(), segmentMs,
-                        attempts, tools, now);
+                runs.fail(identity, current, outcome.stopReason(), outcome.stepsUsed(), segmentMs, 0, 0, now);
             }
             return null;
         });
-        // 本段全部事件（RUN_TOOL/RUN_MODEL/RUN_ANSWER/RUN_FAILED/...）随上面事务提交后才发布通知。
         notifyEvents(run.runId());
     }
 
-    /**
-     * 渐进持久进度回调（05-01 复验 §8.1）：主循环每记录一个事件同步触发一次，
-     * TOOL_RESULT/MODEL_ATTEMPT 各自以短事务立即落库为 RUN_TOOL/RUN_MODEL
-     * （attempt=worker 领取 RUNNING 时 attempts+1 后的当前尝试号；先提交后通知）。
-     * 落库失败只记日志：步骤事件缺失不影响主循环推进，终态仍由 persist 收口；
-     * 已提交的步骤事件保留，恢复重跑使用新的尝试号。
-     */
+    private boolean lockClaim(RunRecord run) {
+        return runs.lockClaim(identity, run.runId(), run.version() + 1, run.attempts() + 1, workerId);
+    }
+
+    private static long totalActiveMs(RunRecord run, long segmentStartNanos) {
+        return run.activeDurationMs() + (System.nanoTime() - segmentStartNanos) / 1_000_000;
+    }
+
+    private static void requireUpdated(int updated) {
+        if (updated != 1) throw new IllegalStateException("Run update rejected");
+    }
+
+    private void writeCheckpoint(RunRecord run, Runnable write) {
+        try {
+            transactions.executeWithoutResult(status -> {
+                if (!lockClaim(run)) throw new IllegalStateException("Run claim lost");
+                write.run();
+            });
+        } catch (RuntimeException e) {
+            throw new CheckpointFailure(e);
+        }
+    }
+
+    /** 工具登记的 PG 引用、Skill 及检查点共享事务。 */
+    private TaskOrchestrator.ToolStep persistToolStep(RunRecord run,
+            java.util.function.Supplier<TaskOrchestrator.ToolStep> action, long segmentStartNanos) {
+        TaskOrchestrator.ToolStep completed;
+        try {
+            completed = transactions.execute(status -> {
+                String stop = runs.claimStopCode(identity, run.runId(), run.version() + 1);
+                if (stop != null) throw new IllegalStateException(stop);
+                Object savepoint = status.createSavepoint();
+                var step = action.get();
+                if (!Boolean.TRUE.equals(step.audit().get("success"))) status.rollbackToSavepoint(savepoint);
+                status.releaseSavepoint(savepoint);
+                if (!lockClaim(run)) throw new IllegalStateException("Run claim expired during tool");
+                AgentExecutionCheckpoint checkpoint = step.checkpoint();
+                requireUpdated(runs.saveCheckpoint(identity, checkpoint, totalActiveMs(run, segmentStartNanos), true));
+                return step;
+            });
+        } catch (RuntimeException e) {
+            throw new CheckpointFailure(e);
+        }
+        // 审计失败不会撤回已提交的检查点，也不会触发工具重放。
+        appendProgress(run, "RUN_TOOL", completed.audit());
+        return completed;
+    }
+
+    private static final class CheckpointFailure extends RuntimeException {
+        private CheckpointFailure(RuntimeException cause) { super(cause); }
+    }
+
     private java.util.function.Consumer<TaskOrchestrator.RunEvent> progressWriter(RunRecord run) {
-        int attempt = run.attempts() + 1;
-        UUID runId = run.runId();
         return event -> {
-            boolean toolEvent = "TOOL_RESULT".equals(event.type());
-            if (!toolEvent && !"MODEL_ATTEMPT".equals(event.type())) return;
-            try {
-                transactions.execute(status -> {
-                    if (!runs.lockClaim(identity, runId, run.version() + 1, attempt, Instant.now())) return null;
-                    if (toolEvent) {
-                        runs.appendEvent(identity, runId, run.conversationId(), "RUN_TOOL",
-                                event.data(), Instant.now(), attempt);
-                    } else {
-                        runs.appendEvent(identity, runId, run.conversationId(), "RUN_MODEL",
-                                modelEventPayload(event.data()), Instant.now(), attempt);
-                        runs.updateModelUsage(identity, runId);
-                    }
-                    return null;
-                });
-                notifyEvents(runId);
-            } catch (RuntimeException e) {
-                LOG.error("Agent progress event persistence failed: runId={} type={}",
-                        runId, e.getClass().getSimpleName());
-            }
+            if ("MODEL_ATTEMPT".equals(event.type()))
+                appendProgress(run, "RUN_MODEL", modelEventPayload(event.data()));
         };
+    }
+
+    private void appendProgress(RunRecord run, String type, Map<String, Object> payload) {
+        try {
+            transactions.executeWithoutResult(status -> {
+                if (!lockClaim(run)) return;
+                runs.appendEvent(identity, run.runId(), run.conversationId(), type, payload, Instant.now(),
+                        run.attempts() + 1);
+                if ("RUN_MODEL".equals(type)) runs.updateModelUsage(identity, run.runId());
+            });
+            notifyEvents(run.runId());
+        } catch (RuntimeException e) {
+            LOG.error("Agent progress event persistence failed: runId={} type={}",
+                    run.runId(), e.getClass().getSimpleName());
+        }
     }
 
     /** RUN_MODEL 白名单载荷：模型版本、第几次尝试、结果码与单次耗时；原始输出与 Prompt 不落库。 */
@@ -595,15 +632,12 @@ public final class GeneralAgentService {
         failQuietly(claimed.runId(), code, claimed);
     }
 
-    private static boolean ownsClaim(RunRecord queued, RunRecord current) {
-        return "RUNNING".equals(current.status()) && current.version() == queued.version() + 1;
-    }
-
     private void failQuietly(UUID runId, String code, RunRecord claimed) {
         try {
             transactions.execute(status -> {
+                if (claimed != null && !lockClaim(claimed)) return null;
                 RunRecord record = runs.load(identity, runId, true);
-                if (claimed == null ? "QUEUED".equals(record.status()) : ownsClaim(claimed, record)) {
+                if (claimed != null || "QUEUED".equals(record.status())) {
                     if (record.cancelRequested())
                         runs.cancelRunning(identity, record, record.stepsUsed(), 0, 0, 0, Instant.now());
                     else

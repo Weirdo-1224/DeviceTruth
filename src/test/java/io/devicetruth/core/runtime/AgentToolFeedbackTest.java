@@ -58,7 +58,7 @@ class AgentToolFeedbackTest {
                 "attribute", Map.of("type", "string"), "componentId", Map.of("type", "string"),
                 "query", Map.of("type", "string"), "documentId", Map.of("type", "string"),
                 "chunkId", Map.of("type", "string"), "n", Map.of("type", "integer"),
-                "second", Map.of("type", "boolean"));
+                "second", Map.of("type", "boolean"), "name", Map.of("type", "string"));
         return new ToolSpec(name, "stub tool " + name, "test", true,
                 Map.of("type", "object", "additionalProperties", false, "properties", properties,
                         "required", List.of()), "Result{}");
@@ -274,7 +274,7 @@ class AgentToolFeedbackTest {
                 toolContext(gateway.toolNames()), List.of(), reasoner);
 
         assertThat(stub.executions()).hasValue(1);
-        assertThat(reasoner.contextAt(2).feedback()).contains("相同工具与参数已查询过");
+        assertThat(reasoner.contextAt(2).feedback()).contains("结果仍可使用");
         assertThat(reasoner.contextAt(2).toolResults()).hasSize(1);
         assertThat(outcome.events()).anySatisfy(event -> {
             assertThat(event.type()).isEqualTo("TOOL_RESULT");
@@ -342,7 +342,7 @@ class AgentToolFeedbackTest {
         assertThat(results).allSatisfy(result -> {
             assertThat(result.status().get("blob")).endsWith("…(截断)");
             assertThat(result.status().get("blob").length())
-                    .isLessThanOrEqualTo(1000 + "…(截断)".length());
+                    .isLessThanOrEqualTo(1000);
             // 识别结论所需的关键字段不丢
             assertThat(result.status()).containsEntry("conflict", "NONE");
             assertThat(result.status()).containsEntry("installationStatus", "UNCONFIRMED");
@@ -351,6 +351,133 @@ class AgentToolFeedbackTest {
                 result.toolName().length() + result.dataNature().length()
                         + result.status().entrySet().stream().mapToInt(e -> e.getKey().length() + e.getValue().length()).sum()).sum();
         assertThat(total).isLessThanOrEqualTo(6000);
+    }
+
+    @Test void evictedResultCanBeFetchedAgainButImmediateRepeatIsBlocked() {
+        var gateway = new CapabilityGateway();
+        var oldest = register(gateway, "get_asset", (arguments, context) -> ok("get_asset", Map.of("components", "A")));
+        register(gateway, "fill", (arguments, context) -> ok("fill", Map.of("blob", "x".repeat(1000))));
+        var asset = new ActionProposal.CallTool("get_asset", Map.of(), "查询资产");
+        var script = new ArrayList<ActionProposal>(List.of(asset, asset));
+        for (int index = 0; index < 6; index++)
+            script.add(new ActionProposal.CallTool("fill", Map.of("n", index), "取资料"));
+        script.add(asset);
+        script.add(plainAnswer());
+        var reasoner = new ScriptedStub(script.toArray(ActionProposal[]::new));
+        var outcome = new TaskOrchestrator(gateway).runAgent(input(12), gateway, toolContext(gateway.toolNames()),
+                List.of(), reasoner);
+        assertThat(outcome.status()).isEqualTo(TaskOrchestrator.AgentStatus.COMPLETED);
+        assertThat(reasoner.contextAt(8).toolResults()).noneMatch(result -> result.toolName().equals("get_asset"));
+        assertThat(oldest.executions()).hasValue(2);
+    }
+
+    @Test void reportCanRefreshAfterAnotherToolContributesEvidence() {
+        var gateway = new CapabilityGateway();
+        var report = register(gateway, "generate_diagnosis_report", (arguments, context) ->
+                ok("generate_diagnosis_report", Map.of("references", "0")));
+        register(gateway, "lookup", (arguments, context) ->
+                ok("lookup", Map.of(), knowledgeReference("ref-1", "手册证据")));
+        var generate = new ActionProposal.CallTool("generate_diagnosis_report", Map.of(), "生成报告");
+        var reasoner = new ScriptedStub(generate, generate,
+                new ActionProposal.CallTool("lookup", Map.of(), "查阅资料"), generate, generate, plainAnswer());
+        var outcome = new TaskOrchestrator(gateway).runAgent(input(10), gateway, toolContext(gateway.toolNames()),
+                List.of(), reasoner);
+        assertThat(outcome.status()).isEqualTo(TaskOrchestrator.AgentStatus.COMPLETED);
+        assertThat(report.executions()).hasValue(2);
+        assertThat(reasoner.contextAt(3).toolResults())
+                .noneMatch(result -> result.toolName().equals("generate_diagnosis_report"));
+    }
+
+    @Test void switchingSkillReferenceAllowsReopeningFirstReference() {
+        var gateway = new CapabilityGateway();
+        var active = new java.util.concurrent.atomic.AtomicReference<GeneralReasoner.SkillReference>();
+        var read = register(gateway, "read_skill_reference", (arguments, context) -> {
+            String name = (String) arguments.get("name");
+            active.set(new GeneralReasoner.SkillReference(name, "模拟资料"));
+            return ok("read_skill_reference", Map.of("name", name));
+        });
+        var first = new ActionProposal.CallTool("read_skill_reference", Map.of("name", "a.md"), "取 A");
+        var second = new ActionProposal.CallTool("read_skill_reference", Map.of("name", "b.md"), "取 B");
+        var reasoner = new ScriptedStub(first, first, second, first, plainAnswer());
+        var toolContext = toolContext(gateway.toolNames());
+        var skill = new GeneralReasoner.SkillSummary("demo", "1", "模拟", List.of(), List.of());
+        var outcome = new TaskOrchestrator(gateway).runAgent(input(6), gateway, toolContext, List.of(), reasoner,
+                () -> null, () -> new TaskOrchestrator.SkillStep(toolContext, List.of(),
+                        new GeneralReasoner.ActiveSkill(skill, "模拟", List.of(), List.of(), List.of(),
+                                List.of("a.md", "b.md"), active.get())));
+        assertThat(outcome.status()).isEqualTo(TaskOrchestrator.AgentStatus.COMPLETED);
+        assertThat(read.executions()).hasValue(3);
+        assertThat(reasoner.contextAt(4).activeSkill().reference().name()).isEqualTo("a.md");
+    }
+
+    @Test void summaryKeepsVerificationAndSourcesBeforeLongOptionalFields() {
+        var gateway = new CapabilityGateway();
+        register(gateway, "get_configuration", (arguments, context) -> ok("get_configuration", Map.of(
+                "aaOptional", "a".repeat(2000), "zzOptional", "z".repeat(2000),
+                "installationStatus", "UNCONFIRMED", "verificationStatus", "DOCUMENTED", "conflict", "NONE",
+                "sourceId", "source-1", "requiredChecks", "查铭牌" + "🔍".repeat(900)),
+                knowledgeReference("ref-1", "手册证据")));
+        var reasoner = new ScriptedStub(new ActionProposal.CallTool("get_configuration", Map.of(), "查配置"),
+                plainAnswer());
+        new TaskOrchestrator(gateway).runAgent(input(4), gateway, toolContext(gateway.toolNames()),
+                List.of(), reasoner);
+        var status = reasoner.contextAt(1).toolResults().getLast().status();
+        assertThat(status).containsEntry("installationStatus", "UNCONFIRMED").containsEntry("conflict", "NONE")
+                .containsEntry("verificationStatus", "DOCUMENTED").containsEntry("sourceId", "source-1")
+                .containsEntry("referenceIds", "ref-1").containsEntry("omittedFields", "…(截断)");
+        assertThat(status.get("requiredChecks")).startsWith("查铭牌").endsWith("…(截断)").hasSizeLessThanOrEqualTo(1000);
+        assertThat(status.get("requiredChecks").codePoints().allMatch(cp -> cp < 0xD800 || cp > 0xDFFF)).isTrue();
+        assertThat(status.entrySet().stream().mapToInt(e -> e.getKey().length() + e.getValue().length()).sum())
+                .isLessThanOrEqualTo(1600);
+    }
+
+    @Test void realModelProposalsExerciseReuseRefreshAndBoundedSummary() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(Boolean.getBoolean("devicetruth.test.real-agent"));
+        var model = io.devicetruth.adapter.AgentModelConnections.openai();
+        var gateway = new CapabilityGateway();
+        var report = register(gateway, "generate_diagnosis_report", (arguments, context) ->
+                ok("generate_diagnosis_report", Map.of("status", "RUNNING")));
+        var search = register(gateway, "search_knowledge", (arguments, context) ->
+                ok("search_knowledge", Map.of("requiredChecks", "先核对模拟铭牌。" + "查".repeat(2000),
+                        "installationStatus", "UNCONFIRMED", "conflict", "NONE", "sourceType", "MANUAL"),
+                        knowledgeReference("ref-demo", "模拟手册要求核对铭牌。")));
+        var expected = List.of("generate_diagnosis_report", "generate_diagnosis_report",
+                "search_knowledge", "generate_diagnosis_report");
+        var round = new AtomicInteger();
+        var reasoner = new GeneralReasoner() {
+            @Override public String name() { return model.name(); }
+            @Override public ActionProposal propose(Context context) {
+                int step = round.getAndIncrement();
+                if (step == 3) {
+                    var status = context.toolResults().getLast().status();
+                    assertThat(status).containsEntry("installationStatus", "UNCONFIRMED")
+                            .containsEntry("conflict", "NONE").containsEntry("sourceType", "MANUAL")
+                            .containsEntry("referenceIds", "ref-demo");
+                    assertThat(status.get("requiredChecks")).endsWith("…(截断)").hasSizeLessThanOrEqualTo(1000);
+                }
+                String request = step < expected.size()
+                        ? "模拟验收，请提议一次 CALL_TOOL，toolName 为 " + expected.get(step)
+                          + (step == 2 ? "，参数仅 query=模拟铭牌。" : "，arguments 为空对象。")
+                          + (step == 1 ? " 本步专门检查重复调用的服务器保护，请仍提议本动作。" : "")
+                        : "请直接 ANSWER，用 KNOWLEDGE 类别写一句模拟资料说明，所有数组留空。";
+                var guided = new Context(request, List.of(new AgentTaskInput.Message("USER", request)), context.tools(),
+                        context.references(), context.attemptedTools(), context.stepsUsed(), context.maxSteps(),
+                        context.feedback(), List.of(), null, null, context.asOf(), context.toolResults());
+                var action = model.propose(guided);
+                if (step < expected.size()) {
+                    assertThat(action).isInstanceOf(ActionProposal.CallTool.class);
+                    assertThat(((ActionProposal.CallTool) action).toolName()).isEqualTo(expected.get(step));
+                }
+                return action;
+            }
+        };
+        var outcome = new TaskOrchestrator(gateway).runAgent(input(5), gateway, toolContext(gateway.toolNames()),
+                List.of(), reasoner);
+        assertThat(outcome.status()).as(outcome.stopReason()).isEqualTo(TaskOrchestrator.AgentStatus.COMPLETED);
+        assertThat(report.executions()).hasValue(2);
+        assertThat(search.executions()).hasValue(1);
+        assertThat(outcome.events()).anySatisfy(event ->
+                assertThat(event.data()).containsEntry("errorCode", "DUPLICATE_CALL"));
     }
 
     // T11：未注册工具与未授权工具仍被网关拒绝，模型只得到安全错误码

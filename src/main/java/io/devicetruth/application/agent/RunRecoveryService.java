@@ -39,8 +39,7 @@ public final class RunRecoveryService {
     /** 启动时执行一次全量对账；worker 关闭的进程不调度任何任务（M0 只保留 QUEUED 合同）。 */
     public RecoveryReport reconcile(ServerIdentity identity, boolean workerEnabled, RunDispatcher dispatcher) {
         if (!workerEnabled) return new RecoveryReport(0, 0, 0);
-        Instant now = Instant.now();
-        int queued = 0, resumed = 0, failed = 0;
+        int queued = 0, failed = 0;
         List<UUID> queuedRuns;
         try {
             queuedRuns = runs.queued(identity);
@@ -63,12 +62,19 @@ public final class RunRecoveryService {
                 LOG.error("Agent queue recovery dispatch failed: runId={} type={}", runId, e.getClass().getSimpleName());
             }
         }
+        var recovered = reconcileExpired(identity, dispatcher);
+        return new RecoveryReport(queued, recovered.runningResumed(), failed + recovered.runningFailed());
+    }
+
+    RecoveryReport reconcileExpired(ServerIdentity identity, RunDispatcher dispatcher) {
+        Instant now = Instant.now();
+        int resumed = 0, failed = 0;
         List<ExpiredRun> expired;
         try {
             expired = runs.runningWithExpiredLease(identity, now);
         } catch (RuntimeException e) {
             LOG.error("Agent crashed-run recovery scan failed: {}", e.getClass().getSimpleName());
-            return new RecoveryReport(queued, 0, 0);
+            return new RecoveryReport(0, 0, 0);
         }
         for (ExpiredRun run : expired) {
             try {
@@ -86,9 +92,8 @@ public final class RunRecoveryService {
                         e.getClass().getSimpleName());
             }
         }
-        if (queued > 0 || resumed > 0 || failed > 0)
-            LOG.info("Agent startup reconciliation: queuedDispatched={} runningResumed={} runningFailed={}",
-                    queued, resumed, failed);
-        return new RecoveryReport(queued, resumed, failed);
+        if (resumed > 0 || failed > 0)
+            LOG.info("Agent lease reconciliation: runningResumed={} runningFailed={}", resumed, failed);
+        return new RecoveryReport(0, resumed, failed);
     }
 }

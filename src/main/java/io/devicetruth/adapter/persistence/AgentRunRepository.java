@@ -1,6 +1,7 @@
 package io.devicetruth.adapter.persistence;
 
 import io.devicetruth.adapter.Json;
+import io.devicetruth.core.runtime.AgentExecutionCheckpoint;
 import io.devicetruth.application.agent.GeneralAgentService.RunView;
 import io.devicetruth.application.agent.GeneralAgentService.ServerIdentity;
 import io.devicetruth.core.contract.AgentResult;
@@ -146,7 +147,7 @@ public final class AgentRunRepository {
                 FROM dt_agent_run r
                 JOIN dt_message m ON m.id = r.goal_message_id
                 WHERE r.id = ? AND r.owner_id = ? AND r.project_id = ?
-                """ + (lock ? " FOR UPDATE OF r" : ""),
+                """ + (lock ? " FOR NO KEY UPDATE OF r" : ""),
                 (r, n) -> new RunRecord(r.getObject("id", UUID.class), r.getObject("conversation_id", UUID.class),
                         r.getObject("goal_message_id", UUID.class), r.getString("status"), r.getLong("version"),
                         r.getTimestamp("requested_at").toInstant(), r.getTimestamp("as_of").toInstant(),
@@ -171,20 +172,22 @@ public final class AgentRunRepository {
         return update("""
                 UPDATE dt_agent_run SET status='RUNNING', version=version+1, updated_at=?,
                     lease_owner=?, lease_expires_at=?, lease_heartbeat_at=?, attempts=attempts+1,
-                    started_at=COALESCE(started_at, ?)
+                    started_at=COALESCE(started_at, ?), active_accounted_at=?
                 WHERE id=? AND owner_id=? AND project_id=? AND status='QUEUED' AND version=?
                 """, java.sql.Timestamp.from(now), leaseOwner, java.sql.Timestamp.from(leaseExpiresAt),
-                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now), run.runId(),
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now), java.sql.Timestamp.from(now), run.runId(),
                 identity.ownerId(), identity.projectId(), run.version());
     }
 
     /** 运行中续租：只有持有者且仍处于 RUNNING 时才生效，worker 崩溃后租约自然过期。 */
-    public int heartbeat(ServerIdentity identity, UUID runId, String leaseOwner, Instant leaseExpiresAt, Instant now) {
+    public int heartbeat(ServerIdentity identity, UUID runId, String leaseOwner, long version,
+                         Instant leaseExpiresAt, Instant now) {
         return jdbc.update("""
                 UPDATE dt_agent_run SET lease_expires_at=?, lease_heartbeat_at=?
                 WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING' AND lease_owner=?
+                  AND version=? AND lease_expires_at > clock_timestamp()
                 """, java.sql.Timestamp.from(leaseExpiresAt), java.sql.Timestamp.from(now),
-                runId, identity.ownerId(), identity.projectId(), leaseOwner);
+                runId, identity.ownerId(), identity.projectId(), leaseOwner, version);
     }
 
     /** 恢复扫描：租约已过期（或从未持租约的旧版遗留）的 RUNNING，供启动对账回收。 */
@@ -199,6 +202,11 @@ public final class AgentRunRepository {
                 identity.ownerId(), identity.projectId(), java.sql.Timestamp.from(now));
     }
 
+    private static final String RECOVERY_ACTIVE_MS = """
+            active_duration_ms + COALESCE(GREATEST(0,
+                floor(extract(epoch FROM (lease_expires_at - active_accounted_at)) * 1000)::bigint), 0)
+            """;
+
     /** RUNNING → QUEUED：仅当版本未变且租约仍处过期状态时回收，成功才允许重新调度。
      *  已发布事件保持不变；回收事件与状态变更同事务提交。 */
     public int requeueRecovered(ServerIdentity identity, ExpiredRun run, Instant now) {
@@ -208,11 +216,13 @@ public final class AgentRunRepository {
     private int requeueRecoveredAtomic(ServerIdentity identity, ExpiredRun run, Instant now) {
         int updated = update("""
                 UPDATE dt_agent_run SET status='QUEUED', version=version+1, updated_at=?,
-                    lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
+                    active_duration_ms=%1$s,
+                    budget=jsonb_set(budget,'{used,activeDurationMs}',to_jsonb(%1$s),true),
+                    active_accounted_at=NULL, lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
                 WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING' AND version=?
                   AND (lease_expires_at IS NULL OR lease_expires_at < ?)
-                """, java.sql.Timestamp.from(now), run.runId(), identity.ownerId(), identity.projectId(),
-                run.version(), java.sql.Timestamp.from(now));
+                """.formatted(RECOVERY_ACTIVE_MS), java.sql.Timestamp.from(now), run.runId(), identity.ownerId(),
+                identity.projectId(), run.version(), java.sql.Timestamp.from(now));
         if (updated == 1) {
             appendEvent(identity, run.runId(), run.conversationId(), "RUN_RECOVERED",
                     Map.of("attempts", run.attempts()), now);
@@ -261,13 +271,15 @@ public final class AgentRunRepository {
                 )
                 UPDATE dt_agent_run r SET budget=jsonb_set(
                     jsonb_set(r.budget,'{used}',r.budget->'used' || jsonb_build_object(
-                        'inputTokens',usage.input_tokens,'outputTokens',usage.output_tokens,'cost',usage.cost),true),
+                        'modelAttempts',usage.attempts,'inputTokens',usage.input_tokens,
+                        'outputTokens',usage.output_tokens,'cost',usage.cost),true),
                     '{usageStatus}',to_jsonb((CASE
                         WHEN usage.token_reports=usage.attempts AND usage.cost_reports IN (0,usage.attempts)
-                        THEN 'REPORTED' ELSE 'PARTIAL' END)::text),true)
+                        THEN 'REPORTED' WHEN usage.input_tokens IS NULL AND usage.cost IS NULL
+                        THEN 'UNKNOWN' ELSE 'PARTIAL' END)::text),true)
                 FROM usage
                 WHERE r.id=? AND r.owner_id=? AND r.project_id=?
-                  AND (usage.input_tokens IS NOT NULL OR usage.output_tokens IS NOT NULL OR usage.cost IS NOT NULL)
+                  AND usage.attempts > 0
                 """, runId, identity.ownerId(), identity.projectId(), runId, identity.ownerId(), identity.projectId());
     }
 
@@ -382,7 +394,7 @@ public final class AgentRunRepository {
         var rows = jdbc.query("""
                 SELECT cancel_requested_at IS NOT NULL FROM dt_agent_run
                 WHERE id=? AND owner_id=? AND project_id=?
-                  AND status='RUNNING' AND version=?
+                  AND status='RUNNING' AND version=? AND lease_expires_at > clock_timestamp()
                 """, (r, n) -> r.getBoolean(1), runId, identity.ownerId(), identity.projectId(), version);
         if (rows.isEmpty()) return "RUN_CLAIM_LOST";
         return rows.getFirst() ? "CANCELLED" : null;
@@ -410,7 +422,8 @@ public final class AgentRunRepository {
                        COALESCE(r.chunk_id, r.id) AS chunk_id,
                        r.citation_page, r.citation_section, r.data_nature,
                        COALESCE(d.title, r.citation_section, r.source_type) AS title,
-                       COALESCE(c.content, r.citation_excerpt, '') AS content
+                       CASE WHEN c.id IS NULL THEN COALESCE(r.citation_excerpt, '')
+                            ELSE COALESCE(r.citation_excerpt, left(c.content, 600)) END AS content
                 FROM dt_evidence_reference r
                 LEFT JOIN dt_knowledge_chunk c
                   ON c.id = r.chunk_id AND c.owner_id = r.owner_id AND c.project_id = r.project_id
@@ -423,7 +436,9 @@ public final class AgentRunRepository {
                 r.getString("source_type"), r.getString("source_id"), r.getString("source_version"),
                 r.getObject("chunk_id", UUID.class).toString(), r.getString("title"),
                 r.getObject("citation_page", Integer.class), r.getString("citation_section"),
-                truncate(r.getString("content"), 600), r.getString("data_nature")),
+                "KNOWLEDGE_DOCUMENT".equals(r.getString("source_type"))
+                        ? truncate(r.getString("content"), 2000) : r.getString("content"),
+                r.getString("data_nature")),
                 runId, identity.ownerId(), identity.projectId());
     }
 
@@ -541,12 +556,53 @@ public final class AgentRunRepository {
         }
     }
 
-    public boolean lockClaim(ServerIdentity identity, UUID runId, long version, int attempt, Instant now) {
+    public boolean lockClaim(ServerIdentity identity, UUID runId, long version, int attempt, String workerId) {
         return !jdbc.query("""
                 SELECT id FROM dt_agent_run WHERE id=? AND owner_id=? AND project_id=?
-                  AND status='RUNNING' AND version=? AND attempts=? AND lease_expires_at > ? FOR UPDATE
+                  AND status='RUNNING' AND version=? AND attempts=? AND lease_owner=?
+                  AND lease_expires_at > clock_timestamp() FOR NO KEY UPDATE
                 """, (r, n) -> r.getObject(1), runId, identity.ownerId(), identity.projectId(),
-                version, attempt, java.sql.Timestamp.from(now)).isEmpty();
+                version, attempt, workerId).isEmpty();
+    }
+
+    public AgentExecutionCheckpoint checkpoint(ServerIdentity identity, UUID runId) {
+        String payload = jdbc.queryForObject("""
+                SELECT execution_checkpoint FROM dt_agent_run WHERE id=? AND owner_id=? AND project_id=?
+                """, String.class, runId, identity.ownerId(), identity.projectId());
+        if (payload == null) return null;
+        try {
+            return Json.MAPPER.readValue(payload, AgentExecutionCheckpoint.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException("Invalid stored execution checkpoint", e);
+        }
+    }
+
+    /** 预扣模型步数及最近的活动时间。调用方在同一事务中锁定当前领取记录。 */
+    public int reserveStep(ServerIdentity identity, UUID runId, int step, long totalActiveMs) {
+        return jdbc.update("""
+                UPDATE dt_agent_run SET
+                    budget=jsonb_set(jsonb_set(budget,'{used,steps}',to_jsonb(?::int),true),
+                                    '{used,activeDurationMs}',to_jsonb(?::bigint),true),
+                    active_duration_ms=?, active_accounted_at=clock_timestamp()
+                WHERE id=? AND owner_id=? AND project_id=?
+                  AND (budget#>>'{used,steps}')::int = ?-1
+                  AND (budget#>>'{limits,maxSteps}')::int >= ?
+                """, step, totalActiveMs, totalActiveMs, runId, identity.ownerId(), identity.projectId(), step, step);
+    }
+
+    public int saveCheckpoint(ServerIdentity identity, AgentExecutionCheckpoint checkpoint, long totalActiveMs,
+                              boolean toolAttempt) {
+        return jdbc.update("""
+                UPDATE dt_agent_run SET execution_checkpoint=CAST(? AS jsonb),
+                    budget=jsonb_set(jsonb_set(budget,'{used,activeDurationMs}',to_jsonb(?::bigint),true),
+                                    '{used,toolCalls}',
+                                    to_jsonb(COALESCE((budget#>>'{used,toolCalls}')::int,0)+?::int),true),
+                    active_duration_ms=?, active_accounted_at=clock_timestamp()
+                WHERE id=? AND owner_id=? AND project_id=?
+                  AND (budget#>>'{used,steps}')::int = ?
+                  AND COALESCE((execution_checkpoint->>'step')::int, -1) < ?
+                """, Json.write(checkpoint), totalActiveMs, toolAttempt ? 1 : 0, totalActiveMs, checkpoint.runId(),
+                identity.ownerId(), identity.projectId(), checkpoint.step(), checkpoint.step());
     }
 
     /** 事件落库：缺省 attempt=0（生命周期事件，见 05-01 复验 §8.1）。 */
@@ -565,7 +621,7 @@ public final class AgentRunRepository {
 
     private void appendEventAtomic(ServerIdentity identity, UUID runId, UUID conversationId, String type,
                                    Object payload, Instant now, int attempt) {
-        jdbc.queryForObject("SELECT id FROM dt_agent_run WHERE id=? AND owner_id=? AND project_id=? FOR UPDATE",
+        jdbc.queryForObject("SELECT id FROM dt_agent_run WHERE id=? AND owner_id=? AND project_id=? FOR NO KEY UPDATE",
                 UUID.class, runId, identity.ownerId(), identity.projectId());
         jdbc.update("""
                 INSERT INTO dt_run_event(run_id,seq,conversation_id,owner_id,project_id,type,recorded_at,safe_payload,attempt)

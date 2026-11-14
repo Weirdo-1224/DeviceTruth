@@ -75,6 +75,18 @@ public sealed interface ActionProposal {
             // Map.copyOf 同时拒绝 null 值：模型不能用 null 冒充“已提供参数”。
             arguments = Map.copyOf(Checks.required(arguments, "arguments"));
         }
+
+        /** Json 按键排序，调用目的不参与结果复用。 */
+        public String signature() {
+            String canonical = toolName + "|" + io.devicetruth.adapter.Json.write(arguments);
+            try {
+                byte[] bytes = canonical.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                return java.util.HexFormat.of().formatHex(
+                        java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+            } catch (java.security.NoSuchAlgorithmException e) {
+                throw new IllegalStateException(e);
+            }
+        }
     }
     /** 向用户提出一个待答问题：问题的 ID/版本由服务器生成，模型只能给正文与所需字段。 */
     record AskUser(String question, List<String> requestedFields) implements ActionProposal {

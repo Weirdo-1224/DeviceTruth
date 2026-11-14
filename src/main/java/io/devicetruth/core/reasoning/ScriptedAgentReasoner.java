@@ -10,7 +10,7 @@ import java.util.Map;
 /**
  * 脚本化通用 Agent 推理器：离线、确定性，只依据本轮上下文决定下一步，不读仓库也不看预期答案。
  * 策略顺序即“最小可信问答”：先检索已授权资料 → 线索不足时追问一次 → 基于已取回引用作答。
- * 补答后会因为“用户消息数 > 已检索次数”而重新检索，因此同一 run 的两轮上下文都能继续。
+ * 补答改变查询条件时，同一 run 会用新的查询继续检索。
  */
 public final class ScriptedAgentReasoner implements GeneralReasoner {
     public static final String SEARCH = "search_knowledge";
@@ -40,7 +40,12 @@ public final class ScriptedAgentReasoner implements GeneralReasoner {
             return new ActionProposal.CallTool(CONFIGURATION, Map.of("attribute", attribute.group(1),
                     "asOf", historical.group() + "T00:00:00Z"), "核对问题中指定的历史时点");
         // 每一轮都先检索一次：补答后的新一轮会用新的补充内容重新检索，而不是沿用旧引用下结论
-        if (!assetQuery && !context.attempted(SEARCH) && available(context, SEARCH)) return search(context);
+        if (!assetQuery && available(context, SEARCH)) {
+            var search = search(context);
+            String signature = search.signature();
+            if (context.toolResults().stream().noneMatch(result -> signature.equals(result.callSignature())))
+                return search;
+        }
         if (context.activeSkill() != null && available(context, OBSERVATIONS) && !context.attempted(OBSERVATIONS))
             return new ActionProposal.CallTool(OBSERVATIONS, Map.of(), "核查该任务是否已有观测记录");
         if (assetQuery) return configurationAnswer(context);
@@ -75,7 +80,7 @@ public final class ScriptedAgentReasoner implements GeneralReasoner {
         return "";
     }
 
-    private ActionProposal search(Context context) {
+    private ActionProposal.CallTool search(Context context) {
         String query = context.lastUserMessage();
         if (context.userMessageCount() > 1 && !query.contains(context.goalText()))
             query = context.goalText() + "\n补充：" + query;

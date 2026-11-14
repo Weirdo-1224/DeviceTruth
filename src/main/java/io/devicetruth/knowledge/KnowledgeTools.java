@@ -141,6 +141,7 @@ public final class KnowledgeTools {
                 excerpt.documentId().toString(), excerpt.documentVersion(), excerpt.chunkId().toString(),
                 excerpt.title(), excerpt.page(), excerpt.section(), truncate(excerpt.content(), 2000),
                 excerpt.dataNature());
+        searchService.retainExpandedExcerpt(context, excerpt.referenceId(), reference.excerpt());
         // 扩展原文经白名单摘要进入模型上下文；引用身份（referenceId/文档/版本/chunk）保持不变
         return ToolOutcome.ok(outcome.requestId(), EXCERPT, outcome, List.of(reference), excerpt.dataNature(),
                 Map.of("documentId", excerpt.documentId().toString(),

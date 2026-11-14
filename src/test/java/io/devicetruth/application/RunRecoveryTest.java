@@ -10,6 +10,11 @@ import io.devicetruth.application.agent.GeneralAgentService.AgentTaskInput;
 import io.devicetruth.application.agent.GeneralAgentService.RunView;
 import io.devicetruth.application.agent.GeneralAgentService.ServerIdentity;
 import io.devicetruth.core.capability.CapabilityGateway;
+import io.devicetruth.core.capability.Repositories.AssetComponent;
+import io.devicetruth.core.capability.Repositories.AssetConfigurationRecord;
+import io.devicetruth.core.capability.Repositories.AssetIdentity;
+import io.devicetruth.core.capability.Repositories.AssetRegistryRepository;
+import io.devicetruth.core.capability.Repositories.AssetSnapshot;
 import io.devicetruth.core.reasoning.ActionProposal;
 import io.devicetruth.core.reasoning.GeneralReasoner;
 import io.devicetruth.core.reasoning.ScriptedAgentReasoner;
@@ -165,6 +170,210 @@ class RunRecoveryTest {
                         question.pendingQuestionId().toString(), "questionVersion", question.questionVersion()));
     }
 
+    @Test void longAssetReferenceIsIdenticalAfterReplyAndWorkerRestart() throws Exception {
+        assertLongAssetReference(false);
+    }
+
+    @Test void realModelReadsLongAssetReferenceAfterReplyAndWorkerRestart() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(Boolean.getBoolean("devicetruth.test.real-agent"));
+        assertLongAssetReference(true);
+    }
+
+    @Test void realModelUsesReplyToProposeNewSearch() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(Boolean.getBoolean("devicetruth.test.real-agent"));
+        var model = io.devicetruth.adapter.AgentModelConnections.openai();
+        var first = service(null);
+        UUID conversationId;
+        RunView waiting;
+        try {
+            conversationId = first.create().conversationId();
+            var accepted = first.submit(conversationId, UUID.randomUUID(), input("新能源汽车充电中断，怎么核对资料？"));
+            waiting = awaitQuestion(first, accepted.runId(), 1);
+            assertThat(first.toolEvents(accepted.runId())).anyMatch(event ->
+                    event.success() && event.toolName().equals("search_knowledge"));
+        } finally {
+            first.shutdown();
+        }
+        var newSearch = new AtomicBoolean();
+        var resumed = new GeneralReasoner() {
+            @Override public String name() { return model.name(); }
+            @Override public ActionProposal propose(Context context) {
+                assertThat(context.lastUserMessage()).contains("直流快充");
+                boolean searched = newSearch.get();
+                String goal = searched ? "直接 ANSWER，用 KNOWLEDGE 类别写一句模拟资料说明，所有数组留空。"
+                        : "模拟验收，请提议一次 CALL_TOOL，toolName 为 search_knowledge，参数仅 query=直流快充。";
+                var guided = new Context(goal,
+                        List.of(new io.devicetruth.core.contract.AgentTaskInput.Message("USER",
+                                context.lastUserMessage() + "\n" + goal)), context.tools(), context.references(),
+                        context.attemptedTools(), context.stepsUsed(), context.maxSteps(), context.feedback(),
+                        context.availableSkills(), context.activeSkill(), context.selectedAssetId(), context.asOf(),
+                        context.toolResults(), context.conversationHistory());
+                var action = model.propose(guided);
+                if (action instanceof ActionProposal.CallTool call && call.toolName().equals("search_knowledge")
+                        && String.valueOf(call.arguments().get("query")).contains("直流快充")) newSearch.set(true);
+                return action;
+            }
+        };
+        var second = service(resumed);
+        try {
+            long prior = second.toolEvents(waiting.runId()).getLast().sequence();
+            second.submit(conversationId, UUID.randomUUID(), replyInput(
+                    "现场补充：直流快充。", waiting));
+            assertThat(awaitTerminal(second, waiting.runId(), "COMPLETED"))
+                    .as(() -> second.run(waiting.runId()).failureCode()).isEqualTo("COMPLETED");
+            assertThat(newSearch).isTrue();
+            assertThat(second.toolEvents(waiting.runId())).anyMatch(event -> event.sequence() > prior
+                    && event.toolName().equals("search_knowledge") && event.success());
+        } finally {
+            second.shutdown();
+        }
+    }
+
+    private void assertLongAssetReference(boolean online) throws Exception {
+        String asset = "TARGET-A-ASSET";
+        String attribute = "moduleVersion" + "X".repeat(110);
+        String value = "V".repeat(512);
+        Instant date = Instant.parse("2025-06-01T00:00:00Z");
+        app.getBean(AssetRegistryRepository.class).importSnapshot(new AssetSnapshot(
+                new AssetIdentity(asset, IDENTITY.ownerId(), IDENTITY.projectId()),
+                List.of(new AssetComponent(asset, "CTRL", "CTRL")),
+                List.of(new AssetConfigurationRecord("target-a-fact", asset, "CTRL", attribute, value,
+                        "FACTORY", "fixture-a", "fixture", "SIMULATED", "DOCUMENTED", 1, date, null, date, null)),
+                List.of()));
+        var call = new ActionProposal.CallTool("get_configuration", Map.of("attribute", attribute), "读取模拟台账");
+        var original = new java.util.concurrent.atomic.AtomicReference<io.devicetruth.core.contract.AgentResult.Reference>();
+        var scripted = new GeneralReasoner() {
+            @Override public String name() { return "target-a-before-restart"; }
+            @Override public ActionProposal propose(Context context) {
+                if (context.toolResults().isEmpty()) return call;
+                assertThat(context.references()).hasSize(1);
+                original.set(context.references().getFirst());
+                return new ActionProposal.AskUser("现场铭牌是否已经核对？", List.of("铭牌核验情况"));
+            }
+        };
+        UUID conversationId;
+        RunView waiting;
+        var first = service(scripted);
+        try {
+            conversationId = first.create().conversationId();
+            var accepted = first.submit(conversationId, UUID.randomUUID(), new AgentTaskInput(1,
+                    "核对模拟台账与现场铭牌", asset, null, null, null, null));
+            waiting = awaitQuestion(first, accepted.runId(), 1);
+            assertThat(original.get().excerpt()).hasSizeGreaterThan(600).contains("verification=DOCUMENTED", value);
+            assertThat(runs.references(IDENTITY, waiting.runId())).containsExactly(original.get());
+        } finally {
+            first.shutdown();
+        }
+        var model = online ? io.devicetruth.adapter.AgentModelConnections.openai() : null;
+        var resumed = new GeneralReasoner() {
+            @Override public String name() { return "target-a-after-restart"; }
+            @Override public ActionProposal propose(Context context) {
+                assertThat(context.references()).containsExactly(original.get());
+                assertThat(context.lastUserMessage()).contains("未核对");
+                return online ? model.propose(context) : answer("铭牌未核对。");
+            }
+        };
+        var second = service(resumed);
+        try {
+            second.submit(conversationId, UUID.randomUUID(),
+                    replyInput("现场铭牌尚未核对。请按已有台账回答并明确只是资料记载，直接 ANSWER。", waiting));
+            assertThat(awaitTerminal(second, waiting.runId(), "COMPLETED"))
+                    .as(() -> second.run(waiting.runId()).failureCode()).isEqualTo("COMPLETED");
+        } finally {
+            second.shutdown();
+        }
+    }
+
+    @Test void nextRunReadsOnlyCompletedHistoryAndDoesNotImportOldReferences() throws Exception {
+        var contexts = new java.util.concurrent.LinkedBlockingQueue<GeneralReasoner.Context>();
+        var service = service(new GeneralReasoner() {
+            @Override public String name() { return "history-probe"; }
+            @Override public ActionProposal propose(Context context) {
+                if (context.goalText().equals("检查 XLP-200") && !context.attempted("search_knowledge"))
+                    return search();
+                if (context.goalText().equals("仍在调查"))
+                    return new ActionProposal.AskUser("最近更换过控制器吗？", List.of("controller"));
+                contexts.add(context);
+                return answer(context.goalText().equals("检查 XLP-200") ? "第二种可能是通信异常。" : "请核对维修记录。");
+            }
+        });
+        try {
+            UUID conversation = service.create().conversationId();
+            var first = service.submit(conversation, UUID.randomUUID(), input("检查 XLP-200"));
+            assertThat(awaitTerminal(service, first.runId(), "COMPLETED")).isEqualTo("COMPLETED");
+            assertThat(contexts.remove().references()).isNotEmpty();
+            var unrelated = service.submit(conversation, UUID.randomUUID(), input("仍在调查"));
+            awaitQuestion(service, unrelated.runId(), 1);
+
+            String goal = "第二种原因怎么确认？";
+            var second = service.submit(conversation, UUID.randomUUID(), input(goal));
+            assertThat(awaitTerminal(service, second.runId(), "COMPLETED")).isEqualTo("COMPLETED");
+            var followUp = contexts.remove();
+            assertThat(followUp.goalText()).isEqualTo(goal);
+            assertThat(followUp.messages()).extracting(io.devicetruth.core.contract.AgentTaskInput.Message::content)
+                    .containsExactly(goal);
+            assertThat(followUp.conversationHistory())
+                    .extracting(io.devicetruth.core.contract.AgentTaskInput.Message::content)
+                    .containsExactly("检查 XLP-200", "第二种可能是通信异常。");
+            assertThat(followUp.references()).isEmpty();
+
+            var record = runs.load(IDENTITY, second.runId(), false);
+            for (var other : List.of(new ServerIdentity("owner-b", "project-a"),
+                    new ServerIdentity("owner-a", "project-b"))) {
+                assertThat(conversations.recentConversationHistory(other, conversation, record.goalMessageId()))
+                        .isEmpty();
+                assertThatThrownBy(() -> runs.checkpoint(other, first.runId()))
+                        .isInstanceOf(org.springframework.dao.EmptyResultDataAccessException.class);
+            }
+
+            UUID another = service.create().conversationId();
+            var independent = service.submit(another, UUID.randomUUID(), input(goal));
+            assertThat(awaitTerminal(service, independent.runId(), "COMPLETED")).isEqualTo("COMPLETED");
+            assertThat(contexts.remove().conversationHistory()).isEmpty();
+            assertThat(conversations.recentConversationHistory(IDENTITY, another, record.goalMessageId())).isEmpty();
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test void historyIsBoundedByMessageCountAndCodePoints() throws Exception {
+        var service = service(new GeneralReasoner() {
+            @Override public String name() { return "history-budget"; }
+            @Override public ActionProposal propose(Context context) { return answer("答 " + context.goalText()); }
+        });
+        try {
+            UUID conversation = service.create().conversationId();
+            for (int index = 1; index <= 8; index++) {
+                var run = service.submit(conversation, UUID.randomUUID(), input("目标 " + index));
+                assertThat(awaitTerminal(service, run.runId(), "COMPLETED")).isEqualTo("COMPLETED");
+            }
+            var run = service.submit(conversation, UUID.randomUUID(), input("设备".repeat(3500)));
+            assertThat(awaitTerminal(service, run.runId(), "COMPLETED")).isEqualTo("COMPLETED");
+            var record = runs.load(IDENTITY, run.runId(), false);
+            var shortHistory = conversations.recentConversationHistory(IDENTITY, conversation, record.goalMessageId());
+            assertThat(shortHistory).extracting(ConversationRepository.ContextMessage::content).hasSize(12)
+                    .startsWith("目标 3", "答 目标 3").endsWith("目标 8", "答 目标 8");
+            var afterLongRun = service.submit(conversation, UUID.randomUUID(), input("新的目标"));
+            var next = runs.load(IDENTITY, afterLongRun.runId(), false);
+            var longHistory = conversations.recentConversationHistory(IDENTITY, conversation, next.goalMessageId());
+            assertThat(longHistory).singleElement().satisfies(message -> {
+                assertThat(message.content().codePointCount(0, message.content().length())).isEqualTo(6000);
+                assertThat(message.role()).isEqualTo("ASSISTANT");
+            });
+            assertThat(awaitTerminal(service, afterLongRun.runId(), "COMPLETED")).isEqualTo("COMPLETED");
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    private static ActionProposal search() {
+        return new ActionProposal.CallTool("search_knowledge", Map.of("query", "充电中断"), "查询手册");
+    }
+
+    private static ActionProposal answer(String summary) {
+        return new ActionProposal.Answer("KNOWLEDGE", summary, List.of(), List.of(), List.of(), List.of(), List.of());
+    }
+
     @Test void waitingRunSurvivesProcessRestartAndContinuesOnSameRun() throws Exception {
         var first = service(null);
         try {
@@ -180,7 +389,17 @@ class RunRecoveryTest {
 
             // “旧进程消失”：第一个 service 被丢弃，心跳随之中断；新进程从同一 PG 接手
             first.shutdown();
-            var second = service(null);
+            var checkpoint = runs.checkpoint(IDENTITY, accepted.runId());
+            assertThat(checkpoint.toolResults()).isNotEmpty();
+            assertThat(checkpoint.successfulCalls()).isNotEmpty();
+            var resumeContext = new java.util.concurrent.atomic.AtomicReference<GeneralReasoner.Context>();
+            var second = service(new GeneralReasoner() {
+                @Override public String name() { return "reply-probe"; }
+                @Override public ActionProposal propose(Context context) {
+                    resumeContext.set(context);
+                    return answer("已收到补充信息。");
+                }
+            });
             try {
                 second.recoverQueued();
                 // WAITING 不持租约，绝不被对账重新调度；问题与版本原样保留
@@ -199,6 +418,18 @@ class RunRecoveryTest {
                 assertThat(acceptedReply.runId()).isEqualTo(accepted.runId());
                 awaitTerminal(second, accepted.runId(), "COMPLETED");
                 assertThat(second.run(accepted.runId()).result()).isNotNull();
+                var restored = resumeContext.get();
+                assertThat(restored.goalText()).isEqualTo("新能源汽车充电中断，没有故障码，先查什么资料？");
+                assertThat(restored.lastUserMessage()).isEqualTo("直流快充，SOC 约 40%");
+                assertThat(restored.askedUser()).isTrue();
+                assertThat(restored.stepsUsed()).isEqualTo(stepsAtWaiting);
+                assertThat(restored.references()).isNotEmpty();
+                assertThat(restored.toolResults()).isEqualTo(checkpoint.toolResults());
+                assertThat(restored.attemptedTools()).isEqualTo(checkpoint.attemptedTools());
+                second.recoverQueued();
+                assertThat(second.events(accepted.runId(), 0).stream().filter(event -> event.type().equals("RUN_ANSWER")))
+                        .hasSize(1);
+                assertThat(second.read(conversation).messages()).hasSize(messagesAtWaiting + 2);
                 assertThat(runs.load(IDENTITY, accepted.runId(), false).stepsUsed())
                         .isGreaterThan(stepsAtWaiting);
                 assertThat(second.references(accepted.runId())).isNotEmpty();
@@ -465,7 +696,17 @@ class RunRecoveryTest {
                 throw new io.devicetruth.core.runtime.TaskOrchestrator.ReasonerFailure("RELEASED_AFTER_CRASH");
             }
         };
-        var crashed = service(stuckAfterSearch);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var countedGateway = gateway.copyToolCatalog();
+        var searchSpec = gateway.toolCatalog(null).stream().filter(spec -> spec.name().equals("search_knowledge"))
+                .findFirst().orElseThrow();
+        var probeGateway = new CapabilityGateway();
+        probeGateway.registerTool(searchSpec, (arguments, context) -> {
+            calls.incrementAndGet();
+            return countedGateway.executeTool(context, searchSpec.name(), arguments);
+        });
+        var crashed = new GeneralAgentService(conversations, runs, transactions, IDENTITY, probeGateway,
+                () -> stuckAfterSearch, 2, 4, true, null, LEASE_SECONDS, 3);
         UUID runId;
         try {
             UUID conversation = crashed.create().conversationId();
@@ -486,12 +727,38 @@ class RunRecoveryTest {
                 "SELECT count(*) FROM dt_evidence_reference WHERE run_id=?", Integer.class, runId);
         Thread.sleep(LEASE_SECONDS * 1000 + 500);
 
-        // 新进程恢复：重建上下文后引用按 (run_id,chunk_id) 去重，不会因重跑而复制
-        var recovered = service(null);
+        var persisted = runs.checkpoint(IDENTITY, runId);
+        assertThat(persisted.step()).isEqualTo(1);
+        assertThat(persisted.successfulCalls()).hasSize(1);
+        assertThat(persisted.toolResults()).hasSize(1);
+        var observed = new java.util.concurrent.LinkedBlockingQueue<GeneralReasoner.Context>();
+        GeneralReasoner next = new GeneralReasoner() {
+            @Override public String name() { return "recovered-probe"; }
+            @Override public ActionProposal propose(Context context) {
+                observed.add(context);
+                if (observed.size() == 1) return search();
+                return new ActionProposal.AskUser("最近更换过控制器吗？", List.of("controller"));
+            }
+        };
+        var recovered = new GeneralAgentService(conversations, runs, transactions, IDENTITY, probeGateway,
+                () -> next, 2, 4, true, null, LEASE_SECONDS, 3);
         try {
             recovered.recoverQueued();
             assertThat(awaitTerminal(recovered, runId, "WAITING_FOR_USER")).isEqualTo("WAITING_FOR_USER");
-            assertThat(runs.load(IDENTITY, runId, false).attempts()).isEqualTo(2);
+            var context = observed.remove();
+            assertThat(context.toolResults()).isEqualTo(persisted.toolResults());
+            assertThat(context.attemptedTools()).containsExactly("search_knowledge");
+            assertThat(context.stepsUsed()).isGreaterThanOrEqualTo(persisted.step());
+            assertThat(observed.remove().feedback()).contains("结果仍可使用");
+            assertThat(calls).hasValue(1);
+            var events = recovered.events(runId, 0);
+            assertThat(events.stream().map(event -> event.seq()).toList()).containsExactly(1L, 2L, 3L, 4L, 5L);
+            assertThat(recovered.events(runId, 2)).containsExactlyElementsOf(events.subList(2, events.size()));
+            assertThat(recovered.toolEvents(runId)).extracting(AgentRunRepository.ToolEvent::errorCode)
+                    .anyMatch("DUPLICATE_CALL"::equals);
+            var current = runs.load(IDENTITY, runId, false);
+            assertThat(current.attempts()).isEqualTo(2);
+            assertThat(current.activeDurationMs()).isPositive();
             assertThat(jdbc.queryForObject(
                     "SELECT count(*) FROM dt_evidence_reference WHERE run_id=?", Integer.class, runId))
                     .isEqualTo(referencesBefore);
@@ -505,6 +772,74 @@ class RunRecoveryTest {
         } finally {
             recovered.shutdown();
             release.set(true);
+        }
+    }
+
+    @Test void expiredWorkerRollsBackToolWritesBeforeCheckpointAndNewWorkerCanRetry() throws Exception {
+        var insideTool = new CountDownLatch(1);
+        var finishTool = new CountDownLatch(1);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var probeGateway = new CapabilityGateway();
+        var searchSpec = gateway.toolCatalog(null).stream().filter(spec -> spec.name().equals("search_knowledge"))
+                .findFirst().orElseThrow();
+        probeGateway.registerTool(searchSpec, (arguments, context) -> {
+            int call = calls.incrementAndGet();
+            var result = gateway.executeTool(context, searchSpec.name(), arguments);
+            if (call == 1) {
+                insideTool.countDown();
+                while (finishTool.getCount() != 0) {
+                    Thread.interrupted();
+                    LockSupport.parkNanos(Duration.ofMillis(5).toNanos());
+                }
+            }
+            return result;
+        });
+        var stale = new GeneralAgentService(conversations, runs, transactions, IDENTITY, probeGateway,
+                () -> new GeneralReasoner() {
+                    @Override public String name() { return "stale-tool"; }
+                    @Override public ActionProposal propose(Context context) { return search(); }
+                }, 1, 2, true, null, LEASE_SECONDS, 3);
+        var resumedContext = new java.util.concurrent.atomic.AtomicReference<GeneralReasoner.Context>();
+        var fresh = new GeneralAgentService(conversations, runs, transactions, IDENTITY, probeGateway,
+                () -> new GeneralReasoner() {
+                    @Override public String name() { return "retry-tool"; }
+                    @Override public ActionProposal propose(Context context) {
+                        if (!context.attempted("search_knowledge")) {
+                            resumedContext.set(context);
+                            return search();
+                        }
+                        return answer("已检查手册。");
+                    }
+                }, 1, 2, true, null, LEASE_SECONDS, 3);
+        try {
+            UUID conversation = stale.create().conversationId();
+            UUID runId = stale.submit(conversation, UUID.randomUUID(), input("充电中断")).runId();
+            assertThat(insideTool.await(10, TimeUnit.SECONDS)).isTrue();
+            stale.shutdown();
+            assertThat(runs.checkpoint(IDENTITY, runId)).isNull();
+            assertThat(stale.references(runId)).isEmpty();
+            assertThat(runs.load(IDENTITY, runId, false).stepsUsed()).isEqualTo(1);
+            // 新服务先启动，定期扫描应在旧租约过期后回收。
+            fresh.recoverQueued();
+            for (int poll = 0; poll < 200 && calls.get() < 2; poll++) Thread.sleep(25);
+            assertThat(calls).hasValue(2);
+            finishTool.countDown();
+            assertThat(awaitTerminal(fresh, runId, "COMPLETED")).isEqualTo("COMPLETED");
+            assertThat(resumedContext.get().stepsUsed()).isEqualTo(1);
+            assertThat(resumedContext.get().toolResults()).isEmpty();
+            assertThat(resumedContext.get().references()).isEmpty();
+            var end = runs.load(IDENTITY, runId, false);
+            assertThat(end.stepsUsed()).isEqualTo(3);
+            assertThat(end.attempts()).isEqualTo(2);
+            assertThat(end.activeDurationMs()).isGreaterThanOrEqualTo(1000);
+            assertThat(runs.checkpoint(IDENTITY, runId).step()).isEqualTo(2);
+            assertThat(fresh.toolEvents(runId)).singleElement().satisfies(event -> assertThat(event.success()).isTrue());
+            assertThat(fresh.events(runId, 0)).extracting(event -> event.type())
+                    .containsExactly("RUN_QUEUED", "RUN_RECOVERED", "RUN_TOOL", "RUN_ANSWER");
+        } finally {
+            finishTool.countDown();
+            stale.shutdown();
+            fresh.shutdown();
         }
     }
 

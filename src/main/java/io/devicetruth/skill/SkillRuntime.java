@@ -77,13 +77,14 @@ public final class SkillRuntime {
         private final ToolContext base;
         private final long leaseVersion;
         private Selection selected;
-        private SkillReference reference;
+        private String referenceName;
 
         private Session(CapabilityGateway gateway, ToolContext base, long leaseVersion) {
             this.gateway = gateway.copyToolCatalog();
             this.base = base;
             this.leaseVersion = leaseVersion;
             this.selected = repository.selection(identity, base.runId());
+            if (selected != null) referenceName = repository.lastReferenceName(identity, base.runId());
             this.gateway.registerTool(ACTIVATE_SPEC, (arguments, context) -> invoke(ACTIVATE,
                     arguments, () -> activate(arguments.get("skillId"))));
             this.gateway.registerTool(READ_SPEC, (arguments, context) -> invoke(READ_REFERENCE,
@@ -106,7 +107,7 @@ public final class SkillRuntime {
                 allowed.retainAll(selected.allowedTools());
                 if (!metadata.references().isEmpty()) allowed.add(READ_REFERENCE);
                 active = new ActiveSkill(summary(metadata), instructions.content(), metadata.evidence(),
-                        metadata.risks(), metadata.citations(), metadata.references(), reference);
+                        metadata.risks(), metadata.citations(), metadata.references(), verifiedReference());
             }
             var context = new ToolContext(base.ownerId(), base.projectId(), base.conversationId(), base.runId(),
                     base.selectedAssetId(), base.requestedAt(), base.asOf(), allowed);
@@ -142,7 +143,15 @@ public final class SkillRuntime {
             repository.pinReference(identity, base.runId(), leaseVersion, name, hash);
             if (!hash.equals(repository.referenceDigest(identity, base.runId(), name)))
                 throw SkillException.changed(selected.skillId());
-            reference = new SkillReference(name, content);
+            referenceName = name;
+        }
+
+        private SkillReference verifiedReference() {
+            if (referenceName == null) return null;
+            String content = loader.readReference(selected.skillId(), referenceName);
+            if (!digest(content).equals(repository.referenceDigest(identity, base.runId(), referenceName)))
+                throw SkillException.changed(selected.skillId());
+            return new SkillReference(referenceName, content);
         }
 
         private SkillMetadata requireSelected(Map<String, Installation> installed) {

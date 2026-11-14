@@ -238,13 +238,13 @@ public final class AssetTools {
         }
         if (!outcome.success()) return ToolOutcome.failed(outcome.requestId(), GET_CONFIGURATION, error(outcome));
         // 模型可见摘要：确认/冲突状态、条目数、待核验要求与限制说明；未核实信息保持 UNCONFIRMED 语义
-        Map<String, String> visible = new LinkedHashMap<>(Map.of(
+        Map<String, String> visible = Map.of(
                 "assetId", outcome.assetId(), "asOf", outcome.asOf().toString(),
                 "installationStatus", outcome.installationStatus().name(), "conflict", outcome.conflict().name(),
                 "entries", String.valueOf(outcome.entries().size()),
                 "requiredChecks", String.join("；", outcome.requiredChecks()),
                 "limitations", String.join("；", outcome.limitations()),
-                "dataNature", outcome.dataNature()));
+                "dataNature", outcome.dataNature());
         return ToolOutcome.ok(outcome.requestId(), GET_CONFIGURATION, outcome,
                 references.forOutcome(context, outcome), outcome.dataNature(), visible);
     }
@@ -299,15 +299,15 @@ public final class AssetTools {
 
     /** 引用摘要只含来源、时点与核实状态，不含任何推理或诊断措辞。 */
     static String summary(ConfigurationEntry entry) {
-        return "attribute=" + entry.attribute() + ";value=" + entry.value() + ";source=" + entry.sourceType()
+        return "attribute=" + entry.attribute() + ";source=" + entry.sourceType()
                 + ";verification=" + entry.verificationStatus() + ";validFrom=" + entry.validFrom()
-                + (entry.validTo() == null ? "" : ";validTo=" + entry.validTo());
+                + (entry.validTo() == null ? "" : ";validTo=" + entry.validTo()) + ";value=" + entry.value();
     }
 
     static String summary(MaintenanceEntry entry) {
-        return "operation=" + entry.operation() + ";before=" + entry.beforeValue() + ";after=" + entry.afterValue()
-                + ";source=" + entry.sourceType() + ";verification=" + entry.verificationStatus()
-                + ";validFrom=" + entry.validFrom();
+        return "operation=" + entry.operation() + ";source=" + entry.sourceType()
+                + ";verification=" + entry.verificationStatus() + ";validFrom=" + entry.validFrom()
+                + ";before=" + entry.beforeValue() + ";after=" + entry.afterValue();
     }
 
     /**

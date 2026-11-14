@@ -268,6 +268,15 @@ public final class KnowledgeSearchService {
                 ? KnowledgeException.invalidCitation() : KnowledgeException.notFoundOrDenied();
     }
 
+    void retainExpandedExcerpt(ToolContext context, UUID referenceId, String excerpt) {
+        jdbc.update("""
+                UPDATE dt_evidence_reference SET citation_excerpt=?
+                WHERE id=? AND run_id=? AND owner_id=? AND project_id=?
+                  AND source_type='KNOWLEDGE_DOCUMENT'
+                  AND char_length(COALESCE(citation_excerpt, '')) < char_length(?)
+                """, excerpt, referenceId, context.runId(), context.ownerId(), context.projectId(), excerpt);
+    }
+
     public Excerpt excerptByReference(ToolContext context, UUID referenceId) {
         requireRun(context);
         List<Excerpt> rows = jdbc.query("""

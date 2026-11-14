@@ -33,7 +33,13 @@ public interface GeneralReasoner {
                        List<String> citations, List<String> references, SkillReference reference) {}
     record SkillReference(String name, String content) {}
     /** 结构化工具返回的白名单状态；可引用的实际记录仍从 references 读取。 */
-    record ToolResult(String toolName, String dataNature, Map<String, String> status) {}
+    record ToolResult(String toolName, String dataNature, Map<String, String> status,
+                      @com.fasterxml.jackson.annotation.JsonInclude(
+                              com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String callSignature) {
+        public ToolResult(String toolName, String dataNature, Map<String, String> status) {
+            this(toolName, dataNature, status, null);
+        }
+    }
 
     /**
      * 单轮推理输入；attemptedTools 是本轮已尝试过的工具名（含失败，用于避免原地重试），
@@ -42,7 +48,16 @@ public interface GeneralReasoner {
     record Context(String goalText, List<Message> messages, List<ToolSpec> tools,
                    List<Reference> references, List<String> attemptedTools,
                    int stepsUsed, int maxSteps, String feedback, List<SkillSummary> availableSkills,
-                   ActiveSkill activeSkill, String selectedAssetId, Instant asOf, List<ToolResult> toolResults) {
+                   ActiveSkill activeSkill, String selectedAssetId, Instant asOf, List<ToolResult> toolResults,
+                   List<Message> conversationHistory) {
+        public Context(String goalText, List<Message> messages, List<ToolSpec> tools,
+                       List<Reference> references, List<String> attemptedTools, int stepsUsed, int maxSteps,
+                       String feedback, List<SkillSummary> availableSkills, ActiveSkill activeSkill,
+                       String selectedAssetId, Instant asOf, List<ToolResult> toolResults) {
+            this(goalText, messages, tools, references, attemptedTools, stepsUsed, maxSteps, feedback,
+                    availableSkills, activeSkill, selectedAssetId, asOf, toolResults, List.of());
+        }
+
         public Context(String goalText, List<Message> messages, List<ToolSpec> tools,
                        List<Reference> references, List<String> attemptedTools, int stepsUsed, int maxSteps,
                        String feedback) {
@@ -52,6 +67,7 @@ public interface GeneralReasoner {
 
         public Context {
             messages = List.copyOf(messages);
+            conversationHistory = List.copyOf(conversationHistory);
             tools = List.copyOf(tools);
             references = List.copyOf(references);
             attemptedTools = List.copyOf(attemptedTools);
@@ -60,6 +76,14 @@ public interface GeneralReasoner {
         }
 
         public boolean attempted(String toolName) { return attemptedTools.contains(toolName); }
+
+        /** 检查点签名只用于 Runtime 与本地推理器，供应商只收到公开的工具摘要。 */
+        public Context modelView() {
+            return new Context(goalText, messages, tools, references, attemptedTools, stepsUsed, maxSteps,
+                    feedback, availableSkills, activeSkill, selectedAssetId, asOf,
+                    toolResults.stream().map(result -> new ToolResult(
+                            result.toolName(), result.dataNature(), result.status())).toList(), conversationHistory);
+        }
 
         /** 最近一条用户消息（首次为目标，补答后为补充内容）。 */
         public String lastUserMessage() {

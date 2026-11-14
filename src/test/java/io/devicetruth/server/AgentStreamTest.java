@@ -369,11 +369,16 @@ class AgentStreamTest {
         assertExactlySeqsOneToN(first.runEventFrames(), s);
         first.close();
 
-        // 断线期间服务端继续推进：补答产生后续事件（至少 2 条：检索/模型 + 答案）
+        // 真实 scripted 推理器用补答组成新查询，断线期间落一条检索和一条最终答案。
         reply(base, conversationId, runId, waiting.path("pendingQuestion"));
         await(base, runId, "COMPLETED", 20_000);
         long n = eventsJson(base, runId, null).size();
-        assertThat(n - s).as("断线期间应至少新增 2 条事件").isGreaterThanOrEqualTo(2);
+        assertThat(n - s).isEqualTo(2);
+        JsonNode missed = eventsJson(base, runId, String.valueOf(s));
+        assertThat(missed.get(0).path("type").asText()).isEqualTo("RUN_TOOL");
+        assertThat(missed.get(0).path("data").path("toolName").asText()).isEqualTo("search_knowledge");
+        assertThat(missed.get(0).path("data").path("success").asBoolean()).isTrue();
+        assertThat(missed.get(1).path("type").asText()).isEqualTo("RUN_ANSWER");
 
         // 连接二：Last-Event-ID=S 重连 → 只补齐 S+1..N，按序、各一次，随后 RUN_TERMINAL 收尾
         try (SseClient second = new SseClient(streamUrl(base, runId), String.valueOf(s))) {

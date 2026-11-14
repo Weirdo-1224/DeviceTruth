@@ -120,6 +120,45 @@ public final class ConversationRepository {
                 identity.ownerId(), identity.projectId(), runId, goalMessageId);
     }
 
+    private static final int HISTORY_MAX_MESSAGES = 12;
+    private static final int HISTORY_MAX_CHARS = 6000;
+
+    /** 只取目标之前已写完最终回答的 Run。附件与引用元数据不进入历史。 */
+    public List<ContextMessage> recentConversationHistory(ServerIdentity identity, UUID conversationId,
+                                                          UUID goalMessageId) {
+        var recent = jdbc.query("""
+                SELECT m.role, left(m.content, ?) AS content
+                FROM dt_message goal
+                JOIN dt_message m ON m.conversation_id=goal.conversation_id
+                  AND m.owner_id=goal.owner_id AND m.project_id=goal.project_id AND m.seq < goal.seq
+                JOIN dt_agent_run r ON r.id=COALESCE(m.run_id, (
+                    SELECT g.id FROM dt_agent_run g WHERE g.goal_message_id=m.id
+                      AND g.owner_id=m.owner_id AND g.project_id=m.project_id
+                )) AND r.conversation_id=m.conversation_id
+                  AND r.owner_id=m.owner_id AND r.project_id=m.project_id AND r.status='COMPLETED'
+                WHERE goal.id=? AND goal.conversation_id=? AND goal.owner_id=? AND goal.project_id=?
+                  AND (SELECT max(a.seq) FROM dt_message a
+                       WHERE a.run_id=r.id AND a.conversation_id=r.conversation_id
+                         AND a.owner_id=r.owner_id AND a.project_id=r.project_id
+                         AND a.role='ASSISTANT') < goal.seq
+                ORDER BY m.seq DESC LIMIT ?
+                """, (r, n) -> new ContextMessage(r.getString("role"), r.getString("content"), List.of()),
+                HISTORY_MAX_CHARS, goalMessageId, conversationId, identity.ownerId(), identity.projectId(),
+                HISTORY_MAX_MESSAGES);
+        var history = new java.util.ArrayList<ContextMessage>();
+        int remaining = HISTORY_MAX_CHARS;
+        for (var message : recent) {
+            if (remaining == 0) break;
+            String content = message.content();
+            int length = content.codePointCount(0, content.length());
+            if (length > remaining)
+                content = content.substring(0, content.offsetByCodePoints(0, remaining - 1)) + "…";
+            if (!content.isBlank()) history.add(new ContextMessage(message.role(), content, List.of()));
+            remaining -= Math.min(length, remaining);
+        }
+        return List.copyOf(history.reversed());
+    }
+
     private static List<java.util.Map<String, Object>> attachments(String json) {
         try {
             return io.devicetruth.adapter.Json.MAPPER.readValue(json,

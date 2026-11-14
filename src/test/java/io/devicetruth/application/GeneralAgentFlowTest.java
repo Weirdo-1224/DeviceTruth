@@ -595,7 +595,7 @@ class GeneralAgentFlowTest {
                         if (context.path("attemptedTools").isEmpty()) return searchCall("REPLY-A-731");
                         return ask("请提供第二份补答资料");
                     }
-                    if (context.path("attemptedTools").isEmpty()) return searchCall("REPLY-B-947");
+                    if (context.path("toolResults").size() == 1) return searchCall("REPLY-B-947");
                     return answerWith(referenceFor(context, secondFile.documentId()));
                 })), 1, 2, true, files);
         try {
@@ -637,7 +637,7 @@ class GeneralAgentFlowTest {
                         if (context.path("attemptedTools").isEmpty()) return searchCall("GOAL-A-520");
                         return ask("请补充附件");
                     }
-                    if (context.path("attemptedTools").isEmpty()) return searchCall("REPLY-C-820");
+                    if (context.path("toolResults").size() == 1) return searchCall("REPLY-C-820");
                     return answerWith(referenceFor(context, replyFile.documentId()));
                 })), 1, 2, true, files);
         var otherOwner = new GeneralAgentService(conversations, runs, transactions,
