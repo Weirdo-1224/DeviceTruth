@@ -387,6 +387,41 @@ class AnswerGuardTest {
         assertThat(guard.review(input(null), collected, affirmative).code()).isEqualTo("UNCONFIRMED_FINDING");
     }
 
+    @Test void documentedIdentityAndObservationAreNotDefectAssertions() {
+        var collected = List.of(reference("r1", "SIMULATED"));
+        for (String text : List.of("模拟配置记录显示该车登记型号为 Model 3 2024+。",
+                "历史模拟观测中，该车充电状态为 STOPPED。")) {
+            var draft = answer("KNOWLEDGE", text,
+                    List.of(new Claim(text, List.of("r1"), Certainty.SUPPORTED)), List.of("r1"));
+            assertThat(guard.review(input("EV-DEMO-004"), collected, draft).allowed()).isTrue();
+        }
+    }
+
+    @Test void identityWordingDoesNotExemptDefectAssertions() {
+        var collected = List.of(reference("r1", "SIMULATED"));
+        for (String text : List.of("该车登记型号为 Model 3，充电控制器已经损坏。",
+                "该车是充电控制器损坏。", "该车为充电控制器故障。")) {
+            var draft = answer("POSSIBLE_CAUSES", text, List.of(), List.of("r1"));
+            assertThat(guard.review(input("EV-DEMO-004"), collected, draft).code())
+                    .isEqualTo("UNCONFIRMED_FINDING");
+        }
+    }
+
+    @Test void chargingFailureSymptomIsNotAnEnergizingInstruction() {
+        var draft = answer("POSSIBLE_CAUSES", "交流充不上电还可能有多种解释，现有记录不足以确定原因。",
+                List.of(), List.of());
+        assertThat(guard.review(input(null), List.of(), draft).allowed()).isTrue();
+        assertThat(AnswerGuard.unsafeFollowUp("是刚插枪充不上电，还是充电中途停止？", List.of())).isFalse();
+    }
+
+    @Test void chargingFailureDoesNotExemptActualControlInstructions() {
+        for (String text : List.of("充不上电，请先上电再观察。", "充不上电时请强制复位。", "充不上电，请拆装电池包。")) {
+            var draft = answer("POSSIBLE_CAUSES", text, List.of(), List.of());
+            assertThat(guard.review(input(null), List.of(), draft).code()).isEqualTo("UNSAFE_ANSWER");
+            assertThat(AnswerGuard.unsafeFollowUp(text, List.of())).isTrue();
+        }
+    }
+
     @Test void followUpQuestionsShareTheSameSafetyBoundary() {
         // 02-02 复审 P1：追问同样展示给用户，不得夹带设备操作指令或确诊断言
         assertThat(AnswerGuard.unsafeFollowUp("请短接高压互锁端子后告诉我现象。", List.of("现象")))

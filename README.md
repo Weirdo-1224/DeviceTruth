@@ -1,10 +1,12 @@
 # DeviceTruth — 通用设备检修 Agent
 
-DeviceTruth 是 Java 单 Agent Core：每步读取独立的结构化状态，由 Reasoner 提出一个动作；Gateway 执行至多一个只读能力；Evidence Manager 重建事实并使旧依赖失效；State Manager 提交新版本；Guard 校验结论。模型只能提议动作，不能修改事实、写证据或自行执行工具。**资料与规则均为 `SIMULATED`，仅用于工程验收，不能指导实际车辆或工业设备维护。**
+DeviceTruth 是 Java 单 Agent Core：每步读取独立的结构化状态，由 Reasoner 提出一个动作；Gateway 执行至多一个只读能力；Evidence Manager 重建事实并使旧依赖失效；State Manager 提交新版本；Guard 校验结论。模型只能提议动作，不能修改事实、写证据或自行执行工具。CLI 场景使用 `SIMULATED` 资料；产品数据库还包含公开登记和工单文档快照，文档记载与模拟观测均不代表当前现场核实，来源说明见 [数据建设记录](docs/data-enrichment.md)。
 
 **当前状态（2026-11-14）**：Phase 1–4 已完成并提交；Phase 5 三个计划（SSE 实时进度、工作台与 E2E、Docker 部署与运维演练）全部完成并实测——全量 `mvn -o test` 360/0/0/1、前端 36/36+build、浏览器 A–E 五场景 PASS、部署演练 PASS。阶段待两项集中 UAT 确认。权威状态与跨会话接续见 [.planning/STATE.md](.planning/STATE.md) / [.planning/NEXT_SESSION.md](.planning/NEXT_SESSION.md)。
 
 技术版本：Java 21、Maven 3.9+、Spring Boot 3.5.16、AgentScope Java 2.0.4（core + DashScope + OpenAI 扩展，不引入 harness 或另一个编排框架）。API 选型依据见 [API Spike](docs/research/notes/agentscope-spike.md)。新增扩展首次构建需要下载依赖。
+
+桌面原包已适配为六个专项 Skill：充电、维护、供电/电池风险、工业配置、工业控制器故障、Carrier 屋顶机组。连同原有两个包，八包均已按工作手册规范化并升级默认启用版本，具备九键元数据、五类标准参考及只读取证边界。当前版本与来源见 [领域 Skill](docs/domain-skills.md)，格式、自检命令和验收见 [Skill规范化](docs/skill-normalization.md)。当前知识库尚未建设且缺 embedding 密钥，手册检索仍不可用。
 
 ## 快速开始
 
@@ -72,7 +74,7 @@ DASHSCOPE_API_KEY=          # 使用千问时填
 
 配置优先级：私有文件非空值 → 环境变量。文件按进程工作目录查找，改动后重启即可。密钥不写入源码、日志或报告。`--reasoner=openai` 走 OpenAI 兼容协议（Bearer、非流式、`response_format=json_object`），`--reasoner=qwen` 走 DashScope `qwen-plus`。
 
-**PostgreSQL**：Spring 进程只读 `SPRING_DATASOURCE_URL/USERNAME/PASSWORD` 三个环境变量；凭据不写入模型私有文件。测试用再加 `DEVICETRUTH_TEST_PG_*`（详见 `docs/acceptance-history.md` 的 PG 段落）。本机按用户指定复用 `interview-postgres`（PG 16.15 + pgvector 0.8.7，5432，独立 `devicetruth` 库）；Flyway 执行 `V1`–`V16` 迁移，重复启动只校验不重建。
+**PostgreSQL**：Spring 进程只读 `SPRING_DATASOURCE_URL/USERNAME/PASSWORD` 三个环境变量；凭据不写入模型私有文件。测试用再加 `DEVICETRUTH_TEST_PG_*`（详见 `docs/acceptance-history.md` 的 PG 段落）。本机当前使用 `devicetruth-postgres-1`（PG 16.15 + pgvector 0.8.7，本机端口 54329，`devicetruth` 库）；Flyway `V1`–`V16` 均已成功。历史 `interview-postgres:5432` 是先前验证环境。2026-11-14 已实际补充五张设备业务表：资产 166、部件/逻辑节点 709、配置 1,035、维修/工单文档 175、模拟观测 1,063；来源语义、幂等导入和 30 项实际产品检查见 [数据补充与验收](docs/data-enrichment.md)。
 
 **其他环境变量**：`DEVICETRUTH_OWNER_ID/PROJECT_ID`（product 身份，默认 `local-owner/local-project`，仅供单用户本地演示，共享部署须接真实认证）；`DEVICETRUTH_SKILLS_ROOT/SKILLS_INSTALLATIONS/SKILLS_ALLOWED_TOOLS`（Skill 目录、默认安装与工具上限）；`DEVICETRUTH_ASSETS_SEED_FIXTURES=true` + `DEVICETRUTH_ASSETS_FIXTURES=SC-0245-B`（工厂演示资产）；embedding 走 `DEVICETRUTH_EMBEDDING_*`（缺省复用 `DASHSCOPE_API_KEY`）。
 

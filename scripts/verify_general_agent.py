@@ -484,7 +484,9 @@ def dual_case_evidence(server, run, skill_id, tools_required):
     retrieved = {reference.get("referenceId") for reference in references}
     evidence = {
         "completed": run["status"] == "COMPLETED",
-        "correctSkill": skill_status == 200 and skill.get("skillId") == skill_id and skill.get("version") == "1.0.0",
+        "correctSkill": skill_status == 200 and skill.get("skillId") == skill_id and skill.get("version") == next(
+            line.split(":", 1)[1].strip() for line in (ROOT / "skills" / skill_id / "SKILL.md").read_text().splitlines()
+            if line.startswith("version:")),
         "toolCalls": tools_required <= tools,
         "citationsInRun": bool(used) and all(reference.get("referenceId") in retrieved for reference in used),
         "uncertain": answer.get("category") != "CONFIRMED_FINDING" and bool(answer.get("uncertainties")),

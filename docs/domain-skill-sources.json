@@ -1,0 +1,295 @@
+[
+  {
+    "skill_id": "ev-charging-triage",
+    "adapted_version": "0.2.4",
+    "original_files": [
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-charging-triage/SKILL.md",
+        "sha256": "7daf3e9a801b109517abb06392463f0b0e9397b8b70a9fe8cf416bdbecae6b9d"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-charging-triage/assets/investigation-output-template.json",
+        "sha256": "1fa9a5b44bfc5e91f0f3a5d68ae066465e0ff739c7146d2d299436f3b89425d2"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-charging-triage/assets/investigation-output.schema.json",
+        "sha256": "38ea7ad4df5ea1d28176ea1206c43e8ac922592c9952710266bb185644791712"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-charging-triage/references/charging-matrix.md",
+        "sha256": "f06a4ba53eee4edc82062510a6ce8b0daeae1763e28c7cdf4c430f4bce7b99d1"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-charging-triage/references/evidence-guidance.md",
+        "sha256": "99fb2616a2c5ccd2105348d1052cee160827404fd92a370fa31c2ff6667e32df"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-charging-triage/references/runtime-contract.md",
+        "sha256": "a6c4f32d4684c458270e8bb6a62aa40ac1a68bbd708a96aee7176752dd25e46a"
+      }
+    ],
+    "copied_matrices": [
+      "charging-matrix.md"
+    ],
+    "replaced": [
+      "frontmatter",
+      "runtime contract",
+      "data mapping",
+      "evidence semantics",
+      "five handbook reference categories"
+    ],
+    "omitted": [
+      "original output JSON schemas/templates (not supported by product runtime)"
+    ]
+  },
+  {
+    "skill_id": "ev-maintenance-inspection",
+    "adapted_version": "0.2.2",
+    "original_files": [
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-maintenance-inspection/SKILL.md",
+        "sha256": "dac99021243c22739ebe465a7c1692b72164f95309fcd17dbbdb3c9fd28d62c7"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-maintenance-inspection/assets/investigation-output-template.json",
+        "sha256": "1fa9a5b44bfc5e91f0f3a5d68ae066465e0ff739c7146d2d299436f3b89425d2"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-maintenance-inspection/assets/investigation-output.schema.json",
+        "sha256": "38ea7ad4df5ea1d28176ea1206c43e8ac922592c9952710266bb185644791712"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-maintenance-inspection/references/evidence-guidance.md",
+        "sha256": "99fb2616a2c5ccd2105348d1052cee160827404fd92a370fa31c2ff6667e32df"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-maintenance-inspection/references/maintenance-matrix.md",
+        "sha256": "cf4cbb235628051d16d21c8cdf0b8ac958fc0e243b4becab6823df01b46f8e3d"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-maintenance-inspection/references/runtime-contract.md",
+        "sha256": "a6c4f32d4684c458270e8bb6a62aa40ac1a68bbd708a96aee7176752dd25e46a"
+      }
+    ],
+    "copied_matrices": [
+      "maintenance-matrix.md"
+    ],
+    "replaced": [
+      "frontmatter",
+      "runtime contract",
+      "data mapping",
+      "evidence semantics",
+      "five handbook reference categories"
+    ],
+    "omitted": [
+      "original output JSON schemas/templates (not supported by product runtime)"
+    ]
+  },
+  {
+    "skill_id": "ev-powertrain-safety-investigation",
+    "adapted_version": "0.2.3",
+    "original_files": [
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-powertrain-safety-investigation/SKILL.md",
+        "sha256": "be0fb509ed8f7e0a433e17e34999570ee393b2a5b05c662fc918f3b2ac3cb783"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-powertrain-safety-investigation/assets/investigation-output-template.json",
+        "sha256": "1fa9a5b44bfc5e91f0f3a5d68ae066465e0ff739c7146d2d299436f3b89425d2"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-powertrain-safety-investigation/assets/investigation-output.schema.json",
+        "sha256": "38ea7ad4df5ea1d28176ea1206c43e8ac922592c9952710266bb185644791712"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-powertrain-safety-investigation/references/evidence-guidance.md",
+        "sha256": "99fb2616a2c5ccd2105348d1052cee160827404fd92a370fa31c2ff6667e32df"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-powertrain-safety-investigation/references/runtime-contract.md",
+        "sha256": "a6c4f32d4684c458270e8bb6a62aa40ac1a68bbd708a96aee7176752dd25e46a"
+      },
+      {
+        "path": "DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills/ev-powertrain-safety-investigation/references/supply-recall-matrix.md",
+        "sha256": "feb159764ce984460808284a1b3aa765dde939bb7283fbc06e47140c209f90c3"
+      }
+    ],
+    "copied_matrices": [
+      "supply-recall-matrix.md"
+    ],
+    "replaced": [
+      "frontmatter",
+      "runtime contract",
+      "data mapping",
+      "evidence semantics",
+      "five handbook reference categories"
+    ],
+    "omitted": [
+      "original output JSON schemas/templates (not supported by product runtime)"
+    ]
+  },
+  {
+    "skill_id": "industrial-configuration-investigation",
+    "adapted_version": "0.2.3",
+    "original_files": [
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-configuration-investigation/SKILL.md",
+        "sha256": "6bef5db9e899ba19c746cc79e5cc877285e132a9c37c93b5e3f526f5256833bb"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-configuration-investigation/assets/investigation-output-template.json",
+        "sha256": "ac8e684bdb9fa6166f51b077ed8734b965af4eb091a8d04fc228c5364ace8bdc"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-configuration-investigation/assets/investigation-output.schema.json",
+        "sha256": "38ea7ad4df5ea1d28176ea1206c43e8ac922592c9952710266bb185644791712"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-configuration-investigation/references/compatibility-guide.md",
+        "sha256": "5c9a7934589d76fc11b175d5b2bed7b0df70307abb10e080f6d7f6b8051f7532"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-configuration-investigation/references/configuration-investigation.md",
+        "sha256": "cc0822c561c48af43148ab3c48401e4037ad518f371246f63365302b0403d515"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-configuration-investigation/references/evidence-semantics.md",
+        "sha256": "77afdadddf9cbb5c0f7d864e8e883e7a7789914b8fe930b0d6451fabfd3420cf"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-configuration-investigation/references/runtime-contract.md",
+        "sha256": "97b542019568726ae3ddc736a426fcd704a4855495b72708e67ba1907df763af"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-configuration-investigation/references/source-notes.md",
+        "sha256": "8eda4f6031f19583f681999e0ee540ce53c74c4e8e4a1b4e59917f82b9b0b20c"
+      }
+    ],
+    "copied_matrices": [
+      "evidence-semantics.md",
+      "configuration-investigation.md",
+      "compatibility-guide.md",
+      "source-notes.md"
+    ],
+    "replaced": [
+      "frontmatter",
+      "runtime contract",
+      "data mapping",
+      "evidence semantics",
+      "five handbook reference categories"
+    ],
+    "omitted": [
+      "original output JSON schemas/templates (not supported by product runtime)"
+    ]
+  },
+  {
+    "skill_id": "industrial-controller-fault-triage",
+    "adapted_version": "0.4.3",
+    "original_files": [
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-controller-fault-triage/SKILL.md",
+        "sha256": "16c2049200241858f0d866d57aaaf41dc824a07216710589686d43912c17da84"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-controller-fault-triage/assets/investigation-output-template.json",
+        "sha256": "ac8e684bdb9fa6166f51b077ed8734b965af4eb091a8d04fc228c5364ace8bdc"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-controller-fault-triage/assets/investigation-output.schema.json",
+        "sha256": "38ea7ad4df5ea1d28176ea1206c43e8ac922592c9952710266bb185644791712"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-controller-fault-triage/references/community-case-evidence.md",
+        "sha256": "cc7e9f2be42113aa5bb937cee04a22f334cec51101547f87a66cb42a0bd5ce8c"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-controller-fault-triage/references/diagnostic-data-semantics.md",
+        "sha256": "be145028d9570c0ef26bda9207bab9224b434981c3bc63890fb2d600268e609b"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-controller-fault-triage/references/fault-evidence-matrix.md",
+        "sha256": "b90d369eb30ad3b3324f36131d88a3717e4779abf0e43c85eab16e1b38d9f60c"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-controller-fault-triage/references/profinet-investigation.md",
+        "sha256": "874b8180ea2e5e31f0a73a53921db7b5185434c0a02bb5cde7211a4f009c9b58"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-controller-fault-triage/references/replacement-closed-loop.md",
+        "sha256": "ed49d4a71b77e9bae256dcb979c61e99c34949430127f5f0f8e73b5b3f6a5286"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-controller-fault-triage/references/runtime-contract.md",
+        "sha256": "97b542019568726ae3ddc736a426fcd704a4855495b72708e67ba1907df763af"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-controller-fault-triage/references/safety-boundaries.md",
+        "sha256": "69a5acdd5fd7580fe1735ee0dc8332e2b6907794aea94f128b04c9ff19025cd8"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills/industrial-controller-fault-triage/references/synthetic-dataset-usage.md",
+        "sha256": "89adafb44a4db3857283d097d48bd04618fb291d9267e40891ae1563261ab895"
+      }
+    ],
+    "copied_matrices": [
+      "fault-evidence-matrix.md",
+      "diagnostic-data-semantics.md",
+      "profinet-investigation.md",
+      "replacement-closed-loop.md",
+      "safety-boundaries.md",
+      "community-case-evidence.md",
+      "synthetic-dataset-usage.md"
+    ],
+    "replaced": [
+      "frontmatter",
+      "runtime contract",
+      "data mapping",
+      "evidence semantics",
+      "five handbook reference categories"
+    ],
+    "omitted": [
+      "original output JSON schemas/templates (not supported by product runtime)"
+    ]
+  },
+  {
+    "skill_id": "carrier-rtu-evidence-triage",
+    "adapted_version": "0.1.2",
+    "original_files": [
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/08_真实领域交接_2026-11-14/skill/carrier-rtu-evidence-triage/SKILL.md",
+        "sha256": "07a87cbcf1e7c74d00d1beabffa05c501235ce9c481e17f846197eab977180f2"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/08_真实领域交接_2026-11-14/skill/carrier-rtu-evidence-triage/references/decision-rules.md",
+        "sha256": "a318b80ad7b2fb350184d849b8260ecbcc2ba9da641017d9b304d578c588799b"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/08_真实领域交接_2026-11-14/skill/carrier-rtu-evidence-triage/references/domain-knowledge.md",
+        "sha256": "f26ee0b327ce843ae15558cb2795cff8af130d5a40d446c3551985f8def72426"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/08_真实领域交接_2026-11-14/skill/carrier-rtu-evidence-triage/references/evidence-requirements.md",
+        "sha256": "2909121a6d31beaf862aa82427539b3471b644e2d2f6631ad7cd90a4f4a44fb9"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/08_真实领域交接_2026-11-14/skill/carrier-rtu-evidence-triage/references/investigation-guide.md",
+        "sha256": "566316315ca6d6cfd85551223ca3385ed180ae251632236b4d9d804228bf8d61"
+      },
+      {
+        "path": "DeviceTruth_Industrial_v0.6_数据扩充版/08_真实领域交接_2026-11-14/skill/carrier-rtu-evidence-triage/references/safety-guidelines.md",
+        "sha256": "e072b95222d2528c2dd76ccb1adabe3b92deb92a044b268fb90f793011d31c91"
+      }
+    ],
+    "copied_matrices": [],
+    "replaced": [
+      "frontmatter",
+      "runtime contract",
+      "data mapping",
+      "evidence semantics",
+      "five handbook reference categories"
+    ],
+    "omitted": [
+      "original output JSON schemas/templates (not supported by product runtime)"
+    ]
+  }
+]

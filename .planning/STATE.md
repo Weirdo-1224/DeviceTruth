@@ -26,6 +26,12 @@ last_execution_authorization: 2026-11-13/14 用户授权实施并验收 05-01→
 
 # Project State
 
+> 2026-11-14 最新 Skill 手册规范化：按用户指定Downloads工作手册第5章，将全部8个产品Skill统一为九键元数据+五类标准reference，保留专项补充，共82篇参考；旧CLI rules.json不变。八个patch版本均已同步默认配置并在实际PG启用，当前版本见 `docs/skill-normalization.md`。生成源 `scripts/adapt_domain_skills.py`/`skill_standards.py`，自检 `scripts/ValidateSkills.java`直接复用产品解析器；24条开发规则来源摘要可核对，技术专业复核仍待指定，未冒称真实现场验收。定向27项通过；全量394项（391通过/0失败/0错误/3可选模型项跳过）；真实DeepSeek首批5/6（供电模型格式错误），一次针对复验1/1，最新逐例6/6、66检查，保留失败批次，不写成单批6/6。43份桌面原件摘要一致，副本重建一致，5类不规范格式均拒绝。前后端健康；旧Carrier验证等待Run保留旧版本不强改。证据 `outputs/validation/skill-normalization-20261114/`。本次未改Java业务代码、设备数据或模型私密配置，知识库/embedding缺口及Phase5原UAT保持，未commit/push。
+
+> 2026-11-14 领域 Skill 适配完成：按用户专项授权，将桌面原包的六个独立 Skill 转为产品格式并启用，原有两个包保留，当前注册8包/41篇参考；43份原件SHA256一致。补齐实际属性/信号映射、只读工具与当前Run引用契约，修复AnswerGuard对“充不上电”及登记系词的误判。最终真实PG全量394项（391通过/0失败/0错误/3可选模型项跳过）；真实DeepSeek最终整批4/6，两例模型协议格式失败各一次针对性复验后2/2，最新逐例证据6/6、66/66检查。失败批次保留，不声称单批全通过或模型已稳定无误。当前六个版本及链路见 `docs/domain-skills.md`，证据 `outputs/validation/domain-skills-20261114/`。后端8080/前端5173正常；知识库仍空且缺embedding密钥。本专项不关闭Phase5原UAT，未commit/push。
+
+> 2026-11-14 数据建设：用户授权直接完善数据库，并确认仅设备业务五表各 ≥100 条，运行/授权表按实际行为产生。已从完整工业/EV/公开资料盘点中导入资产166、部件/逻辑节点709、配置1035、维修/工单文档175、模拟观测1063。完整备份已生成；幂等复跑新增0；真实PG/API及离线scripted产品链路30/30通过。没有新增虚构记录、修改Schema或桌面原件，没有外部模型调用；公开工单为文档快照，非实际维修验收。见 `docs/data-enrichment.md` 及 `outputs/validation/domain-enrichment-20261114/`。Phase 5原UAT状态不变，未commit/push。
+
 > 2026-11-14：完成用户授权的工作台 UI 参考图复刻与本地技术验收。真实 Vue / 产品 API / PostgreSQL 在 1440×900 和 1920×1080 完成两轮视觉修正及最终复拍。前端 36/36、生产构建、Maven 359/360（Windows 符号链接用例跳过）、CLI、Chrome 浏览器 A–F 6/6 通过。独立 UI 验收记录见 [05-UI-ACCEPTANCE](phases/05-workbench-quality/05-UI-ACCEPTANCE.md)，原 Phase 5 UAT 决策仍待确认。
 
 > 2026-11-14 最新：**Phase 5 三个计划全部完成并实测，阶段待两项集中人工确认，未关闭**。05-01 复验轮六项审查问题（渐进持久事件/异步 SSE+容量/订阅原子化/空值规则/onerror 转发/无 run 清理）+ 审查方追加六项（恢复保留事件序号、渐进写入租约复核、V16 迁移断言、终态事件同事务、拒绝流不占容量、浏览器永久失败用例）全部落盘；全量 `mvn -o test` **360/0/0/1**、前端 36/36+build、浏览器 A–E 5/5（`sse-browser-808e290f3a99`）、`verify_cli` 通过。05-02 交付工作台（`DiagnosisReport`/`EvidenceComparison`/取消/Skill）+ 延期安全四项 + PDF 明确状态 + 14 例 E2E 矩阵（离线 PASS6/覆盖4/未跑4；在线 DeepSeek+DashScope PASS9/覆盖4/FAIL1=E2E-07 首轮未追问，如实记录）。05-03 交付 Dockerfile/compose/nginx/运维文档，**演练完整 PASS**（`deployment-20261114014426`：启动→产品链路→重启持久→备份恢复 6 表行数一致→迁移失败阻断→forward-fix 恢复）。UAT 待确认：① 多人共享是否排期接真实认证；② E2E-07「首轮必须追问」是否作为硬约束。文档：05-01/02/03-SUMMARY、05-ACCEPTANCE、05-VERIFICATION、05-VALIDATION、05-UAT、ACCEPTANCE-RESULTS。全部改动未提交，留在工作区待审阅。

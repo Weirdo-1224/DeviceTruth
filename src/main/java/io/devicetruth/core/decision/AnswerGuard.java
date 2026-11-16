@@ -52,8 +52,8 @@ public final class AnswerGuard {
     /** 当前设备的指代表述：与确定性结论同时出现时等于在断言眼前设备的故障。 */
     private static final Set<String> DEVICE_REFERENTS = Set.of("该设备", "该车辆", "该车", "此设备", "此车",
             "本设备", "本车", "当前设备", "当前车辆", "这台设备", "这台车", "这辆车", "设备本身", "车辆本身");
-    /** 确定性故障结论：与设备指代同时出现且无缓和词时，当作“已确认的设备故障”拒绝。 */
-    private static final Set<String> DEFINITE_CONCLUSIONS = Set.of("是", "为", "导致", "造成", "损坏", "失效",
+    /** 确定性故障结论：与设备指代同时出现且无缓和词时拒绝；“是/为”也用于登记事实，不能独立充当故障词。 */
+    private static final Set<String> DEFINITE_CONCLUSIONS = Set.of("导致", "造成", "损坏", "失效",
             "故障", "漏电", "击穿", "断裂", "卡死", "粘连", "过热", "开路", "短路");
     /** 缓和词：可能原因与一般知识表述带有这些词时不算确定性断言。 */
     private static final Set<String> TENTATIVE_MARKERS = Set.of("可能", "疑似", "之一", "常见", "通常", "一般",
@@ -173,7 +173,8 @@ public final class AnswerGuard {
             boolean nominalList = sentence.contains("涉及") || sentence.contains("任何")
                     || sentence.contains("包括") || sentence.contains("诸如");
             for (String clause : sentence.split(CLAUSE_DELIMITERS)) {
-                if (!containsAny(clause, CONTROL_ACTIONS)) continue;
+                // “充不上电”描述充电失败，不是“上电”操作；其余真实操作词仍逐子句检查。
+                if (!containsAny(clause.replace("充不上电", "充电失败"), CONTROL_ACTIONS)) continue;
                 if (containsAny(clause, PROHIBITIVE_MARKERS)) continue;
                 if (containsAny(clause, BOUNDARY_LEADS) && containsAny(clause, QUALIFIED_ACTORS)) continue;
                 // 资质边界句里的列举项（“…的操作”“…作业”）是名词性描述，不是执行指令；
