@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(classes = DeviceTruthServerApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"devicetruth.run.output-root=target/test-runs",
-                "devicetruth.core.reasoner=scripted"})
+                "devicetruth.core.reasoner=scripted", "spring.profiles.active=legacy"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class DiagnosisHttpTest {
     @Autowired TestRestTemplate rest;

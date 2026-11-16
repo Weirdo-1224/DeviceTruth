@@ -52,12 +52,12 @@ fat JAR 默认入口是 CLI（`Start-Class=io.devicetruth.app.DeviceTruthApplica
 ```bash
 mvn -q package
 mvn -q dependency:build-classpath '-Dmdep.outputFile=target/server-cp.txt'
-java -cp "target/classes:$(cat target/server-cp.txt)" io.devicetruth.server.DeviceTruthServerApplication
+java -cp "target/classes:$(cat target/server-cp.txt)" io.devicetruth.server.DeviceTruthServerApplication --spring.profiles.active=legacy
 ```
 
-健康检查 `GET /api/health` 返回 `{"status":"UP","dataNature":"SIMULATED"}`；这并不代表数据库或模型可用。旧 sessions/diagnoses 接口无需数据库、继续保留。
+健康检查 `GET /api/health` 返回 `{"status":"UP","dataNature":"SIMULATED"}`；这并不代表数据库或模型可用。旧 sessions/diagnoses 接口（含演示前端 `static/index.html`）由 `legacy` profile 装配，无需数据库；不带任何 profile 时只提供健康探针。
 
-product 模式（PG 持久化会话/知识/资产/Skill 与产品 Agent）加 `--spring.profiles.active=product` 启动。共享部署用 `compose.yaml`（显式 `--profile standalone-db` 才启动数据库，`pull_policy: never`），运维与演练手册见 [docs/operations.md](docs/operations.md)。
+product 模式（PG 持久化会话/知识/资产/Skill 与产品 Agent）加 `--spring.profiles.active=product` 启动；此时 legacy 诊断栈不再装配，两套链路互不影响。共享部署用 `compose.yaml`（显式 `--profile standalone-db` 才启动数据库，`pull_policy: never`），运维与演练手册见 [docs/operations.md](docs/operations.md)。
 
 ## 配置
 

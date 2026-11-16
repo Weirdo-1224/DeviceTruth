@@ -12,7 +12,7 @@ DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI
 - `core/contract/`：`Models` 为 legacy 诊断协议值；`AgentTaskInput`/`AgentResult` 为通用 Agent 的输入与答案（事实/可能性/建议/人工项、引用、风险、dataNature）。
 - `adapter/`：`JsonRepositories` 读取数据，`QwenReasoner`、`OpenAiReasoner`（OpenAI 兼容，可指向 DeepSeek）、`AgentScopeStep` 对接模型，`StructuredAgentReasoner`/`AgentModelConnections` 提供通用 Agent 的单步协议与供应商连接，`RunReportWriter` 保存报告，`persistence/` 读写 PG。
 - `server/`、`api/`、`application/`：HTTP 服务与产品 Agent。
-  - `DeviceTruthServerApplication` 起服务；`ConversationController` 为 legacy 会话/诊断接口。
+  - `DeviceTruthServerApplication` 起服务；`legacy` profile 装配 `LegacyConfiguration`（V0.1/V0.2 场景目录、Router、内存会话、异步诊断）与 `ConversationController`（legacy 会话/诊断接口，`/api/sessions`、`/api/diagnoses`），`product` profile 只装产品链路，两者互斥且都不装时仅剩 `/api/health`；`HealthController` 无条件提供健康探针。
   - `AgentConversationController` 暴露产品会话/run/引用/明细/事件/SSE 流（`GET /api/runs/{id}/events`、`/stream`）与取消。
   - `application/agent/GeneralAgentService`：QUEUED→RUNNING→WAITING_FOR_USER→…→COMPLETED/FAILED/CANCELLED 持久状态机与有界 worker。
   - `RunRecoveryService`：执行租约 + 版本 CAS 的崩溃恢复；`RunEventStreamService`：先历史后订阅再补读的有界事件流；`SafeAgentEventViews`：事件白名单映射。
@@ -44,7 +44,7 @@ DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI
 | `java -jar target/devicetruth-core-0.1.0.jar --scenario=B --reasoner=qwen` | 使用真实 Qwen 运行场景 B |
 | `python scripts/verify_cli.py` | 核验打包后 CLI 的 A–D 场景及报告 |
 | `python scripts/verify_online.py` | 核验真实 Qwen 调用、场景 B 结果和运行轨迹 |
-| `java -cp target/classes;<依赖> io.devicetruth.server.DeviceTruthServerApplication` | 起 HTTP 服务（默认 8080，`-Dserver.port=` 可改端口），浏览器打开 `/index.html` 使用演示前端 |
+| `java -cp target/classes;<依赖> io.devicetruth.server.DeviceTruthServerApplication --spring.profiles.active=legacy` | 起 HTTP 服务（默认 8080，`-Dserver.port=` 可改端口），浏览器打开 `/index.html` 使用演示前端；`product` profile 起产品服务 |
 | `cd frontend && npm ci` | 按 lockfile 安装前端依赖（Node ≥20.19 / npm ≥10） |
 | `cd frontend && npm run test -- --run` | 前端 api 合同单测（Vitest） |
 | `cd frontend && npm run build` | `vue-tsc --noEmit` 类型检查 + Vite 构建到 `dist/`（开发时 `npm run dev` 代理 `/api` 到 8080） |
