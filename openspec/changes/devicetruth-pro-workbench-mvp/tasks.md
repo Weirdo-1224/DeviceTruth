@@ -5,14 +5,14 @@
 ## 1. P0 — 启动基线与并行资料准备（1.1：D1；1.2：D1–D6，4 小时）
 
 - [x] 1.1 D1 确认 API 合同及 JDK21/Maven、product 进程、PG/Flyway 运行环境，读取至少一份系统实际持久化的 Run（含状态和可读结果/引用合同）；复用 README 启动流程、ProductConfiguration 和现有 API，在现有验收记录旁保留本变更 acceptance.md（后续实施时创建）。验收：`mvn -version`、受权会话/Run API 回读及合同核对成功；记明样本模型与数据性质，不要求此时完成双域资料、真模或真实 embedding 验收，健康探针不代替 Run 回读。合同确认后 ViewModel 可立即启动，不等待本项其余核验结束。（2 小时）
-- [ ] 1.2 与前端并行核验真实模型/embedding 配置，并使用现有 `/api/files`/知识及资产导入方式准备工业 SC-0245-B、汽车 CAR-B 的有效真实授权资料，核对 Skill、RAG 命中、引用定位及模拟观测标记；不建设新导入器。验收：D4 前至少一域完成一条真实模型结合真实授权资料的端到端调查，记录 RUN_MODEL、实际工具/Skill 和引用；D6 前双域资料准备就绪并交 7.1 验收。缺真实 embedding 单列未验证，不记录密钥；模拟数据/协议替身不能算真实模型与真实资料验收。（2 小时）
+- [x] 1.2 与前端并行核验真实模型/embedding 配置，并使用现有 `/api/files`/知识及资产导入方式准备工业 SC-0245-B、汽车 CAR-B 的有效真实授权资料，核对 Skill、RAG 命中、引用定位及模拟观测标记；不建设新导入器。验收：D4 前至少一域完成一条真实模型结合真实授权资料的端到端调查，记录 RUN_MODEL、实际工具/Skill 和引用；D6 前双域资料准备就绪并交 7.1 验收。缺真实 embedding 单列未验证，不记录密钥；模拟数据/协议替身不能算真实模型与真实资料验收。（2 小时）
 
 完成条件：D1 只以 API 合同、运行环境及一份可读真实持久 Run 作为启动基线；“真实 Run”指系统实际记录，不自动表示真实模型或真实现场。1.2 不阻塞第 2–6 组开发，分别按 D4 前单域真模/真实资料及 D6 双域里程碑记录。acceptance.md 分列真实 PG、真模、真实资料、embedding、模拟观测与协议替身；缺环境如实记阻塞，不勾选未执行项。复用现有测试，不新建环境探测框架。
 
 ## 2. P0 — 页面骨架与结果投影（仅依赖 1.1 合同/可读样本，不依赖 1.2，D1–D2，6 小时）
 
 - [x] 2.1 在 1.1 合同确认后立即新增 `frontend/src/diagnosisViewModel.ts`，按 design 映射 category/claims/references/风险/本轮建议，修正 `DiagnosisReport.vue` 仅按 certainty 分类的语义；补最小 Vitest 映射回归。验收：覆盖 POSSIBLE_CAUSES+SUPPORTED、KNOWLEDGE+POSSIBLE、空 claims、缺引用及模拟/授权混合，不生成概率、已执行检查或判断级建议关联；`npm run test -- --run` 通过，测试样本不计入真模/真实资料验收。（3 小时）
-- [ ] 2.2 在 App 接入拟新增 `ProfessionalDiagnosisPage.vue`，组合顶部任务、判断/详情、底部协作区，沿用 workbench.css/design.css、UiIcon 和已有会话入口；不增加路由框架或全局 store。验收：用 1.1 的实际 Run 渲染任务/设备/风险/摘要，不等待双域资料；没有候选原因时安全展示实际结果并保留普通文字继续调查入口，不伪造候选；`npm run build` 通过，浏览器专业模式单页可用，无个人模式与关系图假入口。（3 小时）
+- [x] 2.2 在 App 接入拟新增 `ProfessionalDiagnosisPage.vue`，组合顶部任务、判断/详情、底部协作区，沿用 workbench.css/design.css、UiIcon 和已有会话入口；不增加路由框架或全局 store。验收：用 1.1 的实际 Run 渲染任务/设备/风险/摘要，不等待双域资料；没有候选原因时安全展示实际结果并保留普通文字继续调查入口，不伪造候选；`npm run build` 通过，浏览器专业模式单页可用，无个人模式与关系图假入口。（3 小时）
 
 完成条件：真实持久结果驱动页面，允许用已有样本开发并明确数据性质；新组件名称为拟新增，不误记为现有实现。保留已通过人工审核的布局及专业交互式诊断边界，不新增跨 Run 判断实体匹配、自动结论冲突合并、完整动态推理图谱、CanvasComposer、Case 表、Vue Flow 或新 Agent 协议。
 

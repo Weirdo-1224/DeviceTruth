@@ -57,3 +57,49 @@
 - ViewModel 测试样本为手写模拟数据，不计入真模/真实资料验收；映射形状已按 1.1 回读的真实持久 Run（227954ee-…，POSSIBLE_CAUSES/5 claims/9 references/SIMULATED）合同核对。
 - 真实模型端到端、双域真实授权资料、真实 embedding、浏览器实测：均未执行（属 1.2/2.2 及后续批次）。
 - 页面骨架 `ProfessionalDiagnosisPage.vue`（任务 2.2）未开发，按批次范围停止。
+
+## 第 2 批（2026-11-17）：任务 2.2 专业页骨架
+
+### 修改文件
+
+- 新增 `frontend/src/components/ProfessionalDiagnosisPage.vue`：专业诊断工作台单页（无路由框架、无全局 store）。顶部任务区渲染目标消息问题、selectedAssetId（无设备显示“未关联”）、状态、风险、dataNature、领域包 Skill 及版本；判断区按 ViewModel 的 claimsTitle（候选原因/资料断言/服务端核验结论/待人工核验）列出全部判断，含 certainty 标签与真实引用连接，无引用显示“当前无已关联引用/引用暂不可用”；中央详情区渲染本轮摘要、受控安全提示、本轮建议/不确定点/限制（标注“本轮”）与本轮已取回资料清单；底部状态条提示普通文字继续调查沿用 App 输入框。FAILED/CANCELLED 走安全展示分支。无个人模式切换、无关系图入口、无深入调查按钮（属 5.1）。
+- 修改 `frontend/src/App.vue`：报告区由 DiagnosisReport 换成 ProfessionalDiagnosisPage（传入 run/goalMessage/references/skill/failureText，toggle-reference 复用现有依据面板）；会话入口、SSE 时间线、补答、取消、输入框全部沿用，未建第二套请求/订阅控制器。DiagnosisReport.vue 保留在仓库（后续批次可复用摘要/风险显示），当前不再被 App 引用。
+
+### 测试与构建（实际执行）
+
+- `npm run test -- --run`：46/46 通过（无新增失败）。
+- `npm run build`（vue-tsc --noEmit + vite build）：通过。
+- 部署：`docker compose build frontend && docker compose --profile product up -d frontend`，8081 服务新包（index-BpDyvKRL.js）核验一致。
+- 浏览器核验（Playwright + Chrome，脚本 `scripts/verify_pro_page_22.py`，截图存 `outputs/validation/pro-page-2.2*.png`）：
+  - 真实 Run ca1ae174…/227954ee…（COMPLETED/POSSIBLE_CAUSES/5 claims）：顶部任务区、候选原因（5）、本轮摘要、本轮建议/不确定点/限制、设备 chip、状态、已取回资料清单全部渲染；无“个人模式”“关系图”“深入调查”假入口——12/12 断言通过。
+  - 会话 9cc4c503…（最新 Run 为 POSSIBLE_CAUSES/3 claims/0 引用）：无引用判断显示“当前无已关联引用”，普通文字继续调查入口（输入框 placeholder 实际存在）保留。
+- 限制：真实样本中“最新 Run 为 KNOWLEDGE/空 claims”的浏览器场景不存在（KNOWLEDGE 轮 8c8dc6ce… 是会话首轮回，非最新轮），该分支由 ViewModel 单测覆盖（KNOWLEDGE→资料断言、空 claims 不伪造候选），浏览器级证据留待 7.1 双域验收时以新 Run 补拍。
+
+## 第 2 批（2026-11-17）：任务 1.2 双域资料准备
+
+### 资料导入（现有 `/api/files` 通道，未建新导入器）
+
+经 `POST /api/files`（multipart，title/version/dataNature=AUTHORIZED）导入 4 份授权资料并异步解析全部 PARSED：
+
+| 域 | 文件 | 登记标题 | documentId | 切片 |
+|---|---|---|---|---|
+| 汽车 | `skills/automotive-diagnosis/references/charging-troubleshooting.md` | 充电系统故障排查指南（automotive-diagnosis） | 3603a786-…-b3eebad05cc9 | 8 |
+| 汽车 | `datasets/knowledge/charging-system-manual.md` | 充电系统维修手册 | 3b8ec73f-…-8a28f01e9481 | 6 |
+| 工业 | `skills/factory-equipment/references/controller-maintenance.md` | PLC控制器维护手册（factory-equipment） | ea79a213-…-ce16a613364b | 9 |
+| 工业 | `skills/factory-equipment/references/domain-knowledge.md` | 产线控制领域知识（factory-equipment） | cebf52f7-…-09b5c27adfce | 4 |
+
+`GET /api/knowledge/documents/{id}` 回读确认 title/docVersion=1.0/dataNature=AUTHORIZED/切片数，归属 owner=local-owner 范围。
+
+### 端到端调查（真实模型 openai→deepseek-flash，RUN_MODEL=deepseek-flash）
+
+- **汽车 EV-DEMO-004**：会话 c43d3372-…，Run `0de8aaaa-7337-4622-a9e2-a4eee6258f7a` COMPLETED，POSSIBLE_CAUSES/4 claims。Skill=automotive-diagnosis v1.0.0；工具 activate_skill→get_asset→search_knowledge→get_document_excerpt→get_observations，无工具错误。引用 10 条：1 条 KNOWLEDGE_DOCUMENT《充电系统维修手册》AUTHORIZED（章节定位“…/ 2 交流慢充无法启动”）+ 9 条 SIMULATED 模拟观测（明确标示）。
+- **工业 SN-0245**（首次 Run a6200c43-… FAILED，原因码 MODEL_OUTPUT_INVALID_AFTER_RETRY，如实记录）：
+  - 重试 Run `0de22846-7dcb-43fa-b529-fb48f1abd3fd` COMPLETED，HUMAN_REVIEW/5 claims。Skill=factory-equipment v1.0.0；工具 activate_skill→get_asset→get_configuration→get_maintenance_history→search_knowledge→read_skill_reference→get_configuration→get_observations。引用 4 条：含 KNOWLEDGE_DOCUMENT《PLC控制器维护手册（factory-equipment）》AUTHORIZED（章节定位“控制器配置与维护要点（指引资料）”）。
+  - 另一重试 Run 2fd6d931-… COMPLETED，POSSIBLE_CAUSES/4 claims；模型明确报告“多轮检索未命中《控制器维护手册》”，仅引用 SIMULATED 台账/观测，未伪造手册引用。
+
+### 核对结论与未验证项
+
+- Skill 自动选择正确（两域各命中对应领域包）；RAG 命中可登记引用并带章节定位；模拟观测标记保持 SIMULATED，与 AUTHORIZED 资料分列；答案整体 dataNature=SIMULATED 如实保留。
+- **真实 embedding 未验证**：当前为 deterministic 替身，工业域查询出现跨域噪声（充电手册命中工业查询，见 0de22846 引用及 2fd6d931 的未命中报告），相关性与真实向量库效果的差距单列未验证。
+- 命名说明：任务书“SC-0245-B/CAR-B”对应数据集 fixtures 名；实际种子资产 ID 为 SN-0245（工业）与 EV-DEMO-004（汽车），本批按实际资产执行。
+- 未连接真机；ASK_USER 触发与否取决于模型，本批两轮均未触发（不伪造）。

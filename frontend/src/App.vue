@@ -22,7 +22,7 @@ import {
   type SkillSelection
 } from './api'
 import RunTimeline from './components/RunTimeline.vue'
-import DiagnosisReport from './components/DiagnosisReport.vue'
+import ProfessionalDiagnosisPage from './components/ProfessionalDiagnosisPage.vue'
 import EvidenceComparison from './components/EvidenceComparison.vue'
 import UiIcon from './components/UiIcon.vue'
 import { createRunTimelineController } from './timeline'
@@ -515,9 +515,9 @@ onUnmounted(() => {
                     @keydown.enter="submitOnEnter($event, answerQuestion)"></textarea>
           <button class="primary" :disabled="busy || !replyDraft.trim()" @click="answerQuestion">提交补充信息</button>
         </section>
-        <DiagnosisReport v-if="run && isTerminal" :status="run.status" :result="run.result" :run="run"
-                         :failure-code="run.failureCode" :failure-text="failureText"
-                         :references="references" @toggle-reference="showReference" />
+        <ProfessionalDiagnosisPage v-if="run && isTerminal" :run="run" :goal-message="goalMessage"
+                                   :references="references" :skill="selectedSkill" :failure-text="failureText"
+                                   @toggle-reference="showReference" />
       </div>
 
       <form class="composer-wrap" @submit.prevent="submit">
