@@ -1,12 +1,12 @@
 # DeviceTruth — 通用设备检修 Agent
 
-DeviceTruth 是 Java 单 Agent Core：每步读取独立的结构化状态，由 Reasoner 提出一个动作；Gateway 执行至多一个只读能力；Evidence Manager 重建事实并使旧依赖失效；State Manager 提交新版本；Guard 校验结论。模型只能提议动作，不能修改事实、写证据或自行执行工具。CLI 场景使用 `SIMULATED` 资料；产品数据库还包含公开登记和工单文档快照，文档记载与模拟观测均不代表当前现场核实，来源说明见 [数据建设记录](docs/data-enrichment.md)。
+DeviceTruth 是 Java 单 Agent Core：每步读取独立的结构化状态，由 Reasoner 提出一个动作；Gateway 执行至多一个只读能力；Evidence Manager 重建事实并使旧依赖失效；State Manager 提交新版本；Guard 校验结论。模型只能提议动作，不能修改事实、写证据或自行执行工具。CLI 场景使用 `SIMULATED` 资料；产品数据库还包含公开登记和工单文档快照，文档记载与模拟观测均不代表当前现场核实，来源说明见 [数据建设记录](docs/skills/data-enrichment.md)。
 
 **历史状态（2026-11-14）**：Phase 1–4 已完成；Phase 5 的 SSE、工作台及部署演练已实施并实测，仍有两项 UAT 待确认。历史验收与未决事项见 [docs/gsd-archive/.planning/STATE.md](docs/gsd-archive/.planning/STATE.md)。后续变更使用 OpenSpec 管理。
 
 技术版本：Java 21、Maven 3.9+、Spring Boot 3.5.16、AgentScope Java 2.0.4（core + DashScope + OpenAI 扩展，不引入 harness 或另一个编排框架）。API 选型依据见 [API Spike](docs/research/notes/agentscope-spike.md)。新增扩展首次构建需要下载依赖。
 
-桌面原包已适配为六个专项 Skill：充电、维护、供电/电池风险、工业配置、工业控制器故障、Carrier 屋顶机组。连同原有两个包，八包均已按工作手册规范化并升级默认启用版本，具备九键元数据、五类标准参考及只读取证边界。当前版本与来源见 [领域 Skill](docs/domain-skills.md)，格式、自检命令和验收见 [Skill规范化](docs/skill-normalization.md)。当前知识库尚未建设且缺 embedding 密钥，手册检索仍不可用。
+桌面原包已适配为六个专项 Skill：充电、维护、供电/电池风险、工业配置、工业控制器故障、Carrier 屋顶机组。连同原有两个包，八包均已按工作手册规范化并升级默认启用版本，具备九键元数据、五类标准参考及只读取证边界。当前版本与来源见 [领域 Skill](docs/skills/domain-skills.md)，格式、自检命令和验收见 [Skill规范化](docs/skills/skill-normalization.md)。当前知识库尚未建设且缺 embedding 密钥，手册检索仍不可用。
 
 ## 快速开始
 
@@ -59,7 +59,7 @@ java -cp "target/classes:$(cat target/server-cp.txt)" io.devicetruth.server.Devi
 
 健康检查 `GET /api/health` 返回 `{"status":"UP","dataNature":"SIMULATED"}`；这并不代表数据库或模型可用。旧 sessions/diagnoses 接口（含演示前端 `static/index.html`）由 `legacy` profile 装配，无需数据库；不带任何 profile 时只提供健康探针。
 
-product 模式（PG 持久化会话/知识/资产/Skill 与产品 Agent）加 `--spring.profiles.active=product` 启动；此时 legacy 诊断栈不再装配，两套链路互不影响。共享部署用 `compose.yaml`（显式 `--profile standalone-db` 才启动数据库，`pull_policy: never`），运维与演练手册见 [docs/operations.md](docs/operations.md)。
+product 模式（PG 持久化会话/知识/资产/Skill 与产品 Agent）加 `--spring.profiles.active=product` 启动；此时 legacy 诊断栈不再装配，两套链路互不影响。共享部署用 `compose.yaml`（显式 `--profile standalone-db` 才启动数据库，`pull_policy: never`），运维与演练手册见 [docs/operations/operations.md](docs/operations/operations.md)。
 
 ## 配置
 
@@ -74,7 +74,7 @@ DASHSCOPE_API_KEY=          # 使用千问时填
 
 配置优先级：私有文件非空值 → 环境变量。文件按进程工作目录查找，改动后重启即可。密钥不写入源码、日志或报告。`--reasoner=openai` 走 OpenAI 兼容协议（Bearer、非流式、`response_format=json_object`），`--reasoner=qwen` 走 DashScope `qwen-plus`。
 
-**PostgreSQL**：Spring 进程只读 `SPRING_DATASOURCE_URL/USERNAME/PASSWORD` 三个环境变量；凭据不写入模型私有文件。测试用再加 `DEVICETRUTH_TEST_PG_*`（详见 `docs/acceptance-history.md` 的 PG 段落）。本机当前使用 `devicetruth-postgres-1`（PG 16.15 + pgvector 0.8.7，本机端口 54329，`devicetruth` 库）；Flyway `V1`–`V16` 均已成功。历史 `interview-postgres:5432` 是先前验证环境。2026-11-14 已实际补充五张设备业务表：资产 166、部件/逻辑节点 709、配置 1,035、维修/工单文档 175、模拟观测 1,063；来源语义、幂等导入和 30 项实际产品检查见 [数据补充与验收](docs/data-enrichment.md)。
+**PostgreSQL**：Spring 进程只读 `SPRING_DATASOURCE_URL/USERNAME/PASSWORD` 三个环境变量；凭据不写入模型私有文件。测试用再加 `DEVICETRUTH_TEST_PG_*`（详见 `docs/status/acceptance-history.md` 的 PG 段落）。本机当前使用 `devicetruth-postgres-1`（PG 16.15 + pgvector 0.8.7，本机端口 54329，`devicetruth` 库）；Flyway `V1`–`V16` 均已成功。历史 `interview-postgres:5432` 是先前验证环境。2026-11-14 已实际补充五张设备业务表：资产 166、部件/逻辑节点 709、配置 1,035、维修/工单文档 175、模拟观测 1,063；来源语义、幂等导入和 30 项实际产品检查见 [数据补充与验收](docs/skills/data-enrichment.md)。
 
 **其他环境变量**：`DEVICETRUTH_OWNER_ID/PROJECT_ID`（product 身份，默认 `local-owner/local-project`，仅供单用户本地演示，共享部署须接真实认证）；`DEVICETRUTH_SKILLS_ROOT/SKILLS_INSTALLATIONS/SKILLS_ALLOWED_TOOLS`（Skill 目录、默认安装与工具上限）；`DEVICETRUTH_ASSETS_SEED_FIXTURES=true` + `DEVICETRUTH_ASSETS_FIXTURES=SC-0245-B`（工厂演示资产）；embedding 走 `DEVICETRUTH_EMBEDDING_*`（缺省复用 `DASHSCOPE_API_KEY`）。
 
@@ -95,7 +95,7 @@ DASHSCOPE_API_KEY=          # 使用千问时填
 | POST/GET | `/api/knowledge/*` | 文档导入/检索/引用定位；`GET /api/knowledge/tools` 为工具合同 |
 | POST/GET | `/api/files`、`/api/files/{id}[/retry]` | Markdown 上传与导入状态 |
 
-错误体固定 `{code,message,requestId}`，无权与不存在同为 404，不透传 SQL/配置/异常详情。legacy sessions/diagnoses 接口表见 [docs/acceptance-history.md](docs/acceptance-history.md)。
+错误体固定 `{code,message,requestId}`，无权与不存在同为 404，不透传 SQL/配置/异常详情。legacy sessions/diagnoses 接口表见 [docs/status/acceptance-history.md](docs/status/acceptance-history.md)。
 
 ## 验证与排错
 
@@ -113,8 +113,8 @@ python scripts/verify_browser_recovery.py --browser-path 'C:/Program Files/Googl
 ## 文档导航
 
 - 规格与变更：`openspec/`；`docs/gsd-archive/.planning/` 保留历史规划和验收记录。
-- 历史实施与验收记录：[docs/acceptance-history.md](docs/acceptance-history.md)
-- 部署运维：[docs/operations.md](docs/operations.md) · V1.0 产品设计：[docs/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md](docs/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md)
+- 历史实施与验收记录：[docs/status/acceptance-history.md](docs/status/acceptance-history.md)
+- 部署运维：[docs/operations/operations.md](docs/operations/operations.md) · V1.0 产品设计：[docs/design/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md](docs/design/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md)
 - Legacy 规格：docs/DeviceTruth_Core_V0.1_Spec_Pack/ 与 docs/DeviceTruth_V0.2_S0_S1/（仅理解历史与回归，不自动续跑旧任务）
 - 调研留档：[docs/research/](docs/research/)（AgentScope API 选型依据）
 

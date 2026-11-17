@@ -21,7 +21,7 @@
 ## Source of Truth
 
 1. 用户最新指令（2026-11-11）：提交既有Git并执行当前未完成PLAN；实施中将02-03的PDF改为Markdown，完成后要求同步计划与相关文档避免审查歧义。既有02-02已提交08d8ea0；02-03保持未提交、待审查。真实供应商缺环境不得模拟通过，PDF保持NOT_RUN，不改变五阶段/63需求及后续阶段边界。
-2. [V1.0-Draft.1 PostgreSQL 产品设计](../docs/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md)，SHA256 `C80A4C9292787B181DDB2406CAE4746B83F602993B22EAAA8C2C42AF5D698120`。
+2. [V1.0-Draft.1 PostgreSQL 产品设计](../docs/design/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md)，SHA256 `C80A4C9292787B181DDB2406CAE4746B83F602993B22EAAA8C2C42AF5D698120`。
 3. 本规划为从设计与源码推导的**待审开发方案**。实现现状以源码及实际测试为准；规划建议不冒称源码事实。
 4. V0.1、V0.2 spec/task/state、CURRENT_PROJECT_STATUS 仅作历史与 legacy 行为资料。它们的“唯一基线”“先补 Hypothesis”“UI 后置”等旧阶段约束不覆盖新版主路径。
 5. `AGENTS.md` 继续规定编码风格、只读设备边界、测试真实性与中文链路解释。01-01 已冻结配置策略（CONTRACTS §8）：旧模型私有文件兼容保留，新 PG/embedding 仅服务端环境注入；没有读取私密值或修改配置实现。

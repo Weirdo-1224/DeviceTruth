@@ -6,14 +6,14 @@
 
 | 产品包 | 版本 | 处理的问题 |
 |---|---|---|
-| [ev-charging-triage](../skills/ev-charging-triage/SKILL.md) | 0.2.4 | 插枪充不上电、充电中断、灯态、预约、车桩授权 |
-| [ev-maintenance-inspection](../skills/ev-maintenance-inspection/SKILL.md) | 0.2.2 | 胎压、轮胎、制动及耗材维护记录 |
-| [ev-powertrain-safety-investigation](../skills/ev-powertrain-safety-investigation/SKILL.md) | 0.2.3 | 低压供电、ICCU、动力受限、电池风险与召回适用性 |
-| [industrial-configuration-investigation](../skills/industrial-configuration-investigation/SKILL.md) | 0.2.3 | 型号、固件、技改和更换记录，采购前核对 |
-| [industrial-controller-fault-triage](../skills/industrial-controller-fault-triage/SKILL.md) | 0.4.3 | PLC、远程 I/O、更换后的通信和诊断结果 |
-| [carrier-rtu-evidence-triage](../skills/carrier-rtu-evidence-triage/SKILL.md) | 0.1.2 | Carrier 48TF 登记身份、工单、过滤器改造与验收证据 |
-| [automotive-diagnosis](../skills/automotive-diagnosis/SKILL.md) | 1.0.1 | 汽车充电与车载通信交叉线索、故障码的综合调查 |
-| [factory-equipment](../skills/factory-equipment/SKILL.md) | 1.0.1 | 产线停机与节拍异常的跨部件综合调查 |
+| [ev-charging-triage](../../skills/ev-charging-triage/SKILL.md) | 0.2.4 | 插枪充不上电、充电中断、灯态、预约、车桩授权 |
+| [ev-maintenance-inspection](../../skills/ev-maintenance-inspection/SKILL.md) | 0.2.2 | 胎压、轮胎、制动及耗材维护记录 |
+| [ev-powertrain-safety-investigation](../../skills/ev-powertrain-safety-investigation/SKILL.md) | 0.2.3 | 低压供电、ICCU、动力受限、电池风险与召回适用性 |
+| [industrial-configuration-investigation](../../skills/industrial-configuration-investigation/SKILL.md) | 0.2.3 | 型号、固件、技改和更换记录，采购前核对 |
+| [industrial-controller-fault-triage](../../skills/industrial-controller-fault-triage/SKILL.md) | 0.4.3 | PLC、远程 I/O、更换后的通信和诊断结果 |
+| [carrier-rtu-evidence-triage](../../skills/carrier-rtu-evidence-triage/SKILL.md) | 0.1.2 | Carrier 48TF 登记身份、工单、过滤器改造与验收证据 |
+| [automotive-diagnosis](../../skills/automotive-diagnosis/SKILL.md) | 1.0.1 | 汽车充电与车载通信交叉线索、故障码的综合调查 |
+| [factory-equipment](../../skills/factory-equipment/SKILL.md) | 1.0.1 | 产线停机与节拍异常的跨部件综合调查 |
 
 前三包来自 `DeviceTruth_EV_v0.1_领域数据与Skills/02_领域Skills`；工业两包来自 `DeviceTruth_Industrial_v0.6_数据扩充版/02_领域Skills`；Carrier 包来自该工业目录的 `08_真实领域交接_2026-11-14/skill`。文件级出处、原件 SHA256、适配版本与替换/省略项见 [domain-skill-sources.json](domain-skill-sources.json)，共 43 份原始文件。
 

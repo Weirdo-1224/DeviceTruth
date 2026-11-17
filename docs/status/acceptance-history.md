@@ -1,12 +1,12 @@
 # 历史验收记录（留档）
 
-> 本文件保存从 README 迁入的历史实施与验收记录（2026-11-14 整理）。这些段落描述的是**各历史时点的事实**，不再随项目更新；当前状态一律以 [.planning/STATE.md](gsd-archive/.planning/STATE.md) 为准。内容按原 README 原文保留，仅按阶段归类。
+> 本文件保存从 README 迁入的历史实施与验收记录（2026-11-14 整理）。这些段落描述的是**各历史时点的事实**，不再随项目更新；当前状态一律以 [.planning/STATE.md](../gsd-archive/.planning/STATE.md) 为准。内容按原 README 原文保留，仅按阶段归类。
 
 ## V0.1 历史（Core 内核，整体 DONE）
 
 ### 基线与契约（01-01 / 01-02）
 
-- 01-01 的验证、配置策略与局限见 [BASELINE](gsd-archive/.planning/phases/01-baseline-contracts/BASELINE.md)，新输入/追问/引用/风险约定见 [CONTRACTS](gsd-archive/.planning/phases/01-baseline-contracts/CONTRACTS.md)，主循环取舍见 [Runtime ADR](gsd-archive/.planning/phases/01-baseline-contracts/ADR-runtime.md)。测试原型复现命令：`mvn -q '-Dtest=RuntimeComparisonTest' clean test`，不需要密钥或数据库。
+- 01-01 的验证、配置策略与局限见 [BASELINE](../gsd-archive/.planning/phases/01-baseline-contracts/BASELINE.md)，新输入/追问/引用/风险约定见 [CONTRACTS](../gsd-archive/.planning/phases/01-baseline-contracts/CONTRACTS.md)，主循环取舍见 [Runtime ADR](../gsd-archive/.planning/phases/01-baseline-contracts/ADR-runtime.md)。测试原型复现命令：`mvn -q '-Dtest=RuntimeComparisonTest' clean test`，不需要密钥或数据库。
 - 01-01 与 01-02 完成：基线/契约/Runtime 原型，以及使用 interview-postgres 的 PG 会话/消息/QUEUED 切片。
 
 ### V0.1 结论（历史时点）
@@ -106,7 +106,7 @@ embedding 配置可放入私有文件或 `DEVICETRUTH_EMBEDDING_*` 服务端环�
 
 **05-02 工作台与 E2E**：前端新增 `DiagnosisReport`/`EvidenceComparison`/取消/Skill 组件；14 例 E2E 矩阵（`scripts/verify_v1_e2e.py`）——离线 PASS6/覆盖4/未跑4；在线 DeepSeek+DashScope PASS9/覆盖4/FAIL1（E2E-07 模型首轮未追问，如实记录）；PDF 保持明确未实现状态。
 
-**05-03 部署与运维**：交付 `Dockerfile`、`frontend/Dockerfile`+`nginx.conf`、`compose.yaml`（product/standalone-db profile）与 [operations.md](operations.md)。演练 PASS（`scripts/verify_deployment.ps1`，证据 `outputs/validation/deployment-20261114014426/`）：启动→产品链路→重启持久→备份恢复 6 表行数一致→迁移失败阻断→forward-fix 恢复。真实认证未接入，共享部署前必须补。
+**05-03 部署与运维**：交付 `Dockerfile`、`frontend/Dockerfile`+`nginx.conf`、`compose.yaml`（product/standalone-db profile）与 [operations.md](../operations/operations.md)。演练 PASS（`scripts/verify_deployment.ps1`，证据 `outputs/validation/deployment-20261114014426/`）：启动→产品链路→重启持久→备份恢复 6 表行数一致→迁移失败阻断→forward-fix 恢复。真实认证未接入，共享部署前必须补。
 
 ## HTTP Server（V0.2 S1，M1–M3，legacy）
 
@@ -154,4 +154,4 @@ CLI 是默认 fat JAR 主类（`Start-Class=io.devicetruth.app.DeviceTruthApplic
 
 ## 交接说明
 
-下一会话先读 [.planning/STATE.md](gsd-archive/.planning/STATE.md)、[PROJECT.md](gsd-archive/.planning/PROJECT.md) 和 [NEXT_SESSION.md](gsd-archive/.planning/NEXT_SESSION.md)。旧 [spec.md](../docs/DeviceTruth_Core_V0.1_Spec_Pack/spec.md)、task.md、state.md 用于理解 legacy 回归，不自动续跑旧任务。真实模型验收与离线结果分开记录；历史 DeepSeek 成功不代表新产品全链路通过。
+下一会话先读 [.planning/STATE.md](../gsd-archive/.planning/STATE.md)、[PROJECT.md](../gsd-archive/.planning/PROJECT.md) 和 [NEXT_SESSION.md](../gsd-archive/.planning/NEXT_SESSION.md)。旧 [spec.md](../DeviceTruth_Core_V0.1_Spec_Pack/spec.md)、task.md、state.md 用于理解 legacy 回归，不自动续跑旧任务。真实模型验收与离线结果分开记录；历史 DeepSeek 成功不代表新产品全链路通过。

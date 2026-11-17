@@ -74,7 +74,7 @@ DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI
 ## V1.0 规划与跨会话入口
 
 后续开发采用 OpenSpec，使用 `openspec/` 管理规格和变更；通过 `$openspec-propose` 开始新变更。`docs/gsd-archive/.planning/` 是历史记录，仅在需要追溯既有决策和验收时查阅。
-当前产品需求基准为 `docs/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md`；V0.1/V0.2 的 spec/task/state 用于理解历史与 legacy 回归，不自动覆盖新版决策，也不自动续跑旧 S2 队列。
+当前产品需求基准为 `docs/design/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md`；V0.1/V0.2 的 spec/task/state 用于理解历史与 legacy 回归，不自动覆盖新版决策，也不自动续跑旧 S2 队列。
 按实际验证维护 OpenSpec 任务和规格；没有执行的任务不得标记完成。其余仓库编码、安全、测试与通俗中文解释要求继续适用。
 
 ## 项目验收策略（2026-11-10 起）

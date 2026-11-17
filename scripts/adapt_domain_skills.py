@@ -201,7 +201,7 @@ def main():
             if name in {'evidence-semantics.md', 'synthetic-dataset-usage.md'}:
                 content = EVIDENCE
             if name == 'source-notes.md':
-                content = '# 原包来源编号\n\n原包 K/KS 编号是开发来源线索，尚非已入库文档或当前 Run 引用。厂商目录、配置控制、模块信息的适用性需由实际成功检索核对；社区经验仅作候选方向。完整文件出处与 SHA256 见 docs/domain-skill-sources.json。\n'
+                content = '# 原包来源编号\n\n原包 K/KS 编号是开发来源线索，尚非已入库文档或当前 Run 引用。厂商目录、配置控制、模块信息的适用性需由实际成功检索核对；社区经验仅作候选方向。完整文件出处与 SHA256 见 docs/skills/domain-skill-sources.json。\n'
             (refs / name).write_text(content, encoding='utf-8')
         contract = CONTRACT
         if spec['id'] == 'carrier-rtu-evidence-triage':
@@ -234,8 +234,8 @@ def main():
                                    copied_matrices=[n for n in spec['refs'] if n not in STANDARD_REFERENCES],
                                    replaced=['frontmatter', 'runtime contract', 'data mapping', 'evidence semantics', 'five handbook reference categories'],
                                    omitted=['original output JSON schemas/templates (not supported by product runtime)']))
-    (ROOT / 'docs/domain-skill-sources.json').write_text(json.dumps(provenance, ensure_ascii=False, indent=2) + '\n')
-    with (ROOT / 'docs/skill-rule-sources.csv').open('w', encoding='utf-8', newline='') as file:
+    (ROOT / 'docs/skills/domain-skill-sources.json').write_text(json.dumps(provenance, ensure_ascii=False, indent=2) + '\n')
+    with (ROOT / 'docs/skills/skill-rule-sources.csv').open('w', encoding='utf-8', newline='') as file:
         writer = csv.DictWriter(file, fieldnames=list(ledger[0])); writer.writeheader(); writer.writerows(ledger)
     print('Normalized', len(SPECS) + len(LEGACY_SPECS), 'product Skills; desktop originals unchanged')
 

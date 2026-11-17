@@ -159,7 +159,7 @@ def render_standard_skill(target: Path, spec: dict) -> list[dict]:
         '| 规则ID | 类型 | 来源与章节 | 适用范围 | 规则内容 | 例外条件 | 复核人 |\n|---|---|---|---|---|---|---|\n'
         + rule_table + '\n\n'
         'HANDBOOK为项目工作手册；D类来源文件指原包中的同名参考文件，文件摘要与原始路径登记在开发台账'
-        'docs/skill-rule-sources.csv。此表只记录调查方法，不声称已完成厂商原文或专业人员复核。'
+        'docs/skills/skill-rule-sources.csv。此表只记录调查方法，不声称已完成厂商原文或专业人员复核。'
         '适用性和数值条件仍需成功检索取得的原文；文件名、规则ID和原包sourceId都不是answer referenceId。\n', encoding='utf-8')
 
     (refs / 'safety-guidelines.md').write_text(

@@ -4,7 +4,7 @@
   "timezone": "Asia/Shanghai",
   "head": "b7befa08f702675d05dcc9560cf7eb87e4b778c2",
   "design": {
-    "path": "docs/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md",
+    "path": "docs/design/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md",
     "sha256": "c80a4c9292787b181ddb2406cae4746b83f602993b22eaaa8c2c42af5d698120"
   },
   "source_counts": {

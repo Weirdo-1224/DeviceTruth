@@ -2,7 +2,7 @@
 
 > 2026-11-10本轮验收补记：独立Review初审发现HTTP JSON宽松转换，复用严格mapper修复后独立复审clean；当前clean test/package均154/0/0/0（PG8、旧HTTP16），打包CLI与真实PG跨Java进程读回通过，见[01-VALIDATION](01-VALIDATION.md)。新增原始JSON回归方法为`PersistentConversationTest.malformedJsonIsRejectedWithoutPersistingCoercedOrAmbiguousInput`；另补GET消息成功及contextRefs拒绝的断言。逐项用户验收见[01-UAT](01-UAT.md)，尚待确认；出口后提交Git并仅执行02-01已获授权，02-02/02-03不执行。下方51项/PG7项等为先前覆盖文档核验的历史记录，不冒充本轮结果。
 
-核对日期：2026-11-10（Asia/Shanghai）。范围：M0 的 [01-01](01-01-PLAN.md)／[01-02](01-02-PLAN.md)，以及它们继承的 CLI、HTTP 和模型连接；以当前工作树为准。需求依据为 [V1.0 产品设计](../../../docs/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md) §7.3／§8、[ROADMAP](../../ROADMAP.md) Phase 1、[CONTRACTS](CONTRACTS.md) 和 [ADR-runtime](ADR-runtime.md)。API 路径按实际 Controller 核对，不把设计建议当成已发布接口。
+核对日期：2026-11-10（Asia/Shanghai）。范围：M0 的 [01-01](01-01-PLAN.md)／[01-02](01-02-PLAN.md)，以及它们继承的 CLI、HTTP 和模型连接；以当前工作树为准。需求依据为 [V1.0 产品设计](../../../docs/design/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md) §7.3／§8、[ROADMAP](../../ROADMAP.md) Phase 1、[CONTRACTS](CONTRACTS.md) 和 [ADR-runtime](ADR-runtime.md)。API 路径按实际 Controller 核对，不把设计建议当成已发布接口。
 
 **结论：本阶段已接入持久会话、原始消息、QUEUED run、事务与归属约束；继承 AgentScope 单步 Model API 和旧诊断链。通用 Agent 执行、RAG、生产追问恢复和 SSE 尚未接入。** 文档自定义覆盖检查与 GSD `verify:pre` 门禁分别记录；两者通过也不等于 M0 独立 Review、阶段关闭或用户逐项验收通过，不授权执行 02-01。
 

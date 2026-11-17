@@ -61,7 +61,7 @@ def run_case(case):
     used = {r['referenceId'] for r in answer.get('references', [])}
     checks = dict(correct_skill=active.get('skillId') == skill,
                   current_version=active.get('version') == next(
-                      s['adapted_version'] for s in json.loads((ROOT / 'docs/domain-skill-sources.json').read_text())
+                      s['adapted_version'] for s in json.loads((ROOT / 'docs/skills/domain-skill-sources.json').read_text())
                       if s['skill_id'] == skill),
                   usable_state=run['status'] in {'COMPLETED', 'WAITING_FOR_USER'},
                   activation_succeeded='activate_skill' in success_tools,

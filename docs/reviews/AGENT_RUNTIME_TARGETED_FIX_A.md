@@ -44,4 +44,4 @@
 | Runtime、协议 | `TaskOrchestrator.java`、`ActionProposal.java`、`GeneralReasoner.java`、`ScriptedAgentReasoner.java`、`StructuredAgentReasoner.java` |
 | 资产 | `AssetTools.java`、`AgentRunRepository.java` |
 | 测试 | `AgentToolFeedbackTest.java`、`RunRecoveryTest.java`、`AgentStreamTest.java` |
-| 文档 | 本报告、`docs/CURRENT_PROJECT_STATUS.md` |
+| 文档 | 本报告、`docs/status/CURRENT_PROJECT_STATUS.md` |

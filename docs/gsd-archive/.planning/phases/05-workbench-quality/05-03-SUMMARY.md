@@ -46,7 +46,7 @@ coverage:
 - `Dockerfile`：只复制 fat JAR + `skills/` + `datasets/`（SkillRuntime 与资产夹具按工作目录相对路径读取，缺一会启动失败——演练第一轮即暴露并修复），product profile + 8080，healthcheck 打 `/api/health`。
 - `frontend/Dockerfile` + `frontend/nginx.conf`：静态托管 + `/api` 反代后端；**SSE 关闭缓冲/压缩、长读超时**，保证事件流逐帧刷新与 `Last-Event-ID` 续传。
 - `compose.yaml`：`product` profile 起 postgres(pgvector:pg16，健康检查) + backend + frontend；数据库卷 `postgres-data`、文件卷 `devicetruth-files`；密钥只来自 shell/.env（不写镜像）；数据源 URL 可被 `DEVICETRUTH_SPRING_DATASOURCE_URL` 覆盖（恢复演练用）。
-- `docs/operations.md`：入口（CLI/产品 HTTP/本地开发）、首次部署、备份恢复命令、迁移失败处理（只前进、forward-fix）、权限边界（固定本地身份，多人 NOT_RUN）、已知限制（PDF 明确状态、心跳断线感知、恢复范围）。
+- `docs/operations/operations.md`：入口（CLI/产品 HTTP/本地开发）、首次部署、备份恢复命令、迁移失败处理（只前进、forward-fix）、权限边界（固定本地身份，多人 NOT_RUN）、已知限制（PDF 明确状态、心跳断线感知、恢复范围）。
 - `scripts/verify_deployment.ps1`：自包含演练脚本（构建→启动→健康→产品链路→重启持久→备份恢复行数对照→迁移失败→正向修复→清理）。
 
 ## 实测（2026-11-14 演练批次 deployment-20261114014426，脚本退出后 result.json status=PASS）
@@ -68,7 +68,7 @@ coverage:
 
 ## 偏差与限制
 
-- 计划示例路径为 `compose.yaml/Dockerfile/frontend/Dockerfile/docs/operations.md/scripts/verify_deployment.ps1`，均已交付；镜像基础层使用本机已拉取的 `eclipse-temurin:21-jre` 与 `nginx:1.27-alpine`（只联网拉取这两个基础镜像，未推送任何私有内容）。
+- 计划示例路径为 `compose.yaml/Dockerfile/frontend/Dockerfile/docs/operations/operations.md/scripts/verify_deployment.ps1`，均已交付；镜像基础层使用本机已拉取的 `eclipse-temurin:21-jre` 与 `nginx:1.27-alpine`（只联网拉取这两个基础镜像，未推送任何私有内容）。
 - **多人共享部署 NOT_RUN**：固定本地身份，没有真实认证与跨身份 HTTP 负例；不把 loopback 演示当多人权限。
 - 未验证：**文件卷恢复到第二套实例**的完整演练（本批次只做命名卷打包命令与文档，挂载恢复未演）、跨主机/对象存储备份、迁移失败后的自动回滚（Flyway 只前进，采用恢复库 forward-fix）。
 - 演练只覆盖单实例 compose；多副本/负载均衡下的 SSE 与租约语义未演练。
