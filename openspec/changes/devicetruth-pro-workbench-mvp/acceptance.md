@@ -129,3 +129,28 @@
 
 - 用户自述（MessageView.content）不出现在引用与抽屉中（结构性保证：抽屉只渲染服务端引用），未单独造浏览器用例；留给 5.2/7.1 与补答流一并覆盖。
 - 运行中/排队轮抽屉复用路径未在浏览器实测（当前页面仅终态渲染），失败轮已实测，覆盖 3.2 验收要点。
+
+## 第 4 批（2026-11-17）：任务 4.1 状态同步 + 4.2 历史恢复
+
+### 修改文件
+
+- `frontend/src/components/ProfessionalDiagnosisPage.vue`：新增 QUEUED/RUNNING/WAITING_FOR_USER 的“调查进行中”状态卡（状态/数据性质/领域包 chips 与分流提示，区别于终态报告）；**修复第 3 批重写时丢失的“本轮摘要”结论块**（恢复 `.conclusion/.summary`，verify_pro_page_22.py 的既有断言重新成为守卫）。
+- `frontend/src/App.vue`：
+  - 4.2 轮次表：`runs[]` 保留 readConversation 全部 runs；`run` 改为计算值（`pinnedRunId` 固定查看轮 ?? 最新轮）；`upsertRun` 按 runId 覆盖/追加；刷新只在未固定或固定轮次失效时跟随最新，**刷新不强制覆盖主动选择**；新提交/补答清除固定并切到新轮；打开会话/新调查重置固定。
+  - 活动轮与查看轮分离：取消按钮、`pendingQuestion`、补答三元组一律指向最新轮（`latestRun`）；查看历史旧轮不解除等待态约束、不误指向旧轮补答；历史轮只读。
+  - 4.1 流收尾回读：`timeline.terminalStatus` 变化即 `refresh()`，SSE 只作通知，Run/消息/引用以 PG 回读为准。
+  - 新增 `.run-picker` 轮次选择 chips（≥2 轮显示）。
+- `scripts/verify_browser_recovery.py`：选择器适配专业页（`.pro-page .summary`、`.claim-detail .citation-ref`、`.evidence-drawer .drawer-excerpt`、`.conversation-link`、“新调查”）；修正消息折叠（补答进“查看前序对话”，改附着断言）、抽屉遮挡（先关闭再点新调查）、历史条目动态后缀（按标题文本过滤）。
+- `frontend/src/api.test.ts`：新增 2 条——轮询在 CANCELLED 停止（取消是终态）；`readReferences` 失败/取消轮证据回读合同（URL 与字段原样）。
+
+### 测试与构建（实际执行）
+
+- `npm run test -- --run`：3 文件 **53/53**；`npm run build` 通过；frontend 镜像重建部署。
+- Java 复用测试（临时隔离 PG `dt-test-pg:54331`，独立 schema 重建 Flyway V1–V17）：`mvn -q '-Dtest=AgentLifecycleTest,AgentStreamTest' test` → **17/17 + 12/12，失败 0 错误 0**。
+- `scripts/verify_browser_recovery.py` 适配后实跑：**PASS**（`outputs/validation/browser-recovery-7968463c…/result.json`）——同 Run 补答、WAITING 跨刷新与跨浏览器+服务器重启存活、答案与引用刷新后存活、会话切换后历史恢复。限制：脚本自带独立 product 服务（scripted reasoner + deterministic embedding，协议替身路径），非真模。
+- 4.1/4.2 浏览器核验（`scripts/verify_pro_page_41_42.py`，真模 deepseek-flash）：**11/11 断言通过**（`outputs/validation/pro-41-42-final3.log`、截图 `pro-page-4.1-4.2.png`）——轮次选择器多轮渲染且默认 active 最新轮；切第 1 轮显示 KNOWLEDGE 结果、选中态跟随；**刷新按钮不强制覆盖主动选择**；提交后“调查进行中”状态卡与终态报告区别明确；**执行中刷新恢复跟踪**；本轮 Run 真模进入 WAITING 追问时用既有补答路径沿同一 Run 恢复（轮次数不增加），流收尾后经服务器回读显示本轮摘要，新结果无旧轮内容残留。
+
+### 未验证项
+
+- 断流/重复 seq/旧事件隔离由 api.test.ts 与 timeline 现有 36+2 条回归覆盖，浏览器层未做断流注入（记录为单测覆盖）。
+- 本地会话定位失效重选路径沿用 2.2 既有实现，本批未重复实测。

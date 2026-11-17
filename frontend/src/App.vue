@@ -36,7 +36,23 @@ const conversations = ref<ConversationView[]>([])
 const assets = ref<string[]>([])
 const selectedAssetId = ref<string>('')
 const messages = ref<MessageView[]>([])
-const run = ref<RunView | null>(null)
+// 4.2：保留 readConversation 返回的全部 runs；run 为当前查看轮（用户固定或跟随最新轮）。
+const runs = ref<RunView[]>([])
+/** 用户主动查看的历史轮次；null 表示跟随最新轮。新提交会清除固定并切到新轮，刷新不强制覆盖主动选择。 */
+const pinnedRunId = ref<string | null>(null)
+const latestRun = computed(() => runs.value.at(-1) ?? null)
+const run = computed<RunView | null>(() =>
+  runs.value.find((item) => item.runId === pinnedRunId.value) ?? latestRun.value)
+/** 活动轮（最新轮）是否已到业务终态；取消/补答等操作始终指向活动轮，历史轮只读。 */
+const activityTerminal = computed(() =>
+  ['WAITING_FOR_USER', 'COMPLETED', 'FAILED', 'CANCELLED'].includes(latestRun.value?.status ?? ''))
+
+/** 用服务器返回的 RunView 更新本地轮次表（按 runId 覆盖或追加），迟到响应由调用方按会话/runId 把关。 */
+function upsertRun(view: RunView): void {
+  const index = runs.value.findIndex((item) => item.runId === view.runId)
+  if (index >= 0) runs.value[index] = view
+  else runs.value.push(view)
+}
 const draft = ref('')
 const replyDraft = ref('')
 const busy = ref(false)
@@ -173,6 +189,14 @@ watch(
   }
 )
 
+// 4.1：SSE 只是通知；RUN_TERMINAL 流收尾后回读权威状态（Run/消息/引用由 PG 校准），断流不当作失败。
+watch(
+  () => timeline.snapshot().terminalStatus,
+  (terminal, previous) => {
+    if (terminal && terminal !== previous && conversation.value) void refresh()
+  }
+)
+
 /** 当前 run 选中的领域 Skill（无选择时为空）；随 run 切换重新读取，失败不影响主流程。 */
 watch(
   () => run.value?.runId ?? '',
@@ -191,15 +215,15 @@ watch(
   { immediate: true }
 )
 
-/** 取消运行：QUEUED/WAITING 立即生效，RUNNING 协作式收尾；终态再取消会得到 409。 */
+/** 取消运行：QUEUED/WAITING 立即生效，RUNNING 协作式收尾；终态再取消会得到 409。始终指向活动轮（最新轮）。 */
 async function cancelCurrentRun(): Promise<void> {
-  const current = run.value
+  const current = latestRun.value
   if (!current || cancelling.value) return
   cancelling.value = true
   errorText.value = ''
   try {
     const updated = await cancelRunRequest(current.runId)
-    if (run.value?.runId === current.runId) run.value = updated
+    if (latestRun.value?.runId === current.runId) upsertRun(updated)
     await refresh()
   } catch (error) {
     errorText.value = describeError(error)
@@ -218,7 +242,8 @@ const statusLabels: Record<string, string> = {
 }
 
 const statusLabel = computed(() => (run.value ? statusLabels[run.value.status] ?? run.value.status : '未开始'))
-const pendingQuestion = computed(() => run.value?.pendingQuestion ?? null)
+// 补答/输入禁用永远看活动轮（最新轮）：查看历史旧轮不解除等待态约束，也不把旧轮当作可补答对象。
+const pendingQuestion = computed(() => latestRun.value?.pendingQuestion ?? null)
 const failureText = computed(() =>
   run.value && run.value.status === 'FAILED' ? describeFailure(run.value.failureCode) : ''
 )
@@ -236,8 +261,12 @@ async function refresh(): Promise<void> {
   if (conversation.value?.conversationId !== conversationId) return
   conversation.value = detail.conversation
   messages.value = detail.messages
+  runs.value = detail.runs
+  // 4.2：用户固定查看某历史轮时，刷新不强制跳回最新；未固定或固定的轮次已不在列表时跟随最新轮。
+  if (!pinnedRunId.value || !detail.runs.some((item) => item.runId === pinnedRunId.value)) {
+    pinnedRunId.value = null
+  }
   const latest = detail.runs.length > 0 ? detail.runs[detail.runs.length - 1] : null
-  run.value = latest
   // 刷新/重开时如果最新 run 还在排队或执行，继续安全轮询；PG 是唯一权威，等待态也会随轮询恢复
   if (latest && (latest.status === 'QUEUED' || latest.status === 'RUNNING')
       && !busy.value && resumingRunId.value !== latest.runId) {
@@ -261,7 +290,8 @@ async function openConversation(conversationId: string): Promise<void> {
     const detail = await readConversation(conversationId)
     conversation.value = detail.conversation
     messages.value = detail.messages
-    run.value = detail.runs.length ? detail.runs[detail.runs.length - 1] : null
+    runs.value = detail.runs
+    pinnedRunId.value = null
     rememberConversation(detail.conversation.conversationId)
     busy.value = false
     await refresh()
@@ -280,7 +310,8 @@ async function startNewConversation(): Promise<void> {
     conversation.value = created
     rememberConversation(created.conversationId)
     messages.value = []
-    run.value = null
+    runs.value = []
+    pinnedRunId.value = null
     await refreshHistory()
   } catch (error) {
     errorText.value = describeError(error)
@@ -304,14 +335,15 @@ async function refreshHistory(): Promise<void> {
 /** 轮询直到 WAITING_FOR_USER/COMPLETED/FAILED；运行结束后再从持久层刷新消息。 */
 async function track(runId: string): Promise<void> {
   const conversationId = conversation.value?.conversationId
-  const isCurrent = () => conversation.value?.conversationId === conversationId && run.value?.runId === runId
+  // 会话切换即作废；查看轮可固定到历史轮，进度更新始终写入轮次表而不强制切视图。
+  const isCurrent = () => conversation.value?.conversationId === conversationId
   const finished = await waitForRun(runId, {
     onUpdate: (view) => {
-      if (isCurrent()) run.value = view
+      if (isCurrent()) upsertRun(view)
     }
   })
   if (!isCurrent()) return
-  run.value = finished
+  upsertRun(finished)
   await refresh()
 }
 
@@ -355,7 +387,8 @@ async function submit(): Promise<void> {
       selectedAssetId.value || null
     )
     draft.value = ''
-    run.value = accepted
+    upsertRun(accepted)
+    pinnedRunId.value = null
     await refresh()
     await track(accepted.runId)
   } catch (error) {
@@ -365,24 +398,26 @@ async function submit(): Promise<void> {
   }
 }
 
-/** 补答：用当前 run 的 pendingQuestionId/questionVersion 关联，沿同一个 run 继续。 */
+/** 补答：用活动轮（最新轮）的 pendingQuestionId/questionVersion 关联，沿同一个 run 继续。 */
 async function answerQuestion(): Promise<void> {
   const question = pendingQuestion.value
-  if (busy.value || !conversation.value || !question || !run.value || replyDraft.value.trim().length === 0) return
+  const target = latestRun.value
+  if (busy.value || !conversation.value || !question || !target || replyDraft.value.trim().length === 0) return
   busy.value = true
   errorText.value = ''
   try {
     const accepted = await replyToQuestion(
       conversation.value.conversationId,
       {
-        runId: run.value.runId,
+        runId: target.runId,
         pendingQuestionId: question.pendingQuestionId,
         questionVersion: question.questionVersion
       },
       replyDraft.value
     )
     replyDraft.value = ''
-    run.value = accepted
+    upsertRun(accepted)
+    pinnedRunId.value = null
     await refresh()
     await track(accepted.runId)
   } catch (error) {
@@ -487,7 +522,7 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="top-actions">
-        <button v-if="run && !isTerminal" class="secondary" :disabled="cancelling" @click="cancelCurrentRun">
+        <button v-if="latestRun && !activityTerminal" class="secondary" :disabled="cancelling" @click="cancelCurrentRun">
           {{ cancelling ? '正在取消…' : '取消调查' }}
         </button>
         <button v-if="!busy && conversation" class="secondary" aria-label="刷新" title="刷新" @click="refresh">
@@ -546,7 +581,15 @@ onUnmounted(() => {
                     @keydown.enter="submitOnEnter($event, answerQuestion)"></textarea>
           <button class="primary" :disabled="busy || !replyDraft.trim()" @click="answerQuestion">提交补充信息</button>
         </section>
-        <ProfessionalDiagnosisPage v-if="run && isTerminal" :run="run" :goal-message="goalMessage"
+        <nav v-if="runs.length > 1" class="run-picker" aria-label="调查轮次">
+          <button v-for="(item, index) in runs" :key="item.runId" type="button" class="run-chip"
+                  :class="{ active: item.runId === run?.runId }"
+                  :aria-pressed="item.runId === run?.runId"
+                  @click="pinnedRunId = item.runId">
+            第 {{ index + 1 }} 轮 · {{ statusLabels[item.status] ?? item.status }}
+          </button>
+        </nav>
+        <ProfessionalDiagnosisPage v-if="run" :run="run" :goal-message="goalMessage"
                                    :references="references" :skill="selectedSkill" :failure-text="failureText" />
       </div>
 
@@ -646,3 +689,11 @@ onUnmounted(() => {
 </template>
 
 <style scoped src="./workbench.css"></style>
+
+<style scoped>
+/* 4.2 轻量轮次选择：默认跟随最新轮；固定历史轮后刷新不强制跳回。 */
+.run-picker { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.run-chip { cursor: pointer; border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; background: #fff; font-size: 12px; color: var(--muted); }
+.run-chip:hover { border-color: var(--primary); }
+.run-chip.active { border-color: var(--primary); background: #eae9ff; color: var(--accent); font-weight: 650; }
+</style>

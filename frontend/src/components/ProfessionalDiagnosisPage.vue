@@ -93,6 +93,20 @@ const runRoundFields = computed(() => [
     <p class="hint">取消前的消息、追问与时间线仍保存在服务器，可在下方输入框重新发起调查。</p>
   </section>
 
+  <section v-else-if="run.status === 'QUEUED' || run.status === 'RUNNING' || run.status === 'WAITING_FOR_USER'" class="card pro-page">
+    <h2><UiIcon name="activity" /> 调查进行中</h2>
+    <div class="pro-meta">
+      <span class="chip">状态 {{ statusLabel }}</span>
+      <span class="chip">{{ model.dataNature ?? run.dataNature }}</span>
+      <span v-if="skill" class="chip">领域包 {{ skill.skillId }} v{{ skill.version }}</span>
+    </div>
+    <p class="hint">
+      {{ run.status === 'WAITING_FOR_USER'
+        ? '等待你补充信息：请使用下方“需要补充信息”问题区补答，补答沿同一 Run 继续，不会新增轮次。'
+        : '正在排队或取证，过程事件见上方时间线；连接中断会回读服务器状态，不会把断流当作失败。' }}
+    </p>
+  </section>
+
   <section v-else-if="!model.summary" class="card pro-page">
     <h2><UiIcon name="file" /> 专业诊断工作台</h2>
     <p class="hint">本轮还没有结构化结果。</p>
@@ -121,6 +135,13 @@ const runRoundFields = computed(() => [
                  :selected-index="selection.selectedIndex.value" @select="selection.select" />
 
       <div class="pro-detail">
+        <div class="conclusion">
+          <UiIcon name="target" />
+          <div>
+            <h3>本轮摘要</h3>
+            <p class="summary">{{ model.summary }}</p>
+          </div>
+        </div>
         <ClaimDetail :claim="selectedClaim" @toggle-reference="toggleReference" />
         <div v-for="field in runRoundFields" :key="field.title" class="round-field">
           <h4><UiIcon :name="field.icon" /> {{ field.title }}（本轮）</h4>
@@ -162,6 +183,10 @@ const runRoundFields = computed(() => [
 .pro-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 12px; }
 @media (max-width: 860px) { .pro-grid { grid-template-columns: minmax(0, 1fr); } }
 .pro-detail h4 { font-size: 13px; margin: 0 0 6px; display: flex; align-items: center; gap: 4px; color: var(--accent); }
+.conclusion { display: flex; align-items: flex-start; gap: 10px; background: #eeedfc; border-radius: 8px; padding: 9px 12px; }
+.conclusion > svg { color: var(--primary); font-size: 20px; margin-top: 2px; }
+.conclusion h3 { color: var(--accent); font-size: 13px; margin: 0 0 3px; }
+.summary { font-size: 15px; font-weight: 700; margin: 0; line-height: 1.48; }
 .round-field { border-top: 1px solid var(--line); padding: 8px 2px 0; margin-top: 8px; }
 .round-field ul { margin: 0; padding-left: 18px; line-height: 1.5; font-size: 13px; }
 .pro-footer { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }

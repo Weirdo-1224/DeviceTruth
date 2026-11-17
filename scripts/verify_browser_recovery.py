@@ -97,7 +97,7 @@ def verify(browser_path, output):
                 assert question["pendingQuestionId"]
                 page.reload()
                 expect_page(page.get_by_role("heading", name="需要补充信息")).to_be_visible(timeout=30_000)
-                expect_page(page.get_by_text(original, exact=True)).to_be_visible()
+                expect_page(page.locator(".bubble", has_text=original).first).to_be_visible()
 
             product.close()
             product = start_product()
@@ -110,27 +110,31 @@ def verify(browser_path, output):
                 expect_page(page.get_by_role("heading", name="需要补充信息")).to_be_visible(timeout=30_000)
                 page.locator(".question textarea").fill(reply)
                 page.get_by_role("button", name="提交补充信息").click()
-                expect_page(page.locator(".answer .summary")).to_be_visible(timeout=30_000)
-                expect_page(page.locator(".answer .citation").first).to_be_visible()
+                # 4.1/4.2 专业页选择器：补答沿同一 Run 恢复，终态后页面渲染本轮摘要与判断引用
+                expect_page(page.locator(".pro-page .summary")).to_be_visible(timeout=30_000)
+                expect_page(page.locator(".claim-detail .citation-ref").first).to_be_visible()
                 page.reload()
-                expect_page(page.locator(".answer .summary")).to_be_visible(timeout=30_000)
-                expect_page(page.get_by_text(reply, exact=True)).to_be_visible()
-                page.locator(".answer .citation").first.click()
-                expect_page(page.locator(".answer .excerpt")).to_be_visible()
+                expect_page(page.locator(".pro-page .summary")).to_be_visible(timeout=30_000)
+                # 补答消息被折叠进“查看前序对话”（报告存在时只展开首条与末条），用附着断言替代可见断言
+                expect_page(page.get_by_text(reply, exact=True)).to_have_count(1)
+                # 证据抽屉：引用可打开真实摘录（3.2 组件）
+                page.locator(".claim-detail .citation-ref").first.click()
+                expect_page(page.locator(".evidence-drawer .drawer-excerpt")).to_be_visible()
+                page.locator(".evidence-drawer button[aria-label='关闭证据抽屉']").click()
                 completed = expect(product.request("GET", f"/api/conversations/{conversation}"), 200)
                 assert len(completed["runs"]) == 1
                 assert completed["runs"][0]["runId"] == run_id
                 assert completed["runs"][0]["status"] == "COMPLETED"
-                previous = page.locator(".history li button").first
-                expect_page(previous).to_be_visible()
-                previous_label = previous.inner_text()
-                page.get_by_role("button", name="新会话", exact=True).click()
-                expect_page(page.locator(".history li button")).to_have_count(2)
-                expect_page(page.locator(".answer")).to_have_count(0)
-                expect_page(page.get_by_text(original, exact=True)).to_have_count(0)
-                page.locator(".history").get_by_role("button", name=previous_label, exact=True).last.click()
-                expect_page(page.locator(".answer .summary")).to_be_visible()
-                expect_page(page.get_by_text(reply, exact=True)).to_be_visible()
+                # 4.2 轮次与会话历史：新调查后回到旧会话，结果仍可回看
+                # 侧边栏条目标题=会话首条用户消息；状态后缀只对当前会话渲染，故按标题文本过滤而非完整 accessible name
+                expect_page(page.locator(".history-list .conversation-link").first).to_be_visible()
+                page.get_by_role("button", name="新调查", exact=True).click()
+                expect_page(page.locator(".conversation-link")).to_have_count(2)
+                expect_page(page.locator(".pro-page")).to_have_count(0)
+                expect_page(page.locator(".bubble", has_text=original)).to_have_count(0)
+                page.locator(".history-list .conversation-link", has_text=original[:12]).last.click()
+                expect_page(page.locator(".pro-page .summary")).to_be_visible()
+                expect_page(page.get_by_text(reply, exact=True)).to_have_count(1)
         return {"status": "PASS", "sameRun": True, "waitingSurvivedRefresh": True,
                 "waitingSurvivedBrowserAndServerRestart": True, "answerAndCitationSurvivedRefresh": True,
                 "historyRestoredAfterConversationSwitch": True}

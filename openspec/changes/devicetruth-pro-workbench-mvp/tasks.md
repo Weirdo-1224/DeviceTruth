@@ -25,8 +25,8 @@
 
 ## 4. P0 — 状态同步与历史恢复（依赖 3，D3，5 小时）
 
-- [ ] 4.1 复用 App 的跟踪/取消、timeline.ts、RunTimeline.vue 和 api.ts 轮询，接入新页面；流收尾回读 Run/消息/引用，所有异步响应按会话/Run 隔离。验收：QUEUED/RUNNING/WAITING/完成/失败/取消区别明确，断流不误判失败，重复 seq 不重复，旧事件不串页；扩充现有 `api.test.ts` 的相关行为回归，复用 `AgentStreamTest`、`AgentLifecycleTest` 通过。（3 小时）
-- [ ] 4.2 App 保留 readConversation 返回的全部 runs，新增轻量轮次选择，刷新默认最新且可回看旧轮；复用本地会话定位和服务器列表，避免 refresh 强制覆盖主动选择。验收：两轮完成+一轮执行中刷新可恢复，等待问题恢复，断流/本地定位失效可重新同步；扩展 `scripts/verify_browser_recovery.py` 现有流程中必要的专业页选择器/断言并实跑，记录限制。（2 小时）
+- [x] 4.1 复用 App 的跟踪/取消、timeline.ts、RunTimeline.vue 和 api.ts 轮询，接入新页面；流收尾回读 Run/消息/引用，所有异步响应按会话/Run 隔离。验收：QUEUED/RUNNING/WAITING/完成/失败/取消区别明确，断流不误判失败，重复 seq 不重复，旧事件不串页；扩充现有 `api.test.ts` 的相关行为回归，复用 `AgentStreamTest`、`AgentLifecycleTest` 通过。（3 小时）
+- [x] 4.2 App 保留 readConversation 返回的全部 runs，新增轻量轮次选择，刷新默认最新且可回看旧轮；复用本地会话定位和服务器列表，避免 refresh 强制覆盖主动选择。验收：两轮完成+一轮执行中刷新可恢复，等待问题恢复，断流/本地定位失效可重新同步；扩展 `scripts/verify_browser_recovery.py` 现有流程中必要的专业页选择器/断言并实跑，记录限制。（2 小时）
 
 完成条件：`investigation-recovery` 的页面状态、失败及刷新场景通过；不重写 SSE 或轮询框架。每组保留实际命令和结果，浏览器验证不可用时不写通过。
 

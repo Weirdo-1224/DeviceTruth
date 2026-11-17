@@ -178,6 +178,43 @@ describe('api 合同', () => {
     expect(finished.pendingQuestion?.pendingQuestionId).toBe(QUESTION_ID)
   })
 
+  it('轮询在 CANCELLED 同样停止（取消是终态，不继续空等）', async () => {
+    stubFetch(
+      jsonResponse(runView({ status: 'RUNNING' })),
+      jsonResponse(runView({ status: 'CANCELLED' }))
+    )
+    const seen: string[] = []
+    const finished = await waitForRun(RUN_ID, { sleep: async () => {}, onUpdate: (run) => seen.push(run.status) })
+
+    expect(seen).toEqual(['RUNNING', 'CANCELLED'])
+    expect(finished.status).toBe('CANCELLED')
+    expect(calls).toHaveLength(2)
+  })
+
+  it('readReferences 回读失败/取消轮已登记证据，字段原样返回', async () => {
+    const registered = [
+      {
+        referenceId: 'ref-failed-1',
+        sourceType: 'KNOWLEDGE_DOCUMENT',
+        sourceId: 'doc-9',
+        sourceVersion: '2026.1',
+        chunkId: 'chunk-9',
+        title: '维修手册',
+        page: null,
+        section: '4.2 充电中断',
+        excerpt: '红灯常亮优先检查供电。',
+        dataNature: 'AUTHORIZED'
+      }
+    ]
+    stubFetch(jsonResponse(registered))
+    const refs = await readReferences(RUN_ID)
+
+    expect(calls[0].url).toBe('/api/runs/' + RUN_ID + '/references')
+    expect(refs).toEqual(registered)
+    expect(refs[0].page).toBeNull()
+    expect(refs[0].section).toBe('4.2 充电中断')
+  })
+
   it('轮询到 COMPLETED 时返回答案与引用', async () => {
     stubFetch(
       jsonResponse(
