@@ -515,7 +515,7 @@ onUnmounted(() => {
                     @keydown.enter="submitOnEnter($event, answerQuestion)"></textarea>
           <button class="primary" :disabled="busy || !replyDraft.trim()" @click="answerQuestion">提交补充信息</button>
         </section>
-        <DiagnosisReport v-if="run && isTerminal" :status="run.status" :result="run.result"
+        <DiagnosisReport v-if="run && isTerminal" :status="run.status" :result="run.result" :run="run"
                          :failure-code="run.failureCode" :failure-text="failureText"
                          :references="references" @toggle-reference="showReference" />
       </div>

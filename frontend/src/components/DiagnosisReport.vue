@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import UiIcon from './UiIcon.vue'
-import type { AgentResult, Reference, RunStatus } from '../api'
+import { buildDiagnosisViewModel } from '../diagnosisViewModel'
+import type { AgentResult, Reference, RunStatus, RunView } from '../api'
 
 /**
  * 结构化诊断报告：全部内容来自持久 run 结果与已登记引用，只呈现真实证据。
- * 依据与候选原因按 certainty 分开；没有现场核验时不得把候选原因说成已确诊。
+ * 判断按答案 category 分类（仅 POSSIBLE_CAUSES 列为候选原因），不按 certainty 错分业务类别；
+ * certainty 只表达可能/资料支持/服务端已核验；没有现场核验时不得把候选原因说成已确诊。
  */
 const props = defineProps<{
   status: RunStatus
@@ -13,13 +15,18 @@ const props = defineProps<{
   failureCode: string | null
   failureText?: string
   references: Reference[]
+  run?: RunView | null
 
 }>()
 
 const emit = defineEmits<{ (event: 'toggle-reference', referenceId: string): void }>()
 
-const facts = computed(() => (props.result?.claims ?? []).filter((claim) => claim.certainty !== 'POSSIBLE'))
-const possibleCauses = computed(() => (props.result?.claims ?? []).filter((claim) => claim.certainty === 'POSSIBLE'))
+// 候选原因只来自 POSSIBLE_CAUSES 类别的全部 claims（保留原顺序，含 SUPPORTED）；
+// 其他类别按实际语义展示为资料断言/服务端核验结论/待人工核验，不冒充候选故障原因。
+const model = computed(() => buildDiagnosisViewModel({ run: props.run ?? null, references: props.references }))
+const possibleCauses = computed(() => model.value.category === 'POSSIBLE_CAUSES' ? model.value.claims : [])
+const otherClaims = computed(() => model.value.category !== 'POSSIBLE_CAUSES' ? model.value.claims : [])
+const claimsTitle = computed(() => model.value.claimsTitle)
 const manualItems = computed(() => {
   const result = props.result
   if (!result) return []
@@ -39,10 +46,6 @@ const categoryLabels: Record<AgentResult['category'], string> = {
   CONFIRMED_FINDING: '已核实结论',
   HUMAN_REVIEW: '待人工核验'
 }
-function certaintyLabel(certainty: string): string {
-  return certainty === 'CONFIRMED' ? '已核实' : certainty === 'SUPPORTED' ? '资料支持' : '可能原因'
-}
-
 function referenceLabel(referenceId: string): string {
   const index = props.references.findIndex(reference => reference.referenceId === referenceId)
   return index >= 0 ? '引用 ' + (index + 1) : '#' + referenceId.slice(0, 8)
@@ -99,10 +102,11 @@ function referenceLabel(referenceId: string): string {
     <div v-if="possibleCauses.length > 0" class="section">
       <h3><UiIcon name="target" /> 候选原因（{{ possibleCauses.length }}）</h3>
       <ul>
-        <li v-for="(claim, index) in possibleCauses" :key="index">
-          <span class="certainty possible">{{ certaintyLabel(claim.certainty) }}</span>
+        <li v-for="claim in possibleCauses" :key="claim.key">
+          <span class="certainty possible">{{ claim.certaintyLabel }}</span>
           {{ claim.text }}
           <button v-for="id in claim.referenceIds" :key="id" type="button" class="citation-ref" @click="emit('toggle-reference', id)">{{ referenceLabel(id) }}</button>
+          <span v-if="claim.referenceNote" class="hint">（{{ claim.referenceNote }}）</span>
         </li>
       </ul>
     </div>
@@ -121,13 +125,14 @@ function referenceLabel(referenceId: string): string {
       </ul>
     </div>
 
-    <details v-if="facts.length > 0" class="fact-details">
-      <summary><UiIcon name="file" /> 已知事实与依据（{{ facts.length }}）</summary>
+    <details v-if="otherClaims.length > 0" class="fact-details">
+      <summary><UiIcon name="file" /> {{ claimsTitle }}（{{ otherClaims.length }}）</summary>
       <ul>
-        <li v-for="(claim, index) in facts" :key="index">
-          <span class="certainty supported">{{ certaintyLabel(claim.certainty) }}</span>
+        <li v-for="claim in otherClaims" :key="claim.key">
+          <span class="certainty supported">{{ claim.certaintyLabel }}</span>
           {{ claim.text }}
           <button v-for="id in claim.referenceIds" :key="id" type="button" class="citation-ref" @click="emit('toggle-reference', id)">{{ referenceLabel(id) }}</button>
+          <span v-if="claim.referenceNote" class="hint">（{{ claim.referenceNote }}）</span>
         </li>
       </ul>
     </details>
