@@ -4,6 +4,7 @@
 演示知识库 = 项目自制演示手册（1.2 修订口径：渠道 AUTHORIZED，文件自身 SIMULATED 演示标注）。
 证据：两域在同一张专业页各完成一条真模+演示资料调查（Skill/工具事件/引用回读）、
 取消与刷新浏览器覆盖；ASK_USER 协议路径由 verify_browser_recovery.py 单列。
+真模偶发 MODEL_OUTPUT_INVALID_AFTER_RETRY：每轮最多重试 3 次（同问题重发，如实记录）。
 """
 
 import argparse
@@ -62,15 +63,43 @@ def import_doc(product, path, title):
 def verify(browser_path, reasoner, embedding, output):
     from playwright.sync_api import expect as expect_page, sync_playwright
 
-    def complete_round(page, answer):
-        """等待本轮完成；真模可能先发 ASK_USER，命中问题区就用可见补答沿同一 Run 继续。"""
-        expect_page(page.locator(".pro-page .summary, .question h2")).to_be_visible(timeout=300_000)
-        asked = page.locator(".question h2").is_visible()
-        if asked:
-            page.locator(".question textarea").fill(answer)
-            page.get_by_role("button", name="提交补充信息").click()
-            expect_page(page.locator(".pro-page .summary")).to_be_visible(timeout=300_000)
-        return asked
+    def current_conversation(page):
+        return page.evaluate("localStorage.getItem('devicetruth.conversation-id')")
+
+    def latest_run(product, page):
+        detail = expect(product.request("GET", f"/api/conversations/{current_conversation(page)}"), 200)
+        return detail["runs"][-1] if detail["runs"] else None
+
+    def await_terminal(product, page, timeout_s=300):
+        """以 PG 为准轮询最新 Run 到业务终态；返回 (status, asked)。"""
+        deadline = time.time() + timeout_s
+        asked = False
+        while time.time() < deadline:
+            run = latest_run(product, page)
+            if run and run["status"] == "WAITING_FOR_USER" and not asked:
+                asked = True
+                page.locator(".question textarea").fill(ANSWER_HOLDER["answer"])
+                page.get_by_role("button", name="提交补充信息").click()
+            if run and run["status"] in ("COMPLETED", "FAILED", "CANCELLED"):
+                return run["status"], asked
+            time.sleep(2)
+        raise RuntimeError("等待运行终态超时")
+
+    ANSWER_HOLDER = {}
+
+    def run_round(page, question, answer, attempts=3):
+        """提交问题并等本轮完成；以最新 Run 的持久状态为准，真模偶发输出无效时同问题重发。"""
+        for attempt in range(attempts):
+            # 等待可提交：先填输入框使发送键可用（上一轮的 FAILED 卡可能仍展示，以按键恢复为准）
+            page.locator(".composer textarea").fill(question)
+            page.wait_for_selector(".pro-send:not([disabled])", timeout=60_000)
+            page.get_by_role("button", name="发送", exact=True).click()
+            ANSWER_HOLDER["answer"] = answer
+            status, asked = await_terminal(product, page)
+            print(f"  round attempt {attempt + 1}: {status}")
+            if status == "COMPLETED":
+                return "waiting" if asked else "completed"
+        raise RuntimeError(f"模型多次输出无效（{attempts} 次均 FAILED）: {question[:24]}")
 
     owner = "d7-" + uuid.uuid4().hex[:12]
     project = "dual-domain"
@@ -90,10 +119,9 @@ def verify(browser_path, reasoner, embedding, output):
                 page.goto(url)
 
                 # ---- 汽车域：真模 + 演示知识库，专业页全流程 ----
-                page.locator(".composer textarea").fill(AUTO_QUESTION)
-                page.get_by_role("button", name="发送", exact=True).click()
-                auto_asked = complete_round(page, "直流快充，SOC 约 40%，私人充电桩。")
+                auto_asked = run_round(page, AUTO_QUESTION, "直流快充，SOC 约 40%，私人充电桩。") == "waiting"
                 auto_conversation = page.evaluate("localStorage.getItem('devicetruth.conversation-id')")
+                expect_page(page.locator(".pro-page .summary")).to_be_visible(timeout=30_000)
                 auto = expect(product.request("GET", f"/api/conversations/{auto_conversation}"), 200)
                 auto_run = auto["runs"][-1]
                 assert auto_run["status"] == "COMPLETED" and auto_run["result"], auto_run["status"]
@@ -125,13 +153,14 @@ def verify(browser_path, reasoner, embedding, output):
                 evidence["cancelRound"] = {"runId": cancelled["runId"], "status": "CANCELLED"}
 
                 # ---- 工业域：关联 SC-0245-B 后真模固件核对 ----
+                page.get_by_role("button", name="查看调查记录").click()
                 page.get_by_role("button", name="新调查", exact=True).click()
-                page.get_by_role("button", name="相关资产").click()
                 page.locator("#asset").select_option(FACTORY_ASSET)
-                page.locator(".composer textarea").fill(FACTORY_QUESTION)
-                page.get_by_role("button", name="发送", exact=True).click()
-                factory_asked = complete_round(page, "以 2026-11-13 08:00 时点为准，优先采用出厂记录。")
+                # 新调查后抽屉保持打开便于回看；继续操作前先收起，避免遮挡底部操作栏
+                page.get_by_role("button", name="关闭调查记录").click()
+                factory_asked = run_round(page, FACTORY_QUESTION, "以 2026-11-13 08:00 时点为准，优先采用出厂记录。") == "waiting"
                 factory_conversation = page.evaluate("localStorage.getItem('devicetruth.conversation-id')")
+                expect_page(page.locator(".pro-page .summary")).to_be_visible(timeout=30_000)
                 factory = expect(product.request("GET", f"/api/conversations/{factory_conversation}"), 200)
                 factory_run = factory["runs"][-1]
                 assert factory_run["status"] == "COMPLETED" and factory_run["result"], factory_run["status"]

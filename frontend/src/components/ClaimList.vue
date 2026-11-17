@@ -38,13 +38,20 @@ const emit = defineEmits<{ (event: 'select', index: number): void }>()
 </template>
 
 <style scoped>
-.claim-list-box h3 { font-size: 13px; margin: 0 0 6px; display: flex; align-items: center; gap: 4px; color: var(--accent); }
-.claim-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.claim-select { width: 100%; cursor: pointer; text-align: left; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fff; display: grid; gap: 5px; }
-.claim-select:hover { border-color: var(--primary); }
-li.active .claim-select { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
-.certainty { justify-self: start; font-size: 12px; border-radius: 7px; padding: 2px 7px; color: var(--accent); background: #eae9ff; }
-.certainty.possible { color: var(--warning); background: #ffefca; }
-.claim-text { margin: 0; line-height: 1.5; font-size: 14px; }
-.claim-refs-hint { font-size: 12px; color: var(--muted); }
+.claim-list-box h3 { font-size: 13px; margin: 0 0 8px; display: flex; align-items: center; gap: 5px; color: var(--accent-2, #7dd3fc); }
+.claim-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.claim-select { width: 100%; cursor: pointer; text-align: left; border: 1px solid var(--line-soft, #1d2b44);
+  border-radius: 11px; padding: 11px 12px; background: var(--panel, #121c2e); display: grid; gap: 6px;
+  color: var(--text, #e7eefb); transition: border-color 0.15s, box-shadow 0.15s; }
+.claim-select:hover { border-color: var(--primary, #22b8dd); }
+li.active .claim-select { border-color: var(--primary, #22b8dd);
+  box-shadow: 0 0 0 1px var(--primary, #22b8dd), 0 8px 22px rgba(34, 184, 221, 0.16);
+  background: linear-gradient(160deg, rgba(56, 214, 245, 0.1), var(--panel, #121c2e) 55%); }
+.certainty { justify-self: start; font-size: 11px; border-radius: 999px; padding: 2px 8px; font-weight: 700;
+  color: var(--accent-2, #7dd3fc); background: var(--soft, rgba(56, 214, 245, 0.1));
+  border: 1px solid rgba(56, 214, 245, 0.3); }
+.certainty.possible { color: var(--warn, #f5b53f); background: var(--warn-bg, rgba(245, 181, 63, 0.12));
+  border-color: rgba(245, 181, 63, 0.4); }
+.claim-text { margin: 0; line-height: 1.55; font-size: 13px; color: var(--text, #e7eefb); }
+.claim-refs-hint { font-size: 12px; color: var(--text-3, #64748f); display: flex; align-items: center; gap: 5px; }
 </style>

@@ -132,16 +132,17 @@ def verify(browser_path, output):
                 assert len(completed["runs"]) == 1
                 assert completed["runs"][0]["runId"] == run_id
                 assert completed["runs"][0]["status"] == "COMPLETED"
-                # 4.2 轮次与会话历史：新调查后回到旧会话，结果仍可回看
-                # 侧边栏条目标题=会话首条用户消息；状态后缀只对当前会话渲染，故按标题文本过滤而非完整 accessible name
+                # 4.2 轮次与会话历史：新调查后回到旧会话，结果仍可回看（已收进“查看调查记录”抽屉）
+                page.get_by_role("button", name="查看调查记录").click()
                 expect_page(page.locator(".history-list .conversation-link").first).to_be_visible()
                 page.get_by_role("button", name="新调查", exact=True).click()
                 expect_page(page.locator(".conversation-link")).to_have_count(2)
                 expect_page(page.locator(".pro-page")).to_have_count(0)
-                expect_page(page.locator(".bubble", has_text=original)).to_have_count(0)
+                # 主视图不应残留原问题（原文仍合法出现在抽屉的会话标题里，故限定主区域断言）
+                expect_page(page.locator(".main-scroll").get_by_text(original, exact=True)).to_have_count(0)
                 page.locator(".history-list .conversation-link", has_text=original[:12]).last.click()
                 expect_page(page.locator(".pro-page .summary")).to_be_visible()
-                expect_page(page.get_by_text(reply, exact=True)).to_have_count(1)
+                expect_page(page.locator(".pro-drawer").get_by_text(reply, exact=True)).to_have_count(1)
         return {"status": "PASS", "sameRun": True, "waitingSurvivedRefresh": True,
                 "waitingSurvivedBrowserAndServerRestart": True, "answerAndCitationSurvivedRefresh": True,
                 "historyRestoredAfterConversationSwitch": True}
