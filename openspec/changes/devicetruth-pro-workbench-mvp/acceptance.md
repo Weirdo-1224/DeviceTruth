@@ -230,3 +230,30 @@
 - 真模=DeepSeek（RUN_MODEL 经事件回读）；真实 embedding=text-embedding-v4 已实测；模拟观测保持 SIMULATED（工业域 dataNature=SIMULATED，汽车域答案 dataNature=AUTHORIZED 来自授权渠道演示资料）；协议替身（scripted+deterministic）仅用于恢复回归，不冒充真模。
 - 未连接真机，不声称现场验收；`.env` 旧 DashScope 密钥待同步（`--reasoner=qwen` 未重验）。
 - 遗留风险记录：P1-05 未提交末步结果窗口仍在（仅冒烟，见 design §6）；P1-03 RAG 事务错误路径未修（8.2 可选）。
+
+## 第 7.2 批（2026-11-17）：任务 7.2 冻结演示
+
+### 冻结检查（实际执行）
+
+- 全量离线/PG 回归 `mvn -q test`（真实测试 PG，51 个测试类）：**402 项，失败 0 / 错误 0 / 跳过 4**（跳过均为真模门控用例，需 `-Ddevicetruth.test.real-agent=true`，其通过记录见 7.1 批真模定向 3/3）。
+- 前端 `npm run test -- --run`：3 文件 **60/60**；`npm run build`（vue-tsc + Vite）通过。
+- 既有恢复冒烟 `python scripts/verify_browser_recovery.py`：PASS（`browser-recovery-0b851eb6…`）——同 Run 补答、WAITING 跨刷新与跨浏览器+服务器重启存活、答案与引用刷新后存活、历史恢复。
+- 正常答案回读冒烟：7.1 批双域 Run（`ba681900…`、`28d1322b…`）经 API 回读结果/引用/工具事件，dual-domain-2d6809f5 result.json 留存；D4 深入调查 Run 证据见 5 批。
+
+### P1 状态与延期声明
+
+- **P1-03（RAG 引用登记事务错误路径）**：未修复。登记仍用 REQUIRED 事务模板嵌在工具事务内，登记错误可能把外层标为 rollback-only 导致 CHECKPOINT_PERSIST_FAILURE。触发条件与失败码已记录，未阻断主演示；按任务书列为可选 8.2，本轮时间窗内未执行，**明确延期**，保持未完成。
+- **P1-05（末步结果提交前崩溃窗口）**：未修复、不重构。已做正常完成与既有崩溃恢复路径冒烟（见上），内存结果窗口仍在——恢复成功不等于末步结果必达；前端只承认已持久化结果。
+- **8.1（RUN_TOOL 安全摘要）/8.2（P1-03 最小修复）**：核心闭环后可选增强，本轮未执行，**整体延期**并保持未完成，不得据此归档勾选。
+
+### 双域演示步骤（整理）
+
+1. 环境：docker 栈（PG 54329）+ product 后端（真模 openai→DeepSeek，密钥走环境变量）+ 前端 dist；或脚本化等价：`python scripts/verify_dual_domain_demo.py --browser-path <chrome> --reasoner openai --embedding real`（自动起隔离库、导入 4 份演示手册、跑全流程断言）。
+2. 汽车域：专业页输入"新能源汽车充电中断，没有故障码，先查什么资料？"→ 真模命中 ev-charging-triage 等汽车 Skill → RAG 检索演示手册 → 必要时 ASK_USER 在问题区补答 → 完成轮展示判断/引用/证据抽屉。
+3. 工业域：侧栏"相关资产"选 SC-0245-B → 输入固件核对问题 → factory/industrial Skill → get_asset/get_configuration 等设备工具 → 完成轮展示（模拟观测 SIMULATED 明确标示）。
+4. 深入调查：完成轮选中判断 → "深入调查选中判断" → 新 Run 继承引用重取证（D4 六项证据）。
+5. 边界演示：刷新恢复（轮次回看）、执行中取消、失败轮"本轮已取回证据"。
+
+### 冻结结论
+
+D7 功能冻结：本批之后不再新增功能；无未解释的阻塞性失败。剩余事项仅 8.1/8.2 可选 P1（已声明延期）与人工确认项（产品布局/业务预期）。
