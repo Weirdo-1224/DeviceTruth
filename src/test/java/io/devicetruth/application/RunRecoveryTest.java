@@ -9,6 +9,7 @@ import io.devicetruth.application.agent.GeneralAgentService;
 import io.devicetruth.application.agent.GeneralAgentService.AgentTaskInput;
 import io.devicetruth.application.agent.GeneralAgentService.RunView;
 import io.devicetruth.application.agent.GeneralAgentService.ServerIdentity;
+import io.devicetruth.application.agent.RunRecoveryService;
 import io.devicetruth.core.capability.CapabilityGateway;
 import io.devicetruth.core.capability.Repositories.AssetComponent;
 import io.devicetruth.core.capability.Repositories.AssetConfigurationRecord;
@@ -906,6 +907,210 @@ class RunRecoveryTest {
                             + " AND status IN ('QUEUED','RUNNING')", Integer.class)).isZero();
         } finally {
             service.shutdown();
+        }
+    }
+
+    // ---------- 6.1/6.2（P1-04 修复）：周期有界 QUEUED 补派、进程内去重、异常后继续 ----------
+
+    /** worker 关闭的提交端：只产生 QUEUED，不调度（M0 合同）。 */
+    private GeneralAgentService disabledService() {
+        return new GeneralAgentService(conversations, runs, transactions, IDENTITY, gateway,
+                ScriptedAgentReasoner::new, 2, 4, false, null, LEASE_SECONDS, 3);
+    }
+
+    @Test void strandedQueuedRunIsDispatchedByPeriodicRecoveryWithoutRestart() throws Exception {
+        // worker 关闭的进程提交后 run 滞留 QUEUED；另一个 worker 进程的周期补派在若干租约周期内接手，
+        // 全程不重启进程、不再调用 recoverQueued
+        var disabled = disabledService();
+        var worker = service(null);
+        try {
+            worker.recoverQueued(); // 此刻没有任何滞留 QUEUED，启动对账为空转
+            UUID conversation = disabled.create().conversationId();
+            RunView accepted = disabled.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车充电中断，没有故障码，先查什么资料？"));
+            assertThat(disabled.run(accepted.runId()).status()).isEqualTo("QUEUED");
+
+            assertThat(awaitTerminal(worker, accepted.runId(), "WAITING_FOR_USER")).isEqualTo("WAITING_FOR_USER");
+            assertThat(worker.run(accepted.runId()).pendingQuestion()).isNotNull();
+        } finally {
+            worker.shutdown();
+            disabled.shutdown();
+        }
+    }
+
+    @Test void transientDispatchFailureKeepsRunQueuedAndLaterScanDispatchesIt() throws Exception {
+        // 一次临时领取/调度失败（调度器抛异常）：run 保持 QUEUED，下一次周期扫描照常补派，无需重启
+        var disabled = disabledService();
+        try {
+            UUID conversation = disabled.create().conversationId();
+            RunView accepted = disabled.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车充电中断，没有故障码，先查什么资料？"));
+            var recovery = new RunRecoveryService(runs, 3, 2);
+            var dispatched = new java.util.concurrent.atomic.AtomicInteger();
+            int failed = recovery.reconcileQueued(IDENTITY, runId -> {
+                throw new IllegalStateException("temporary claim failure");
+            });
+            assertThat(failed).isZero();
+            assertThat(disabled.run(accepted.runId()).status()).isEqualTo("QUEUED");
+
+            // 下一个周期（同一进程）扫描成功补派
+            int retried = recovery.reconcileQueued(IDENTITY, runId -> dispatched.incrementAndGet());
+            assertThat(retried).isEqualTo(1);
+            assertThat(dispatched).hasValue(1);
+
+            // 补派后由 worker 真正执行：run 可达 WAITING，证明失败没有把它卡死
+            var worker = service(null);
+            try {
+                worker.recoverQueued();
+                assertThat(awaitTerminal(worker, accepted.runId(), "WAITING_FOR_USER")).isEqualTo("WAITING_FOR_USER");
+            } finally {
+                worker.shutdown();
+            }
+        } finally {
+            disabled.shutdown();
+        }
+    }
+
+    @Test void periodicRecoverySurvivesScanExceptionAndContinuesNextCycle() throws Exception {
+        // 真实 PG 故障注入：把 dt_agent_run 临时改名一个周期，周期扫描必然抛异常；
+        // 修复点：异常被捕获，scheduleWithFixedDelay 的后续周期不被永久取消
+        var disabled = disabledService();
+        var worker = service(null);
+        try {
+            worker.recoverQueued();
+            UUID conversation = disabled.create().conversationId();
+            RunView accepted = disabled.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车充电中断，没有故障码，先查什么资料？"));
+            assertThat(disabled.run(accepted.runId()).status()).isEqualTo("QUEUED");
+
+            jdbc.execute("ALTER TABLE dt_agent_run RENAME TO dt_agent_run_sabotage");
+            try {
+                Thread.sleep(LEASE_SECONDS * 1000 * 2 + 800);
+            } finally {
+                jdbc.execute("ALTER TABLE dt_agent_run_sabotage RENAME TO dt_agent_run");
+            }
+            // 表已恢复：无需重启，后续周期自动补派滞留 QUEUED
+            assertThat(awaitTerminal(worker, accepted.runId(), "WAITING_FOR_USER")).isEqualTo("WAITING_FOR_USER");
+        } finally {
+            try {
+                jdbc.execute("ALTER TABLE dt_agent_run_sabotage RENAME TO dt_agent_run");
+            } catch (RuntimeException ignored) {
+                // 表名已恢复或测试中途失败：尽力还原，避免污染其他用例
+            }
+            worker.shutdown();
+            disabled.shutdown();
+        }
+    }
+
+    @Test void workerDisabledProcessNeverDispatchesQueuedRunsEvenPeriodically() throws Exception {
+        // M0 合同：worker 关闭的进程即使启动了 recoverQueued，也只保留 QUEUED，周期任务不调度
+        var disabled = disabledService();
+        try {
+            disabled.recoverQueued();
+            UUID conversation = disabled.create().conversationId();
+            RunView accepted = disabled.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车充电中断，没有故障码，先查什么资料？"));
+            Thread.sleep(LEASE_SECONDS * 1000 * 2 + 500);
+            assertThat(disabled.run(accepted.runId()).status()).isEqualTo("QUEUED");
+        } finally {
+            disabled.shutdown();
+        }
+    }
+
+    @Test void concurrentRecoveryClaimsStrandedRunOnlyOnce() throws Exception {
+        // 多服务抢占：两个 worker 进程同时补派同一条滞留 QUEUED，version CAS 只允许一次有效领取
+        var disabled = disabledService();
+        UUID runId;
+        UUID conversation;
+        try {
+            conversation = disabled.create().conversationId();
+            runId = disabled.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车充电中断，没有故障码，先查什么资料？")).runId();
+        } finally {
+            disabled.shutdown();
+        }
+        var first = service(null);
+        var second = service(null);
+        try {
+            var firstThread = new Thread(first::recoverQueued);
+            var secondThread = new Thread(second::recoverQueued);
+            firstThread.start();
+            secondThread.start();
+            firstThread.join(20_000);
+            secondThread.join(20_000);
+            awaitQuestion(first, runId, 1);
+            assertThat(runs.load(IDENTITY, runId, false).attempts()).isEqualTo(1);
+            // 没有双份执行：目标用户消息仍只有一条（提交路径写入的那条）
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_message WHERE conversation_id=? AND role='USER'",
+                    Integer.class, conversation)).isEqualTo(1);
+        } finally {
+            first.shutdown();
+            second.shutdown();
+        }
+    }
+
+    @Test void periodicQueuedScanIsBoundedAndDrainsOverCycles() throws Exception {
+        // 有界扫描：扫描上限 2，三个滞留 QUEUED 分两个周期补派，进程内去重后同一 run 不重复入队
+        var disabled = disabledService();
+        var runIds = new java.util.ArrayList<UUID>();
+        try {
+            for (int index = 0; index < 3; index++) {
+                UUID conversation = disabled.create().conversationId();
+                runIds.add(disabled.submit(conversation, UUID.randomUUID(),
+                        input("充电中断，没有故障码 第" + (index + 1) + "问")).runId());
+            }
+            var recovery = new RunRecoveryService(runs, 3, 2);
+            // 模拟真实领取：调度成功即由“忙碌 worker”认领，下周期不再出现在 QUEUED 扫描里
+            RunRecoveryService.RunDispatcher claimOnly = runId -> {
+                var record = runs.load(IDENTITY, runId, false);
+                assertThat(runs.markRunning(IDENTITY, record, "probe-worker",
+                        Instant.now().plusSeconds(LEASE_SECONDS * 4), Instant.now())).isEqualTo(1);
+            };
+            assertThat(recovery.reconcileQueued(IDENTITY, claimOnly)).isEqualTo(2);
+            assertThat(recovery.reconcileQueued(IDENTITY, claimOnly)).isEqualTo(1);
+            assertThat(recovery.reconcileQueued(IDENTITY, claimOnly)).isZero();
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_agent_run WHERE owner_id='owner-a' AND project_id='project-a'"
+                            + " AND status='QUEUED'", Integer.class)).isZero();
+        } finally {
+            // 清理：把被认领的 run 明确置 FAILED，避免遗留 RUNNING 干扰其他用例的对账断言
+            for (UUID runId : runIds) {
+                var record = runs.load(IDENTITY, runId, false);
+                if ("RUNNING".equals(record.status()))
+                    runs.fail(IDENTITY, record, "TOTAL_TIMEOUT", record.stepsUsed(), 0, 0, 0, Instant.now());
+            }
+            disabled.shutdown();
+        }
+    }
+
+    @Test void periodicDispatchNeverResetsBudget() throws Exception {
+        // 预算不重置：滞留 QUEUED 已消耗的步数与累计执行时长，在周期补派执行后保持单调累计
+        var disabled = disabledService();
+        UUID runId;
+        try {
+            UUID conversation = disabled.create().conversationId();
+            runId = disabled.submit(conversation, UUID.randomUUID(),
+                    input("新能源汽车充电中断，没有故障码，先查什么资料？")).runId();
+        } finally {
+            disabled.shutdown();
+        }
+        // 制造“执行过半被留下”的遗留：已用 2 步、累计执行 1500ms
+        jdbc.update("""
+                UPDATE dt_agent_run SET active_duration_ms=1500,
+                    budget=jsonb_set(budget,'{used,steps}','2'::jsonb, true)
+                WHERE id=? AND owner_id='owner-a' AND project_id='project-a'
+                """, runId);
+
+        var worker = service(null);
+        try {
+            worker.recoverQueued();
+            assertThat(awaitTerminal(worker, runId, "WAITING_FOR_USER")).isEqualTo("WAITING_FOR_USER");
+            var record = runs.load(IDENTITY, runId, false);
+            assertThat(record.stepsUsed()).isGreaterThanOrEqualTo(2);
+            assertThat(record.activeDurationMs()).isGreaterThanOrEqualTo(1500);
+        } finally {
+            worker.shutdown();
         }
     }
 }

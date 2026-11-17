@@ -29,11 +29,50 @@ public final class RunRecoveryService {
 
     private final AgentRunRepository runs;
     private final int maxRecoveryAttempts;
+    private final int queuedScanLimit;
 
     public RunRecoveryService(AgentRunRepository runs, int maxRecoveryAttempts) {
+        this(runs, maxRecoveryAttempts, 50);
+    }
+
+    public RunRecoveryService(AgentRunRepository runs, int maxRecoveryAttempts, int queuedScanLimit) {
         if (maxRecoveryAttempts < 1) throw new IllegalArgumentException("maxRecoveryAttempts must be positive");
+        if (queuedScanLimit < 1) throw new IllegalArgumentException("queuedScanLimit must be positive");
         this.runs = runs;
         this.maxRecoveryAttempts = maxRecoveryAttempts;
+        this.queuedScanLimit = queuedScanLimit;
+    }
+
+    /**
+     * 周期 QUEUED 补派（P1-04 修复）：有界扫描滞留 QUEUED 并重新交给调度器。
+     * 与启动全量对账同规则：累计执行时长超限的明确 FAILED/TOTAL_TIMEOUT，不重置预算；
+     * 单个 run 调度失败只记日志不中断扫描，由下一周期重试——一次临时领取失败无需重启进程。
+     */
+    public int reconcileQueued(ServerIdentity identity, RunDispatcher dispatcher) {
+        List<UUID> queuedRuns;
+        try {
+            queuedRuns = runs.queuedPage(identity, queuedScanLimit);
+        } catch (RuntimeException e) {
+            LOG.error("Agent periodic queued scan failed: {}", e.getClass().getSimpleName());
+            return 0;
+        }
+        int dispatched = 0;
+        for (UUID runId : queuedRuns) {
+            try {
+                var record = runs.load(identity, runId, false);
+                if (record.activeDurationMs() >= record.maxActiveDurationMs()) {
+                    if (runs.fail(identity, record, "TOTAL_TIMEOUT", record.stepsUsed(), 0, 0, 0, Instant.now()) == 1)
+                        LOG.info("Agent periodic queued run timed out: runId={}", runId);
+                    continue;
+                }
+                dispatcher.dispatch(runId);
+                dispatched++;
+            } catch (RuntimeException e) {
+                LOG.error("Agent periodic queued dispatch failed: runId={} type={}", runId,
+                        e.getClass().getSimpleName());
+            }
+        }
+        return dispatched;
     }
 
     /** 启动时执行一次全量对账；worker 关闭的进程不调度任何任务（M0 只保留 QUEUED 合同）。 */

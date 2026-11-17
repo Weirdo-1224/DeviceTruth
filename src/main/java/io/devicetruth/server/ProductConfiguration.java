@@ -88,7 +88,8 @@ public class ProductConfiguration {
             @Value("${devicetruth.agent.max-queue:10}") int maxQueue,
             @Value("${devicetruth.agent.worker-enabled:true}") boolean workerEnabled,
             @Value("${devicetruth.agent.lease-seconds:60}") long leaseSeconds,
-            @Value("${devicetruth.agent.max-recovery-attempts:3}") int maxRecoveryAttempts) {
+            @Value("${devicetruth.agent.max-recovery-attempts:3}") int maxRecoveryAttempts,
+            @Value("${devicetruth.agent.recovery-scan-limit:50}") int recoveryScanLimit) {
         var jdbc = new JdbcTemplate(source);
         var transactions = new TransactionTemplate(new DataSourceTransactionManager(source));
         return new GeneralAgentService(new ConversationRepository(jdbc),
@@ -97,7 +98,7 @@ public class ProductConfiguration {
                 transactions,
                 identity, gateway, agentReasoners(agentReasonerName(environment, reasonerName)), maxConcurrentRuns,
                 maxQueue, workerEnabled, fileUploadService, leaseSeconds, maxRecoveryAttempts, skills,
-                runEventStreamService::publish);
+                runEventStreamService::publish, recoveryScanLimit);
     }
 
     /**

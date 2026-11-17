@@ -69,6 +69,8 @@ public final class GeneralAgentService {
     private static final Set<String> REPLY_KEYS = Set.of("runId", "pendingQuestionId", "questionVersion");
     /** 单次历史读取上限：超出由调用方用游标分批；Repository 内部再按 500 分批查库。 */
     private static final int EVENT_HISTORY_LIMIT = 5000;
+    /** 周期 QUEUED 补派的默认有界扫描条数；启动全量对账不受此限制。 */
+    static final int DEFAULT_RECOVERY_SCAN_LIMIT = 50;
 
     private final ConversationRepository conversations;
     private final AgentRunRepository runs;
@@ -90,6 +92,8 @@ public final class GeneralAgentService {
             new java.util.concurrent.atomic.AtomicBoolean();
     private final RunRecoveryService recovery;
     private final java.util.concurrent.ScheduledExecutorService heartbeats;
+    /** 进程内待执行集合：周期扫描与提交路径并发时，不会向 executor 重复堆同一个 run。 */
+    private final Set<UUID> pendingDispatch = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public GeneralAgentService(ConversationRepository conversations, AgentRunRepository runs,
                                TransactionTemplate transactions, ServerIdentity identity,
@@ -139,6 +143,22 @@ public final class GeneralAgentService {
                                io.devicetruth.knowledge.FileUploadService files, long leaseSeconds,
                                int maxRecoveryAttempts, SkillRuntime skills,
                                java.util.function.Consumer<UUID> eventNotifier) {
+        this(conversations, runs, transactions, identity, gateway, reasoners, maxConcurrentRuns, maxQueue,
+                workerEnabled, files, leaseSeconds, maxRecoveryAttempts, skills, eventNotifier,
+                DEFAULT_RECOVERY_SCAN_LIMIT);
+    }
+
+    /**
+     * recoveryScanLimit：周期 QUEUED 补派的有界扫描条数（P1-04），防止周期任务无限全扫；
+     * 启动对账 reconcile 仍走全量 queued()，不受此限制。
+     */
+    public GeneralAgentService(ConversationRepository conversations, AgentRunRepository runs,
+                               TransactionTemplate transactions, ServerIdentity identity,
+                               CapabilityGateway gateway, Supplier<GeneralReasoner> reasoners,
+                               int maxConcurrentRuns, int maxQueue, boolean workerEnabled,
+                               io.devicetruth.knowledge.FileUploadService files, long leaseSeconds,
+                               int maxRecoveryAttempts, SkillRuntime skills,
+                               java.util.function.Consumer<UUID> eventNotifier, int recoveryScanLimit) {
         if (maxConcurrentRuns < 1 || maxQueue < 0) throw new IllegalArgumentException("Worker limits must be positive");
         if (leaseSeconds < 1) throw new IllegalArgumentException("leaseSeconds must be positive");
         this.eventNotifier = eventNotifier;
@@ -154,7 +174,7 @@ public final class GeneralAgentService {
         this.skills = skills;
         this.workerId = "worker-" + UUID.randomUUID().toString().substring(0, 8);
         this.leaseDuration = java.time.Duration.ofSeconds(leaseSeconds);
-        this.recovery = new RunRecoveryService(runs, maxRecoveryAttempts);
+        this.recovery = new RunRecoveryService(runs, maxRecoveryAttempts, recoveryScanLimit);
         AtomicInteger seq = new AtomicInteger();
         this.executor = new ThreadPoolExecutor(maxConcurrentRuns, maxConcurrentRuns, 30, TimeUnit.SECONDS,
                 // 容量 0 表示“占满即拒绝”，用 SynchronousQueue 表达，而不是把配置悄悄改成 1。
@@ -216,10 +236,17 @@ public final class GeneralAgentService {
      */
     public void recoverQueued() {
         recovery.reconcile(identity, workerEnabled, this::dispatch);
-        // 启动时尚未过期的租约也需要在到期后回收。
+        // 周期任务（P1-04 修复）：过期 RUNNING 回收 + 有界滞留 QUEUED 补派。
+        // 必须整体捕获异常——scheduleWithFixedDelay 遇到未捕获异常会永久取消后续执行。
         if (workerEnabled && recoveryScheduled.compareAndSet(false, true))
-            heartbeats.scheduleWithFixedDelay(() -> recovery.reconcileExpired(identity, this::dispatch),
-                    leaseDuration.toMillis(), leaseDuration.toMillis(), TimeUnit.MILLISECONDS);
+            heartbeats.scheduleWithFixedDelay(() -> {
+                try {
+                    recovery.reconcileExpired(identity, this::dispatch);
+                    recovery.reconcileQueued(identity, this::dispatch);
+                } catch (RuntimeException e) {
+                    LOG.error("Agent periodic recovery failed: {}", e.getClass().getSimpleName());
+                }
+            }, leaseDuration.toMillis(), leaseDuration.toMillis(), TimeUnit.MILLISECONDS);
     }
 
     /** 本 run 已取回的知识引用；读取仍按归属过滤。 */
@@ -357,12 +384,19 @@ public final class GeneralAgentService {
     /**
      * 交给有界执行器；被拒绝时立刻把 run 置为 FAILED/QUEUE_REJECTED，
      * 绝不留下永远 QUEUED 的幽灵任务。worker 关闭时（M0 持久化模式）只保留 QUEUED。
+     * 进程内待执行去重：周期补派与提交并发时同一 run 只会进入 executor 一次，
+     * 任务开始/被拒绝时释放，领取失败的 run 留在 QUEUED 由下一周期重试。
      */
     private void dispatch(UUID runId) {
         if (!workerEnabled) return;
+        if (!pendingDispatch.add(runId)) return;
         try {
-            executor.execute(() -> executeRun(runId));
+            executor.execute(() -> {
+                pendingDispatch.remove(runId);
+                executeRun(runId);
+            });
         } catch (RejectedExecutionException e) {
+            pendingDispatch.remove(runId);
             LOG.error("Agent queue rejected: runId={}", runId);
             failQuietly(runId, "QUEUE_REJECTED");
         }

@@ -133,6 +133,15 @@ public final class AgentRunRepository {
                 """, UUID.class, identity.ownerId(), identity.projectId());
     }
 
+    /** 周期补派扫描：同一语义的有界候选（按 created_at, id 排序，LIMIT ?），防止周期任务无限全扫。 */
+    public List<UUID> queuedPage(ServerIdentity identity, int limit) {
+        return jdbc.queryForList("""
+                SELECT id FROM dt_agent_run
+                WHERE owner_id=? AND project_id=? AND status='QUEUED'
+                ORDER BY created_at, id LIMIT ?
+                """, UUID.class, identity.ownerId(), identity.projectId(), limit);
+    }
+
     /** 读取运行记录；lock=true 时加行锁，供补答事务串行消费同一个待答问题。 */
     public RunRecord load(ServerIdentity identity, UUID runId, boolean lock) {
         var rows = jdbc.query("""

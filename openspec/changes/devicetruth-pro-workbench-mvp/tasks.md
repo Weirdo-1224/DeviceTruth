@@ -39,8 +39,8 @@
 
 ## 6. P0 — QUEUED 自动恢复最小修复（仅依赖 1.1 运行环境；D2–D3 与前端并行，5 小时）
 
-- [ ] 6.1 D2–D3 修改 `application/agent/GeneralAgentService.recoverQueued/dispatch`、`RunRecoveryService` 及 `adapter/persistence/AgentRunRepository` 必要查询，加入有界周期 QUEUED 补派、进程内待调度去重和异常后继续扫描；复用 version CAS/租约/超时，不新增消息队列、状态机或运行时框架，不等待 1.2 双域资料。验收：RunRecoveryTest 增补一次临时领取失败后无需重启恢复、worker关闭不调度、扫描异常后下一周期继续；不改变现有启动全量对账合同。（3 小时）
-- [ ] 6.2 补齐同测试类的重复扫描/多服务抢占、有界扫描及预算不重置回归，更新本变更验收记录和可靠性说明。验收：`mvn -q '-Dtest=RunRecoveryTest,AgentLifecycleTest,AgentStreamTest' test` 在真实测试 PG 上通过；重复补派只有一次有效领取，WAITING/终态/有效租约不被误执行，过期 RUNNING 恢复原回归继续通过。（2 小时）
+- [x] 6.1 D2–D3 修改 `application/agent/GeneralAgentService.recoverQueued/dispatch`、`RunRecoveryService` 及 `adapter/persistence/AgentRunRepository` 必要查询，加入有界周期 QUEUED 补派、进程内待调度去重和异常后继续扫描；复用 version CAS/租约/超时，不新增消息队列、状态机或运行时框架，不等待 1.2 双域资料。验收：RunRecoveryTest 增补一次临时领取失败后无需重启恢复、worker关闭不调度、扫描异常后下一周期继续；不改变现有启动全量对账合同。（3 小时）
+- [x] 6.2 补齐同测试类的重复扫描/多服务抢占、有界扫描及预算不重置回归，更新本变更验收记录和可靠性说明。验收：`mvn -q '-Dtest=RunRecoveryTest,AgentLifecycleTest,AgentStreamTest' test` 在真实测试 PG 上通过；重复补派只有一次有效领取，WAITING/终态/有效租约不被误执行，过期 RUNNING 恢复原回归继续通过。（2 小时）
 
 完成条件：D3 完成 Review P1-04 的 P0 修复及故障注入回归，为 D4 实测提供稳定基础；失败码、租约与预算语义保持既有合同。不能用仅调用启动 recoverQueued 的测试代替周期恢复验收；该组在第 2–4 组前端开发期间并行执行，不等到 D5。
 
