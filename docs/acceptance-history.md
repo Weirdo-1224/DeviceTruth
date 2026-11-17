@@ -1,12 +1,12 @@
 # 历史验收记录（留档）
 
-> 本文件保存从 README 迁入的历史实施与验收记录（2026-11-14 整理）。这些段落描述的是**各历史时点的事实**，不再随项目更新；当前状态一律以 [.planning/STATE.md](../.planning/STATE.md) 为准。内容按原 README 原文保留，仅按阶段归类。
+> 本文件保存从 README 迁入的历史实施与验收记录（2026-11-14 整理）。这些段落描述的是**各历史时点的事实**，不再随项目更新；当前状态一律以 [.planning/STATE.md](gsd-archive/.planning/STATE.md) 为准。内容按原 README 原文保留，仅按阶段归类。
 
 ## V0.1 历史（Core 内核，整体 DONE）
 
 ### 基线与契约（01-01 / 01-02）
 
-- 01-01 的验证、配置策略与局限见 [BASELINE](../.planning/phases/01-baseline-contracts/BASELINE.md)，新输入/追问/引用/风险约定见 [CONTRACTS](../.planning/phases/01-baseline-contracts/CONTRACTS.md)，主循环取舍见 [Runtime ADR](../.planning/phases/01-baseline-contracts/ADR-runtime.md)。测试原型复现命令：`mvn -q '-Dtest=RuntimeComparisonTest' clean test`，不需要密钥或数据库。
+- 01-01 的验证、配置策略与局限见 [BASELINE](gsd-archive/.planning/phases/01-baseline-contracts/BASELINE.md)，新输入/追问/引用/风险约定见 [CONTRACTS](gsd-archive/.planning/phases/01-baseline-contracts/CONTRACTS.md)，主循环取舍见 [Runtime ADR](gsd-archive/.planning/phases/01-baseline-contracts/ADR-runtime.md)。测试原型复现命令：`mvn -q '-Dtest=RuntimeComparisonTest' clean test`，不需要密钥或数据库。
 - 01-01 与 01-02 完成：基线/契约/Runtime 原型，以及使用 interview-postgres 的 PG 会话/消息/QUEUED 切片。
 
 ### V0.1 结论（历史时点）
@@ -154,4 +154,4 @@ CLI 是默认 fat JAR 主类（`Start-Class=io.devicetruth.app.DeviceTruthApplic
 
 ## 交接说明
 
-下一会话先读 [.planning/STATE.md](../.planning/STATE.md)、[PROJECT.md](../.planning/PROJECT.md) 和 [NEXT_SESSION.md](../.planning/NEXT_SESSION.md)。旧 [spec.md](../docs/DeviceTruth_Core_V0.1_Spec_Pack/spec.md)、task.md、state.md 用于理解 legacy 回归，不自动续跑旧任务。真实模型验收与离线结果分开记录；历史 DeepSeek 成功不代表新产品全链路通过。
+下一会话先读 [.planning/STATE.md](gsd-archive/.planning/STATE.md)、[PROJECT.md](gsd-archive/.planning/PROJECT.md) 和 [NEXT_SESSION.md](gsd-archive/.planning/NEXT_SESSION.md)。旧 [spec.md](../docs/DeviceTruth_Core_V0.1_Spec_Pack/spec.md)、task.md、state.md 用于理解 legacy 回归，不自动续跑旧任务。真实模型验收与离线结果分开记录；历史 DeepSeek 成功不代表新产品全链路通过。

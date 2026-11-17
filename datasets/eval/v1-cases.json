@@ -7,7 +7,7 @@
   "source": {
     "path": "docs/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md",
     "section": "11.1 关键端到端用例",
-    "planPath": ".planning/phases/05-workbench-quality/05-02-PLAN.md"
+    "planPath": "docs/gsd-archive/.planning/phases/05-workbench-quality/05-02-PLAN.md"
   },
   "runnerBinding": "PENDING_INTEGRATION",
   "scoring": {

@@ -9,7 +9,6 @@ outputs/logs/
 .tools/
 .m2/
 .codeartsdoer/
-.gsd/
 .env
 /devicetruth.local.properties
 *.log
@@ -19,3 +18,5 @@ outputs/logs/
 frontend/node_modules/
 frontend/dist/
 __pycache__/
+
+.agents/

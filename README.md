@@ -2,7 +2,7 @@
 
 DeviceTruth 是 Java 单 Agent Core：每步读取独立的结构化状态，由 Reasoner 提出一个动作；Gateway 执行至多一个只读能力；Evidence Manager 重建事实并使旧依赖失效；State Manager 提交新版本；Guard 校验结论。模型只能提议动作，不能修改事实、写证据或自行执行工具。CLI 场景使用 `SIMULATED` 资料；产品数据库还包含公开登记和工单文档快照，文档记载与模拟观测均不代表当前现场核实，来源说明见 [数据建设记录](docs/data-enrichment.md)。
 
-**当前状态（2026-11-14）**：Phase 1–4 已完成并提交；Phase 5 三个计划（SSE 实时进度、工作台与 E2E、Docker 部署与运维演练）全部完成并实测——全量 `mvn -o test` 360/0/0/1、前端 36/36+build、浏览器 A–E 五场景 PASS、部署演练 PASS。阶段待两项集中 UAT 确认。权威状态与跨会话接续见 [.planning/STATE.md](.planning/STATE.md) / [.planning/NEXT_SESSION.md](.planning/NEXT_SESSION.md)。
+**历史状态（2026-11-14）**：Phase 1–4 已完成；Phase 5 的 SSE、工作台及部署演练已实施并实测，仍有两项 UAT 待确认。历史验收与未决事项见 [docs/gsd-archive/.planning/STATE.md](docs/gsd-archive/.planning/STATE.md)。后续变更使用 OpenSpec 管理。
 
 技术版本：Java 21、Maven 3.9+、Spring Boot 3.5.16、AgentScope Java 2.0.4（core + DashScope + OpenAI 扩展，不引入 harness 或另一个编排框架）。API 选型依据见 [API Spike](docs/research/notes/agentscope-spike.md)。新增扩展首次构建需要下载依赖。
 
@@ -112,7 +112,7 @@ python scripts/verify_browser_recovery.py --browser-path 'C:/Program Files/Googl
 
 ## 文档导航
 
-- 规划与状态：`.planning/`（STATE / NEXT_SESSION / ROADMAP / 各阶段 SUMMARY 与验收）
+- 规格与变更：`openspec/`；`docs/gsd-archive/.planning/` 保留历史规划和验收记录。
 - 历史实施与验收记录：[docs/acceptance-history.md](docs/acceptance-history.md)
 - 部署运维：[docs/operations.md](docs/operations.md) · V1.0 产品设计：[docs/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md](docs/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md)
 - Legacy 规格：docs/DeviceTruth_Core_V0.1_Spec_Pack/ 与 docs/DeviceTruth_V0.2_S0_S1/（仅理解历史与回归，不自动续跑旧任务）

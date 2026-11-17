@@ -10,7 +10,7 @@
 
 ## 1. 执行摘要与当前项目状态
 
-DeviceTruth 是一个 Java 21 + Spring Boot + PostgreSQL（pgvector）的"证据驱动设备检修 Agent"产品。产品 Agent 主链路已完整落地：会话 → run 状态机（QUEUED→RUNNING→WAITING_FOR_USER→COMPLETED/FAILED/CANCELLED）→ 有界循环调用只读工具 → 答案守卫（引用子集校验、风险校验、"无现场核验不得确诊"）→ SSE 实时事件流 → Vue3 工作台前端。**【验证】** GSD 状态（`.planning/STATE.md`，2026-11-14）：里程碑 v1.0 共 5 阶段 13 计划全部完成，全量测试 360/0/0/1、前端 36/36、部署演练 PASS，Phase 5 待两项人工 UAT 确认（多人共享真实认证、E2E-07 追问硬约束）。
+DeviceTruth 是一个 Java 21 + Spring Boot + PostgreSQL（pgvector）的"证据驱动设备检修 Agent"产品。产品 Agent 主链路已完整落地：会话 → run 状态机（QUEUED→RUNNING→WAITING_FOR_USER→COMPLETED/FAILED/CANCELLED）→ 有界循环调用只读工具 → 答案守卫（引用子集校验、风险校验、"无现场核验不得确诊"）→ SSE 实时事件流 → Vue3 工作台前端。**【验证】** GSD 状态（`docs/gsd-archive/.planning/STATE.md`，2026-11-14）：里程碑 v1.0 共 5 阶段 13 计划全部完成，全量测试 360/0/0/1、前端 36/36、部署演练 PASS，Phase 5 待两项人工 UAT 确认（多人共享真实认证、E2E-07 追问硬约束）。
 
 对即将加入的领域开发者，最重要的五句话：
 
@@ -345,7 +345,7 @@ DeviceTruth 是一个 Java 21 + Spring Boot + PostgreSQL（pgvector）的"证据
 | 专业知识 | automotive-diagnosis references（充电排查、诊断码） | `skills/automotive-diagnosis/references/` | 领域指引（方法，非事实） |
 | 专业知识 | factory-equipment references（控制器维护、安全） | `skills/factory-equipment/references/` | 领域指引 |
 | 维修/配置记录 | 全部内嵌于 fixture JSON（3 条 SC-0245-B 事实、CAR-A…D 证据记录） | `datasets/` | SIMULATED |
-| 测试场景 | legacy A–D；产品 Agent 双域案例（汽车 9/工厂 8 断言，见 `.planning/STATE.md`）；M1-RAG 12 例（6 语义+2 部件号+跨归属负例） | `datasets/eval/m1-rag/cases.json` 等 | SIMULATED |
+| 测试场景 | legacy A–D；产品 Agent 双域案例（汽车 9/工厂 8 断言，见 `docs/gsd-archive/.planning/STATE.md`）；M1-RAG 12 例（6 语义+2 部件号+跨归属负例） | `datasets/eval/m1-rag/cases.json` 等 | SIMULATED |
 | 观测数据 | 无静态文件；仅测试代码内联 SQL 插入 | `DualDomainAgentTest.java:115` | SIMULATED |
 | Skill 规则 | automotive-demo/rules.json（legacy） | `skills/automotive-demo/` | legacy 遗留 |
 | 真实可追溯资料 | **未找到**任何真实行业资料 | — | 全部为工程演示数据 |
@@ -442,7 +442,7 @@ DeviceTruth 是一个 Java 21 + Spring Boot + PostgreSQL（pgvector）的"证据
 3. **Skill 交接**：`skills/<skill-id>/` 分支 + `docs/reviews/` 或 PR 描述中附启用请求（skillId@version、tools 清单、验证 runId 与结果）。
 4. **产品需求**：统一用 GitHub Issue（或仓库 `docs/reviews/` 下体验报告），模板=§2.C 的任务结构（身份/目的/步骤/预期/观察/验收）+ 环境（版本/commit/浏览器）+ runId 证据；主开发者统一评审排期。
 5. **冲突避免**：按 §10.1 分模块认领；队友不动 `src/`、迁移 SQL、配置文件（`application*.properties`）；主开发者改 `skills/` 结构时先与队友同步。
-6. **轻量流程**：分支 → PR（描述=交付物清单+验证证据）→ 对方 review → 合并；数据/Skill 验收结论写在 PR；阶段验收沿用 `.planning/ACCEPTANCE.md` 流程。
+6. **轻量流程**：分支 → PR（描述=交付物清单+验证证据）→ 对方 review → 合并；数据/Skill 验收结论写在 PR；阶段验收沿用 `docs/gsd-archive/.planning/ACCEPTANCE.md` 流程。
 
 ---
 
