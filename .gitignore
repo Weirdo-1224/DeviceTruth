@@ -20,3 +20,4 @@ frontend/dist/
 __pycache__/
 
 .agents/
+outputs/
