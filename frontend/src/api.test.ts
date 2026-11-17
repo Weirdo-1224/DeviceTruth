@@ -13,6 +13,7 @@ import {
   readReferences,
   readRunEvents,
   replyToQuestion,
+  selectContextRefs,
   sendMessage,
   uploadMarkdown,
   waitForFile,
@@ -327,6 +328,53 @@ describe('api 合同', () => {
       userMessage: '结合附件回答',
       attachments: [{ fileId: 'file-1' }]
     })
+  })
+
+  it('深入调查提交选中判断的继承引用：仅 referenceId、无 replyTo、保留原设备', async () => {
+    stubFetch(jsonResponse(runView({ runId: '55555555-5555-4555-8555-555555555555' }), 202))
+    await sendMessage(
+      CONVERSATION_ID,
+      '请深入调查以下候选判断（尚未确诊）：充电中断与 BMS 有关。',
+      'key-investigate-1',
+      [],
+      'CAR-B',
+      ['ref-a', 'ref-b']
+    )
+
+    expect(calls).toHaveLength(1)
+    const headers = new Headers(calls[0].init.headers)
+    expect(headers.get('Idempotency-Key')).toBe('key-investigate-1')
+    expect(bodyOf(calls[0])).toEqual({
+      schemaVersion: 1,
+      userMessage: '请深入调查以下候选判断（尚未确诊）：充电中断与 BMS 有关。',
+      selectedAssetId: 'CAR-B',
+      contextRefs: [{ referenceId: 'ref-a' }, { referenceId: 'ref-b' }]
+    })
+    expect(bodyOf(calls[0]).replyTo).toBeUndefined()
+  })
+
+  it('深入调查不传 contextRefs 时请求体保持旧合同，兼容原有调用', async () => {
+    stubFetch(jsonResponse(runView(), 202))
+    await sendMessage(CONVERSATION_ID, '普通补充现场信息', 'key-plain')
+    expect(bodyOf(calls[0])).toEqual({ schemaVersion: 1, userMessage: '普通补充现场信息' })
+  })
+
+  it('selectContextRefs 保持原顺序去重', () => {
+    expect(selectContextRefs(['ref-1', 'ref-2', 'ref-1', '', 'ref-3', 'ref-2'])).toEqual({
+      referenceIds: ['ref-1', 'ref-2', 'ref-3'],
+      omittedCount: 0
+    })
+  })
+
+  it('selectContextRefs 最多前 10 条并给出省略数量，供按钮旁明示', () => {
+    const ids = Array.from({ length: 13 }, (_, index) => 'ref-' + index)
+    const selection = selectContextRefs(ids)
+    expect(selection.referenceIds).toEqual(ids.slice(0, 10))
+    expect(selection.omittedCount).toBe(3)
+  })
+
+  it('selectContextRefs 对空判断安全返回空清单，无引用也可调查', () => {
+    expect(selectContextRefs([])).toEqual({ referenceIds: [], omittedCount: 0 })
   })
 
   it('每次请求都生成不同的幂等键', () => {

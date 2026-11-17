@@ -433,13 +433,41 @@ export async function waitForFile(fileId: string, timeoutMs = 60_000): Promise<F
   }
 }
 
-/** 发送一条新的自由消息：没有 replyTo，服务器据此开启新的 run。assetId 可空。 */
+/** 深入调查可继承的引用上限，与服务器合同一致：每项仅 referenceId，超出即拒绝。 */
+export const CONTEXT_REF_LIMIT = 10
+
+export interface ContextRefSelection {
+  /** 去重后的 referenceId，保持原顺序，最多 CONTEXT_REF_LIMIT 条。 */
+  referenceIds: string[]
+  /** 超出上限被省略的数量；界面须明示省略而不是静默截断。 */
+  omittedCount: number
+}
+
+/** 从选中判断的引用 ID 构造继承清单：保持原顺序去重，最多前 10 条，其余计入省略数。 */
+export function selectContextRefs(referenceIds: readonly string[]): ContextRefSelection {
+  const seen = new Set<string>()
+  const selected: string[] = []
+  let omittedCount = 0
+  for (const id of referenceIds) {
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    if (selected.length < CONTEXT_REF_LIMIT) selected.push(id)
+    else omittedCount += 1
+  }
+  return { referenceIds: selected, omittedCount }
+}
+
+/**
+ * 发送一条新的自由消息：没有 replyTo，服务器据此开启新的 run。assetId 可空。
+ * contextRefs 为深入调查继承的引用 ID（仅 ID，不含身份/权限），原有调用默认空列表。
+ */
 export function sendMessage(
   conversationId: string,
   userMessage: string,
   requestKey = newRequestKey(),
   attachmentIds: string[] = [],
-  selectedAssetId: string | null = null
+  selectedAssetId: string | null = null,
+  contextRefs: readonly string[] = []
 ): Promise<RunView> {
   return call<RunView>(
     '/api/conversations/' + encodeURIComponent(conversationId) + '/messages',
@@ -449,7 +477,8 @@ export function sendMessage(
         schemaVersion: 1,
         userMessage,
         ...(attachmentIds.length > 0 ? { attachments: attachmentIds.map((fileId) => ({ fileId })) } : {}),
-        ...(selectedAssetId ? { selectedAssetId } : {})
+        ...(selectedAssetId ? { selectedAssetId } : {}),
+        ...(contextRefs.length > 0 ? { contextRefs: contextRefs.map((referenceId) => ({ referenceId })) } : {})
       })
     },
     requestKey

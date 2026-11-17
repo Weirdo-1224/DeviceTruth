@@ -21,13 +21,15 @@ import {
   type Reference,
   type RunEvent,
   type RunView,
-  type SkillSelection
+  type SkillSelection,
+  type AnswerCategory
 } from './api'
 import RunTimeline from './components/RunTimeline.vue'
 import ProfessionalDiagnosisPage from './components/ProfessionalDiagnosisPage.vue'
 import EvidenceComparison from './components/EvidenceComparison.vue'
 import UiIcon from './components/UiIcon.vue'
 import { createRunTimelineController } from './timeline'
+import { buildInvestigationMessage } from './diagnosisViewModel'
 
 const STORAGE_KEY = 'devicetruth.conversation-id'
 
@@ -247,7 +249,9 @@ const pendingQuestion = computed(() => latestRun.value?.pendingQuestion ?? null)
 const failureText = computed(() =>
   run.value && run.value.status === 'FAILED' ? describeFailure(run.value.failureCode) : ''
 )
-const canSend = computed(() => !busy.value && draft.value.trim().length > 0)
+// 5.2：活动轮执行中保留输入草稿，但禁止另开并发提交或深入调查；结束后草稿原样可发。
+const activityActive = computed(() => ['QUEUED', 'RUNNING'].includes(latestRun.value?.status ?? ''))
+const canSend = computed(() => !busy.value && !activityActive.value && draft.value.trim().length > 0)
 
 function describeError(error: unknown): string {
   if (error instanceof ApiError) return `${error.code}：${error.message}`
@@ -374,7 +378,7 @@ function submitOnEnter(event: KeyboardEvent, action: () => Promise<void>): void 
 }
 
 async function submit(): Promise<void> {
-  if (!canSend.value || !conversation.value || pendingQuestion.value) return
+  if (!canSend.value || !conversation.value || pendingQuestion.value || activityActive.value) return
   busy.value = true
   errorText.value = ''
   try {
@@ -387,6 +391,41 @@ async function submit(): Promise<void> {
       selectedAssetId.value || null
     )
     draft.value = ''
+    upsertRun(accepted)
+    pinnedRunId.value = null
+    await refresh()
+    await track(accepted.runId)
+  } catch (error) {
+    errorText.value = describeError(error)
+  } finally {
+    busy.value = false
+  }
+}
+
+/**
+ * 5.1 深入调查：显式新操作，无 replyTo，服务器开新 Run；正文含选中判断原文。
+ * 继承引用只含 referenceId（页面已按授权范围取交集去重）；保留本轮目标消息的 selectedAssetId。
+ * 幂等键按“一次明确的新操作”生成一次，响应丢失不自动以新键重发（先刷新核对历史）。
+ */
+async function investigateClaim(payload: {
+  claimText: string
+  category: AnswerCategory
+  contextRefs: string[]
+  selectedAssetId: string | null
+}): Promise<void> {
+  if (!conversation.value || busy.value || !activityTerminal.value || pendingQuestion.value) return
+  busy.value = true
+  errorText.value = ''
+  try {
+    const message = buildInvestigationMessage(payload.claimText, payload.category)
+    const accepted = await sendMessage(
+      conversation.value.conversationId,
+      message,
+      undefined,
+      [],
+      payload.selectedAssetId,
+      payload.contextRefs
+    )
     upsertRun(accepted)
     pinnedRunId.value = null
     await refresh()
@@ -421,7 +460,17 @@ async function answerQuestion(): Promise<void> {
     await refresh()
     await track(accepted.runId)
   } catch (error) {
-    errorText.value = describeError(error)
+    // 5.2：等待态变化/问题版本冲突时保留草稿、回读当前问题，绝不静默转成普通新消息。
+    if (error instanceof ApiError && (error.code === 'STALE_OR_UNRELATED_REPLY' || error.code === 'REPLY_TARGET_REQUIRED')) {
+      errorText.value = `${error.code}：追问已变化，草稿已保留，请核对上方最新问题后重新提交`
+      try {
+        await refresh()
+      } catch {
+        // 回读失败时保留原提示，草稿不丢
+      }
+    } else {
+      errorText.value = describeError(error)
+    }
   } finally {
     busy.value = false
   }
@@ -590,12 +639,13 @@ onUnmounted(() => {
           </button>
         </nav>
         <ProfessionalDiagnosisPage v-if="run" :run="run" :goal-message="goalMessage"
-                                   :references="references" :skill="selectedSkill" :failure-text="failureText" />
+                                   :references="references" :skill="selectedSkill" :failure-text="failureText"
+                                   :busy="busy" @investigate="investigateClaim" />
       </div>
 
       <form class="composer-wrap" @submit.prevent="submit">
         <div class="composer">
-          <textarea v-model="draft" rows="2" :disabled="busy || pendingQuestion !== null"
+          <textarea v-model="draft" rows="2" :disabled="busy || pendingQuestion !== null || activityActive"
                     aria-label="描述设备问题" placeholder="描述设备现象，或继续追问…"
                     @keydown.enter="submitOnEnter($event, submit)"></textarea>
           <div class="composer-actions">
@@ -616,6 +666,7 @@ onUnmounted(() => {
             <button type="submit" class="primary" :disabled="!canSend || pendingQuestion !== null"><UiIcon name="send" /> 发送</button>
           </div>
           <p v-if="uploading" class="hint" role="status">正在上传并导入，请稍候。</p>
+          <p v-if="activityActive" class="hint" role="status">本轮正在执行，输入已保留为草稿，结束后再发送；等待问题请在上方问题区补答。</p>
           <p v-if="uploadedFile && uploadedFile.parseStatus !== 'PARSED'" class="hint" role="status">
             {{ uploadedFile.originalName }}：{{ uploadedFile.parseStatus }}
             <span v-if="uploadedFile.failureCode">（{{ uploadedFile.failureCode }}）</span>

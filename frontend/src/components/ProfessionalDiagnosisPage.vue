@@ -6,14 +6,16 @@ import ClaimDetail from './ClaimDetail.vue'
 import EvidenceDrawer from './EvidenceDrawer.vue'
 import { buildDiagnosisViewModel } from '../diagnosisViewModel'
 import { createClaimSelection } from '../claimSelection'
-import type { MessageView, Reference, RunView, SkillSelection } from '../api'
+import { selectContextRefs } from '../api'
+import type { AnswerCategory, MessageView, Reference, RunView, SkillSelection } from '../api'
 
 /**
  * 专业诊断工作台单页：顶部任务区 + 左侧判断区 + 中央详情区 + 右侧证据抽屉 + 底部协作状态条。
  * 全部内容来自持久 Run 与已登记引用的确定性投影（diagnosisViewModel），不发起模型调用；
  * 判断选择只切换查看焦点（claimSelection，零请求）；证据抽屉只读展示已登记引用。
- * 没有候选原因时按实际类别安全展示，不伪造候选；普通文字继续调查沿用 App 输入框。
- * 无个人模式切换与关系图入口。
+ * 深入调查是显式新操作：提交选中判断原文与继承引用开启新 Run（无 replyTo），
+ * 执行中/未选中/提交中禁用；普通文字继续调查沿用 App 输入框，作为用户报告开新轮。
+ * 没有候选原因时按实际类别安全展示，不伪造候选；无个人模式切换与关系图入口。
  */
 const props = defineProps<{
   run: RunView
@@ -21,6 +23,18 @@ const props = defineProps<{
   references: Reference[]
   skill?: SkillSelection | null
   failureText?: string
+  /** App 全局提交中：深入调查同样防重复点击。 */
+  busy?: boolean
+}>()
+
+const emit = defineEmits<{
+  /** 深入调查选中判断：由 App 组正文并发送，携带继承引用与本轮所选设备。 */
+  investigate: [payload: {
+    claimText: string
+    category: AnswerCategory
+    contextRefs: string[]
+    selectedAssetId: string | null
+  }]
 }>()
 
 const model = computed(() => buildDiagnosisViewModel({ run: props.run, goalMessage: props.goalMessage ?? null, references: props.references }))
@@ -46,6 +60,37 @@ const selectedClaim = computed(() => {
   const index = selection.selectedIndex.value
   return index === null ? null : model.value.claims[index] ?? null
 })
+
+// 5.1 深入调查：contextRefs 取所选判断关联且本轮已取得的引用，按原顺序去重、最多 10 条；
+// 按钮旁明示继承清单与省略数量，无引用也可调查。
+const investigation = computed(() => {
+  const claim = selectedClaim.value
+  if (!claim) return null
+  const available = new Map(model.value.references.map((reference) => [reference.referenceId, reference]))
+  const inheritedIds = claim.referenceIds.filter((id) => available.has(id))
+  const chosen = selectContextRefs(inheritedIds)
+  return {
+    claim,
+    contextRefs: chosen.referenceIds,
+    omittedCount: chosen.omittedCount,
+    inheritedRefs: chosen.referenceIds.map((id) => available.get(id)!)
+  }
+})
+
+const canInvestigate = computed(() =>
+  props.run.status === 'COMPLETED' && investigation.value !== null && !props.busy)
+
+function requestInvestigation(): void {
+  const plan = investigation.value
+  if (!canInvestigate.value || !plan) return
+  // 选择动作零提交：只有点击本按钮才发请求；幂等键由 App 按“一次明确新操作”生成。
+  emit('investigate', {
+    claimText: plan.claim.text,
+    category: model.value.category ?? 'KNOWLEDGE',
+    contextRefs: plan.contextRefs,
+    selectedAssetId: model.value.selectedAssetId
+  })
+}
 
 // 证据抽屉：只读展示某条已登记引用；关闭不改变判断选中状态。
 const openReferenceId = ref<string | null>(null)
@@ -164,7 +209,21 @@ const runRoundFields = computed(() => [
     </div>
 
     <footer class="pro-footer">
-      <span><UiIcon name="chat" /> 可在下方输入框以普通文字继续调查；执行中或未结束时输入按既有规则保留草稿。</span>
+      <div class="investigate">
+        <button type="button" class="primary investigate-button" :disabled="!canInvestigate"
+                @click="requestInvestigation">
+          <UiIcon name="target" /> {{ busy ? '正在提交…' : '深入调查选中判断' }}
+        </button>
+        <span v-if="investigation" class="hint">
+          <template v-if="investigation.inheritedRefs.length">
+            将继承 {{ investigation.inheritedRefs.length }} 条引用：{{ investigation.inheritedRefs.map((ref) => '《' + ref.title + '》').join('、') }}
+          </template>
+          <template v-else>选中判断暂无已关联引用，仍可直接深入调查</template>
+          <template v-if="investigation.omittedCount">；另有 {{ investigation.omittedCount }} 条超出上限已省略</template>
+        </span>
+        <span v-else class="hint">选中一条判断后可深入调查；普通文字请在下方输入框继续调查。</span>
+      </div>
+      <span><UiIcon name="chat" /> 现场补充将作为“用户报告”在下方输入框提交并开启新一轮调查，不升级为核验事实。</span>
     </footer>
   </section>
 
@@ -189,7 +248,10 @@ const runRoundFields = computed(() => [
 .summary { font-size: 15px; font-weight: 700; margin: 0; line-height: 1.48; }
 .round-field { border-top: 1px solid var(--line); padding: 8px 2px 0; margin-top: 8px; }
 .round-field ul { margin: 0; padding-left: 18px; line-height: 1.5; font-size: 13px; }
-.pro-footer { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.pro-footer { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+.investigate { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.investigate-button { display: inline-flex; align-items: center; gap: 5px; }
+.investigate .hint { flex: 1 1 260px; }
 .failure-evidence { margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: #fff; }
 .failure-evidence h3 { font-size: 13px; margin: 0 0 6px; display: flex; align-items: center; gap: 4px; color: var(--accent); }
 .citation-ref { cursor: pointer; display: block; border: 0; padding: 3px 0; background: none; color: var(--accent); font-weight: 650; text-align: left; }

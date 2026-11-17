@@ -32,8 +32,8 @@
 
 ## 5. P0 — 深入调查与补答往返（依赖 4，D4，5 小时）
 
-- [ ] 5.1 在 `api.ts` 兼容扩展 sendMessage 的 contextRefs；专业页显式提交选中判断原文、原设备与合法引用，防重复并复用同次请求幂等键。验收：D4 浏览器实测选择已有判断、深入调查返回不同 runId、正确继承授权引用、新结果展示且旧结果可回看；核对请求 contextRefs 及新 Run 重新登记的引用关联，选择动作零提交。`api.test.ts` 覆盖无 replyTo、schemaVersion、UUID 请求键、去重且最多10条/省略提示；复用 ResourceAuthorizationTest 并补必要的新引用 ID 断言。（3 小时）
-- [ ] 5.2 将普通现场补充与 ASK_USER 表单分流到 sendMessage/replyToQuestion；执行中保留草稿且禁并发提交，过期补答保留输入并回读。验收：D4 实测用户补充现场信息返回新 runId；实际触发 WAITING_FOR_USER 后完整三元组补答恢复同一 runId，Run 数量不增加；用既有 AgentLifecycleTest/AgentStreamTest 及前端请求回归验证问题版本冲突不会转成新消息。另实测无候选原因时普通文字仍可开启后续 Run，界面不伪造候选并明确用户报告语义。（2 小时）
+- [x] 5.1 在 `api.ts` 兼容扩展 sendMessage 的 contextRefs；专业页显式提交选中判断原文、原设备与合法引用，防重复并复用同次请求幂等键。验收：D4 浏览器实测选择已有判断、深入调查返回不同 runId、正确继承授权引用、新结果展示且旧结果可回看；核对请求 contextRefs 及新 Run 重新登记的引用关联，选择动作零提交。`api.test.ts` 覆盖无 replyTo、schemaVersion、UUID 请求键、去重且最多10条/省略提示；复用 ResourceAuthorizationTest 并补必要的新引用 ID 断言。（3 小时）
+- [x] 5.2 将普通现场补充与 ASK_USER 表单分流到 sendMessage/replyToQuestion；执行中保留草稿且禁并发提交，过期补答保留输入并回读。验收：D4 实测用户补充现场信息返回新 runId；实际触发 WAITING_FOR_USER 后完整三元组补答恢复同一 runId，Run 数量不增加；用既有 AgentLifecycleTest/AgentStreamTest 及前端请求回归验证问题版本冲突不会转成新消息。另实测无候选原因时普通文字仍可开启后续 Run，界面不伪造候选并明确用户报告语义。（2 小时）
 
 完成条件：D4 必须保留六项实际执行证据：选择已有判断、深入调查创建新 Run、正确继承授权引用、新结果展示且旧结果回看、用户补充信息开启后续 Run、ASK_USER 补答恢复同一 Run。不得仅凭代码走读或测试计划标为通过；此前 D4 前至少一条真模+真实授权资料端到端调查也必须完成。若真模未给候选原因，可选择已有一般判断；无 claims 时安全展示并走普通文字入口，选择/继承分支另用已有合法持久结果实测。若真模未发 ASK_USER，使用既有协议替身实际触发等待并验证补答，记录为协议路径，不冒充真模验收。D4 缺任一核心证据立即停止视觉打磨和所有 P1；仍需完成 `investigation-continuation` 其他边界场景回归。
 

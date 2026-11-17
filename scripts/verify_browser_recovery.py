@@ -12,12 +12,61 @@ import uuid
 from verify_general_agent import ROOT, Server, expect, import_manual
 
 
+def serve_frontend(product_ref):
+    """ serve frontend/dist on a random localhost port, proxying /api to the product server.
+    product_ref is a zero-arg callable returning the CURRENT Server (callers may restart it);
+    returns (httpd, url); caller must shutdown()/server_close() the httpd. """
+    frontend = ROOT / "frontend" / "dist"
+    if not (frontend / "index.html").is_file():
+        raise RuntimeError("Build the Vue frontend before running browser verification.")
+
+    class Frontend(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=frontend, **kwargs)
+
+        def do_GET(self):
+            if self.path.startswith("/api/"):
+                self.proxy()
+            else:
+                super().do_GET()
+
+        def do_POST(self):
+            self.proxy()
+
+        def log_message(self, *_):
+            pass
+
+        def proxy(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            request = urllib.request.Request(
+                product_ref().base + self.path,
+                data=self.rfile.read(length) if length else None,
+                headers={key: value for key, value in self.headers.items()
+                         if key.lower() in {"accept", "content-type", "idempotency-key"}},
+                method=self.command,
+            )
+            try:
+                response = urllib.request.urlopen(request, timeout=30)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                self.send_response(response.code)
+                self.send_header("Content-Type", response.headers.get("Content-Type", "application/json"))
+                self.end_headers()
+                try:
+                    self.wfile.write(response.read())
+                except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                    pass
+
+    ui = ThreadingHTTPServer(("127.0.0.1", 0), Frontend)
+    thread = Thread(target=ui.serve_forever, daemon=True)
+    thread.start()
+    return ui, f"http://127.0.0.1:{ui.server_port}"
+
+
 def verify(browser_path, output):
     from playwright.sync_api import expect as expect_page, sync_playwright
 
-    frontend = ROOT / "frontend" / "dist"
-    if not (frontend / "index.html").is_file():
-        raise RuntimeError("Build the Vue frontend before running browser recovery.")
     owner = "browser-" + uuid.uuid4().hex[:12]
     project = "browser-recovery"
 
@@ -28,50 +77,8 @@ def verify(browser_path, output):
 
     product = start_product()
     ui = None
-    thread = None
     try:
-        class Frontend(SimpleHTTPRequestHandler):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, directory=frontend, **kwargs)
-
-            def do_GET(self):
-                if self.path.startswith("/api/"):
-                    self.proxy()
-                else:
-                    super().do_GET()
-
-            def do_POST(self):
-                self.proxy()
-
-            def log_message(self, *_):
-                pass
-
-            def proxy(self):
-                length = int(self.headers.get("Content-Length", "0"))
-                request = urllib.request.Request(
-                    product.base + self.path,
-                    data=self.rfile.read(length) if length else None,
-                    headers={key: value for key, value in self.headers.items()
-                             if key.lower() in {"accept", "content-type", "idempotency-key"}},
-                    method=self.command,
-                )
-                try:
-                    response = urllib.request.urlopen(request, timeout=30)
-                except urllib.error.HTTPError as error:
-                    response = error
-                with response:
-                    self.send_response(response.code)
-                    self.send_header("Content-Type", response.headers.get("Content-Type", "application/json"))
-                    self.end_headers()
-                    try:
-                        self.wfile.write(response.read())
-                    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
-                        pass
-
-        ui = ThreadingHTTPServer(("127.0.0.1", 0), Frontend)
-        thread = Thread(target=ui.serve_forever, daemon=True)
-        thread.start()
-        url = f"http://127.0.0.1:{ui.server_port}"
+        ui, url = serve_frontend(lambda: product)
         import_manual(product)
         original = "新能源汽车充电中断，没有故障码，先查什么资料？"
         reply = "直流快充，SOC 约 40%"
@@ -142,7 +149,6 @@ def verify(browser_path, output):
         if ui is not None:
             ui.shutdown()
             ui.server_close()
-            thread.join()
         product.close()
 
 

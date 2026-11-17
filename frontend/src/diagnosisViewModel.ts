@@ -233,3 +233,12 @@ export function buildDiagnosisViewModel(input: DiagnosisViewModelInput): Diagnos
     events: toEventViews(input.events ?? [])
   }
 }
+
+/**
+ * 深入调查请求正文：用户可见，不含模型生成的目的或隐藏指令。
+ * 仅 POSSIBLE_CAUSES 类别的 claims 称为“候选判断（尚未确诊）”，其余类别统称“判断”。
+ */
+export function buildInvestigationMessage(claimText: string, category: AnswerCategory): string {
+  const label = category === 'POSSIBLE_CAUSES' ? '候选判断（尚未确诊）' : '判断'
+  return `请深入调查以下${label}：${claimText}。请结合继承资料重新取证，说明依据、不确定点和建议。`
+}

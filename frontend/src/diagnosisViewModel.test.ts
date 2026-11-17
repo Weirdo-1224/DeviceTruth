@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDiagnosisViewModel, ROUND_FIELDS_NOTE, toReferenceView } from './diagnosisViewModel'
+import { buildDiagnosisViewModel, buildInvestigationMessage, ROUND_FIELDS_NOTE, toReferenceView } from './diagnosisViewModel'
 import type { AgentResult, MessageView, Reference, RunEvent, RunView } from './api'
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111'
@@ -225,5 +225,19 @@ describe('diagnosisViewModel 映射', () => {
     expect(model.summary).toBeNull()
     expect(model.references).toEqual([])
     expect(model.events).toEqual([])
+  })
+})
+
+describe('深入调查请求正文', () => {
+  it('候选原因类别称“候选判断（尚未确诊）”，正文用户可见且不带隐藏指令', () => {
+    const message = buildInvestigationMessage('充电中断与 BMS 绝缘检测有关', 'POSSIBLE_CAUSES')
+    expect(message).toBe('请深入调查以下候选判断（尚未确诊）：充电中断与 BMS 绝缘检测有关。' +
+      '请结合继承资料重新取证，说明依据、不确定点和建议。')
+  })
+
+  it('非候选原因类别按实际语义统称“判断”，不伪造候选口径', () => {
+    const message = buildInvestigationMessage('手册建议先读取故障日志', 'KNOWLEDGE')
+    expect(message).toContain('请深入调查以下判断：手册建议先读取故障日志。')
+    expect(message).not.toContain('候选')
   })
 })
