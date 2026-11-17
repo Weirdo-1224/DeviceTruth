@@ -8,6 +8,7 @@ import {
   listAssets,
   listConversations,
   readConversation,
+  readReferences,
   readRunSkill,
   replyToQuestion,
   sendMessage,
@@ -17,6 +18,7 @@ import {
   type ConversationView,
   type FileView,
   type MessageView,
+  type Reference,
   type RunEvent,
   type RunView,
   type SkillSelection
@@ -60,7 +62,36 @@ const shownMessages = computed(() => foldedMessages.value.length
   ? [messages.value[0], messages.value[messages.value.length - 1]]
   : messages.value)
 const goalMessage = computed(() => messages.value.find(message => message.messageId === run.value?.goalMessageId))
-const references = computed(() => run.value?.result?.references ?? [])
+/**
+ * 本轮已登记引用：有结果时直接用 result.references；失败/取消轮没有结果，
+ * 经 /references 回读已取回证据（3.2：失败轮也能查看已登记资料）。run 切换后以 runId 丢弃迟到响应。
+ */
+const references = ref<Reference[]>([])
+watch(
+  () => (run.value ? run.value.runId + ':' + run.value.status : ''),
+  async () => {
+    const current = run.value
+    if (!current) {
+      references.value = []
+      return
+    }
+    if (current.result) {
+      references.value = current.result.references ?? []
+      return
+    }
+    if (current.status === 'FAILED' || current.status === 'CANCELLED') {
+      try {
+        const loaded = await readReferences(current.runId)
+        if (run.value?.runId === current.runId) references.value = loaded
+      } catch {
+        if (run.value?.runId === current.runId) references.value = []
+      }
+      return
+    }
+    references.value = []
+  },
+  { immediate: true }
+)
 const sources = computed(() => [...new Map(references.value.map(reference => [
   JSON.stringify([reference.sourceType, reference.sourceId, reference.sourceVersion]), reference
 ])).values()])
@@ -516,8 +547,7 @@ onUnmounted(() => {
           <button class="primary" :disabled="busy || !replyDraft.trim()" @click="answerQuestion">提交补充信息</button>
         </section>
         <ProfessionalDiagnosisPage v-if="run && isTerminal" :run="run" :goal-message="goalMessage"
-                                   :references="references" :skill="selectedSkill" :failure-text="failureText"
-                                   @toggle-reference="showReference" />
+                                   :references="references" :skill="selectedSkill" :failure-text="failureText" />
       </div>
 
       <form class="composer-wrap" @submit.prevent="submit">

@@ -104,3 +104,28 @@
 - **真实 embedding 未验证**：当前为 deterministic 替身，工业域查询出现跨域噪声（充电手册命中工业查询，见 0de22846 引用及 2fd6d931 的未命中报告），相关性与真实向量库效果的差距单列未验证。
 - 命名说明：任务书“SC-0245-B/CAR-B”对应数据集 fixtures 名；实际种子资产 ID 为 SN-0245（工业）与 EV-DEMO-004（汽车），本批按实际资产执行。
 - 未连接真机；ASK_USER 触发与否取决于模型，本批两轮均未触发（不伪造）。
+
+## 第 3 批（2026-11-17）：任务 3.1 判断聚焦 + 3.2 证据抽屉
+
+### 修改文件
+
+- 新增 `frontend/src/claimSelection.ts`：判断选中纯状态模块（`createClaimSelection`：select/reset/sync），只改变查看焦点，无 fetch/模型调用面；Run 或结果替换时 sync 重置并默认选中第一条，无判断为 null，越界回退。
+- 新增 `frontend/src/components/ClaimList.vue`：判断列表（类别标题 + 条数），点击仅 emit select。
+- 新增 `frontend/src/components/ClaimDetail.vue`：选中判断原文、确定性标签、按 ID 连接的真实引用按钮（打开证据抽屉）、无引用说明（当前无已关联引用/引用暂不可用）。
+- 新增 `frontend/src/components/EvidenceDrawer.vue`：右侧抽屉展示引用真实字段（标题、来源类型+受控标签、来源 ID、来源版本、切片、定位[章节或页码，缺失显示“未提供页码或章节”]、数据性质、摘录），附 AUTHORIZED/FIELD_OBSERVATION 语义提示；点击遮罩或关闭按钮收起，不改变判断选中（回到原焦点）。
+- 修改 `frontend/src/components/ProfessionalDiagnosisPage.vue`：判断区/详情区改用 ClaimList+ClaimDetail，选中状态经 claimSelection；证据抽屉页面内自管；FAILED/CANCELLED 分支新增“本轮已取回证据”列表（可开抽屉）。
+- 修改 `frontend/src/App.vue`：引用加载改为 watch——有结果用 result.references；失败/取消轮无结果时经 `readReferences` 回读已登记证据（迟到响应按 runId 丢弃）；不再向页面转发 toggle-reference（抽屉内聚）。
+
+### 测试与构建（实际执行）
+
+- 新增 `frontend/src/claimSelection.test.ts` 5 条：初始/sync 默认第一条/无判断 null、切换两条判断只改下标、数量收缩越界回退、判断-引用按序连接（含选中键）、缺引用“引用暂不可用”不造虚构来源。
+- `npm run test -- --run`：3 文件 **51/51 通过**（原 46 + 新增 5）。`npm run build` 通过；frontend 镜像重建部署 8081。
+- 浏览器核验（`scripts/verify_pro_page_31_32.py`，Playwright + Chrome，22/22 断言通过，截图 `outputs/validation/pro-page-3.1-3.2.png`、`pro-page-3.2-failed.png`）：
+  - 3.1：类别标题“候选原因（5）”、默认选中第一条、点击第二/第一条详情切换与还原、**交互期间 POST 数=0**、无引用判断显示说明。
+  - 3.2：抽屉打开含 来源类型/来源 ID/来源版本/切片/数据性质/摘录 字段；缺页码展示实际章节、无伪造页码；关闭后判断焦点保持；开关抽屉期间 POST 数=0。
+  - 失败轮（会话 9641d9ab…/Run a6200c43…，FAILED）：安全失败卡片 + “本轮已取回证据”区（readReferences 生效，4 条已登记证据），证据可开抽屉、字段完整。
+
+### 未验证项
+
+- 用户自述（MessageView.content）不出现在引用与抽屉中（结构性保证：抽屉只渲染服务端引用），未单独造浏览器用例；留给 5.2/7.1 与补答流一并覆盖。
+- 运行中/排队轮抽屉复用路径未在浏览器实测（当前页面仅终态渲染），失败轮已实测，覆盖 3.2 验收要点。
