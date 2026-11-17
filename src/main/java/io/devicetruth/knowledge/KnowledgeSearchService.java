@@ -344,6 +344,4 @@ public final class KnowledgeSearchService {
 
     /** 供工具层描述 schema 时使用，避免把上限写成魔法数字。 */
     public int maxHits() { return maxHits; }
-
-    public String embeddingProfileVersion() { return embeddings.profile().profileVersion(); }
 }

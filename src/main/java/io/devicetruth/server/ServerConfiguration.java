@@ -14,7 +14,6 @@ import io.devicetruth.knowledge.KnowledgeTools;
 import io.devicetruth.knowledge.DeterministicEmbeddingClient;
 import io.devicetruth.knowledge.OpenAiCompatibleEmbeddingClient;
 import java.nio.file.Path;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;

@@ -122,7 +122,6 @@ public final class DiagnosisRunService {
     public record Accepted(UUID diagnosisId, ExecutionStatus executionStatus) {}
 
     private final ConversationService conversations;
-    private final SupportedScenarioCatalog catalog;
     private final CapabilityGateway gateway;
     private final ReasonerFactory reasonerFactory;
     private final Budget budget;
@@ -132,14 +131,13 @@ public final class DiagnosisRunService {
     private final ThreadPoolExecutor executor;
     private final Map<UUID, RunSnapshot> runs = new LinkedHashMap<>();
 
-    public DiagnosisRunService(ConversationService conversations, SupportedScenarioCatalog catalog,
+    public DiagnosisRunService(ConversationService conversations,
                                CapabilityGateway gateway, ReasonerFactory reasonerFactory, Budget budget,
                                RunReportWriter reportWriter, Path outputRoot,
                                int maxConcurrentRuns, int maxQueue, int maxStoredRuns) {
         if (maxConcurrentRuns < 1 || maxQueue < 0 || maxStoredRuns < 1)
             throw new IllegalArgumentException("Run limits must be positive");
         this.conversations = conversations;
-        this.catalog = catalog;
         this.gateway = gateway;
         this.reasonerFactory = reasonerFactory;
         this.budget = budget;
@@ -162,7 +160,7 @@ public final class DiagnosisRunService {
      * 调用方必须先完成会话侧（容量预检 + USER/SYSTEM 原子写入），失败请求不得留下半条消息。
      */
     public Accepted submit(DiagnosisGoal goal, UUID sessionId) {
-        var session = conversations.require(sessionId);
+        conversations.require(sessionId);
         UUID diagnosisId = UUID.randomUUID();
         var snapshot = new RunSnapshot(diagnosisId, sessionId, goal.requestedAt(), goal.diagnosisAsOf());
         synchronized (runs) {

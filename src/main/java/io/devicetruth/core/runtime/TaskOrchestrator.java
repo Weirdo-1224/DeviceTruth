@@ -606,6 +606,7 @@ public final class TaskOrchestrator {
     }
     /** 推理器失败异常：code 为稳定的错误码（如 DASHSCOPE_API_KEY_MISSING），区别于普通运行异常。 */
     public static final class ReasonerFailure extends RuntimeException {
+        private static final long serialVersionUID = 1L;
         private final String code;
         public ReasonerFailure(String code) { super(code); this.code=code; }
         public String code() { return code; }

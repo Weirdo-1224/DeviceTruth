@@ -101,13 +101,13 @@ public class LegacyConfiguration {
         public String code() { return code; }
     }
 
-    @Bean DiagnosisRunService diagnosisRunService(ConversationService conversations, SupportedScenarioCatalog catalog,
+    @Bean DiagnosisRunService diagnosisRunService(ConversationService conversations,
             CapabilityGateway gateway, ReasonerFactory reasonerFactory,
             @Value("${devicetruth.run.output-root:outputs/runs}") String outputRoot,
             @Value("${devicetruth.run.max-concurrent-runs:2}") int maxConcurrentRuns,
             @Value("${devicetruth.run.max-queue:10}") int maxQueue,
             @Value("${devicetruth.run.max-stored-runs:100}") int maxStoredRuns) {
-        return new DiagnosisRunService(conversations, catalog, gateway, reasonerFactory, Budget.defaults(),
+        return new DiagnosisRunService(conversations, gateway, reasonerFactory, Budget.defaults(),
                 new RunReportWriter(), Path.of(outputRoot), maxConcurrentRuns, maxQueue, maxStoredRuns);
     }
 

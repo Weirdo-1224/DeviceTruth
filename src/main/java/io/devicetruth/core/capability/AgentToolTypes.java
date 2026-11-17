@@ -26,14 +26,12 @@ public final class AgentToolTypes {
         }
 
         /** 顶层必填参数名，来自 JSON Schema 的 required。 */
-        @SuppressWarnings("unchecked")
         public List<String> requiredParameters() {
             Object required = inputSchema.get("required");
             return required instanceof List<?> list ? list.stream().map(String::valueOf).toList() : List.of();
         }
 
         /** 顶层允许的参数名，来自 JSON Schema 的 properties；未列出的键一律拒绝。 */
-        @SuppressWarnings("unchecked")
         public java.util.Set<String> allowedParameters() {
             Object properties = inputSchema.get("properties");
             if (!(properties instanceof Map<?, ?> map)) return java.util.Set.of();

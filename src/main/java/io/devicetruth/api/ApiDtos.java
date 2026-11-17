@@ -1,7 +1,6 @@
 package io.devicetruth.api;
 
 import io.devicetruth.application.ExecutionStatus;
-import io.devicetruth.application.QueryAnswer;
 import io.devicetruth.application.RunEventViews.RunEventView;
 import io.devicetruth.application.SafePublicFields.OpenNeed;
 import java.time.Instant;

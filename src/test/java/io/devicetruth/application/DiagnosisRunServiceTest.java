@@ -29,15 +29,13 @@ class DiagnosisRunServiceTest {
     @TempDir Path outputRoot;
 
     private JsonRepositories repositories;
-    private SupportedScenarioCatalog catalog;
     private ConversationService conversations;
     private DiagnosisRunService service;
 
     private void start(String reasonerName, java.util.function.Supplier<Reasoner> creator, int concurrent, int queue) {
         repositories = repositories();
-        catalog = catalog();
         conversations = new ConversationService(10, 40);
-        service = new DiagnosisRunService(conversations, catalog,
+        service = new DiagnosisRunService(conversations,
                 CapabilityGateway.standard(repositories, repositories, repositories),
                 ReasonerFactory.of(reasonerName, creator), Budget.defaults(), new RunReportWriter(), outputRoot,
                 concurrent, queue, 100);
@@ -56,11 +54,6 @@ class DiagnosisRunServiceTest {
 
     private static JsonRepositories repositories() {
         try { return JsonRepositories.fromClasspath(); }
-        catch (Exception e) { throw new IllegalStateException(e); }
-    }
-
-    private static SupportedScenarioCatalog catalog() {
-        try { return SupportedScenarioCatalog.fromClasspath(); }
         catch (Exception e) { throw new IllegalStateException(e); }
     }
 
