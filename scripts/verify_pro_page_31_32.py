@@ -1,85 +1,114 @@
-# 第3批浏览器核验：3.1 判断选中（零提交）+ 3.2 证据抽屉（字段/关闭/失败轮证据）。
-import sys
-from playwright.sync_api import sync_playwright
+"""用真实 PostgreSQL、脚本化推理及既有双域样本复验专业页。"""
 
-BASE = "http://127.0.0.1:8081"
-CONV_OK = "ca1ae174-37ff-4dff-be31-38bdbc6b33b0"   # COMPLETED / 5 claims / 9 refs
-CONV_FAILED = "9641d9ab-2b97-4e76-88f6-c037dfc508b2"  # FAILED / 4 refs，无结果
+import json
+from uuid import uuid4
 
-errors = []
+from playwright.sync_api import expect as on_page, sync_playwright
 
-
-def check(condition, label):
-    print(("PASS " if condition else "FAIL ") + label)
-    if not condition:
-        errors.append(label)
+from verify_browser_recovery import serve_frontend
+from verify_general_agent import FACTORY_GOAL, ROOT, Server, await_run, expect, import_manual
 
 
-with sync_playwright() as p:
-    browser = p.chromium.launch(channel="chrome", headless=True)
-    page = browser.new_page(viewport={"width": 1400, "height": 950})
+def seed(product, text, asset):
+    conversation = expect(product.request("POST", "/api/conversations", {}), 201)
+    cid = conversation["conversationId"]
+    response = product.request("POST", f"/api/conversations/{cid}/messages",
+                               {"schemaVersion": 1, "userMessage": text, "selectedAssetId": asset},
+                               {"Idempotency-Key": str(uuid4())})
+    run = await_run(product, expect(response, 202)["runId"], timeout=30)
+    assert run["status"] == "COMPLETED", run["status"]
+    refs = expect(product.request("GET", f"/api/runs/{run['runId']}/references"), 200)
+    assert refs and run["result"]["claims"]
+    return cid, run, refs
 
-    # ---- 3.1 判断选中：只切 UI，零提交 ----
-    api_requests = []
-    page.on("request", lambda r: api_requests.append(r.method + " " + r.url) if "/api/" in r.url else None)
-    page.goto(BASE, wait_until="networkidle")
-    page.evaluate(f'window.localStorage.setItem("devicetruth.conversation-id", "{CONV_OK}")')
-    page.reload(wait_until="networkidle")
-    page.wait_for_timeout(1800)
-    api_requests.clear()  # 只统计交互期间的请求
 
-    body = page.inner_text("body")
-    check("候选原因（5）" in body, "3.1 类别标题正确（候选原因（5））")
-    check("判断详情" in body, "3.1 默认选中第一条并显示判断详情")
+def main():
+    output = ROOT / "outputs" / "validation" / f"pro-page-dual-{uuid4().hex[:8]}"
+    output.mkdir(parents=True)
+    product = Server("pro-page-" + uuid4().hex[:8], "pro-page-dual", "deterministic", "scripted",
+                     True, output, fixture_assets="SC-0245-B,CAR-B")
+    ui = None
+    evidence = {}
+    try:
+        import_manual(product)
+        samples = [
+            ("automotive", "候选原因", seed(product, "新能源汽车充电中断，使用直流快充，如何排查？", "CAR-B")),
+            ("industrial", "待人工核验", seed(product, FACTORY_GOAL, "SC-0245-B")),
+        ]
+        ui, url = serve_frontend(lambda: product)
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(channel="chrome", headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 950})
+            posts = []
+            page.on("request", lambda request: posts.append(request.url) if request.method == "POST" else None)
+            page.add_init_script(f"localStorage.setItem('devicetruth.conversation-id', '{samples[0][2][0]}')")
+            page.goto(url)
+            for domain, label, (cid, run, refs) in samples:
+                result = run["result"]
+                sidebar_item = page.locator(f".pro-sidebar [data-conversation-id='{cid}']")
+                sidebar_item.click()
+                on_page(sidebar_item).to_have_attribute("aria-current", "true")
+                panel = page.locator(f".pro-page[data-run-id='{run['runId']}']")
+                on_page(panel.locator(".risk-chip")).to_contain_text(result["riskLevel"])
+                on_page(panel.locator(".pro-nav")).to_contain_text(label)
+                claims = panel.locator("button.claim-select")
+                on_page(claims).to_have_count(len(result["claims"]))
+                before = len(posts)
+                if len(result["claims"]) > 1:
+                    claims.nth(1).click()
+                    on_page(panel.locator(".detail-text")).to_have_text(result["claims"][1]["text"])
+                    claims.first.click()
+                on_page(panel.locator(".detail-text")).to_have_text(result["claims"][0]["text"])
+                on_page(panel.locator(".pro-sources")).to_be_visible()
+                on_page(page.get_by_role("dialog", name="证据详情")).not_to_be_visible()
+                page.get_by_role("button", name="展开完整结果").click()
+                on_page(panel.get_by_test_id("full-result")).to_contain_text(label)
+                reference = next(item for item in refs if item["referenceId"] in result["claims"][0]["referenceIds"])
+                opener = panel.locator(f"[data-evidence-id='{reference['referenceId']}']").first
+                opener.click()
+                dialog = page.get_by_role("dialog", name="证据详情")
+                on_page(dialog.locator(".modal-excerpt")).to_contain_text(reference["excerpt"])
+                if reference.get("section"):
+                    on_page(dialog).to_contain_text(reference["section"])
+                page.keyboard.press("Shift+Tab")
+                assert dialog.evaluate("(element) => element.contains(document.activeElement)")
+                page.get_by_role("button", name="关闭证据抽屉").click()
+                on_page(opener).to_be_focused()
+                page.get_by_role("button", name="查看调查记录").click()
+                on_page(page.locator(".pro-drawer [data-type='RUN_ANSWER']")).to_be_visible()
+                page.get_by_role("button", name="关闭调查记录").click()
+                skill = expect(product.request("GET", f"/api/runs/{run['runId']}/skill"), 200)
+                on_page(panel).to_contain_text(skill["skillId"])
+                assert len(posts) == before
+                page.screenshot(path=output / f"{domain}.png", full_page=True)
+                evidence[domain] = {"runId": run["runId"], "category": result["category"], "risk": result["riskLevel"],
+                                    "references": len(refs), "skill": skill["skillId"]}
+                investigate = page.get_by_role("button", name="深入调查")
+                on_page(investigate).to_be_enabled()
+                if domain == "industrial":
+                    investigate.click()
+                    assert len(posts) == before
+                    with page.expect_response(lambda response: response.request.method == "POST"
+                                              and response.url.endswith("/messages")) as accepted:
+                        page.get_by_role("button", name="发送", exact=True).click()
+                    assert accepted.value.status == 202
+                    payload = accepted.value.request.post_data_json
+                    assert result["claims"][0]["text"] in payload["userMessage"]
+                    assert payload["selectedAssetId"] == "SC-0245-B"
+                    assert {item["referenceId"] for item in payload["contextRefs"]} == set(result["claims"][0]["referenceIds"])
+                    assert "asOf" not in payload
+                    detail = expect(product.request("GET", f"/api/conversations/{cid}"), 200)
+                    assert len(detail["runs"]) == 2 and detail["runs"][0]["runId"] == run["runId"]
+            browser.close()
+        report = {"status": "PASS", "domains": evidence, "historicalInvestigationCreatedNewRun": True}
+        (output / "result.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps(report | {"evidenceDir": str(output)}, ensure_ascii=False))
+    finally:
+        if ui:
+            ui.shutdown()
+            ui.server_close()
+        product.close()
 
-    claim_buttons = page.locator("button.claim-select")
-    check(claim_buttons.count() == 5, f"3.1 判断列表 5 条（实际 {claim_buttons.count()}）")
 
-    first_text = page.locator(".claim-detail .detail-text").inner_text()
-    claim_buttons.nth(1).click()
-    page.wait_for_timeout(300)
-    second_text = page.locator(".claim-detail .detail-text").inner_text()
-    check(first_text != second_text, "3.1 点击第二条判断后详情切换")
-    claim_buttons.nth(0).click()
-    page.wait_for_timeout(300)
-    check(page.locator(".claim-detail .detail-text").inner_text() == first_text, "3.1 切回第一条详情还原")
-    posts = [r for r in api_requests if r.startswith("POST")]
-    check(not posts, f"3.1 选择判断期间零 POST/模型请求（POST 数={len(posts)}）")
-    check("当前无已关联引用" in page.inner_text("body") or "引用暂不可用" in page.inner_text("body"),
-          "3.1 无引用判断有说明文字")
-
-    # ---- 3.2 证据抽屉：字段真实、可关闭、缺页码不伪造 ----
-    api_requests.clear()
-    page.locator(".claim-detail button.citation-ref").first.click()
-    page.wait_for_timeout(400)
-    drawer_text = page.locator(".evidence-drawer").inner_text()
-    check("证据详情" in drawer_text, "3.2 抽屉打开")
-    for token in ["来源类型", "来源 ID", "来源版本", "切片", "数据性质", "摘录"]:
-        check(token in drawer_text, f"3.2 抽屉字段存在：{token}")
-    check("章节：" in drawer_text, "3.2 缺页码时展示实际章节，不伪造页码")
-    check("第 页" not in drawer_text.replace(" ", ""), "3.2 无伪造页码")
-    page.locator(".evidence-drawer button[aria-label='关闭证据抽屉']").click()
-    page.wait_for_timeout(300)
-    check(page.locator(".evidence-drawer").count() == 0, "3.2 抽屉可关闭")
-    check(page.locator(".claim-detail .detail-text").inner_text() == first_text,
-          "3.2 关闭抽屉后判断焦点保持（回到原焦点）")
-    posts = [r for r in api_requests if r.startswith("POST")]
-    check(not posts, f"3.2 打开/关闭抽屉期间零 POST（POST 数={len(posts)}）")
-    page.screenshot(path="outputs/validation/pro-page-3.1-3.2.png", full_page=True)
-
-    # ---- 3.2 失败轮：readReferences 加载已登记证据 ----
-    api_requests.clear()
-    page.evaluate(f'window.localStorage.setItem("devicetruth.conversation-id", "{CONV_FAILED}")')
-    page.reload(wait_until="networkidle")
-    page.wait_for_timeout(2000)
-    body = page.inner_text("body")
-    check("本次没有得到答案" in body, "3.2 失败轮显示安全失败卡片")
-    check("本轮已取回证据" in body, "3.2 失败轮显示已取回证据区（readReferences 生效）")
-    page.locator("section[role='alert'] button.citation-ref").first.click()
-    page.wait_for_timeout(400)
-    drawer_text = page.locator(".evidence-drawer").inner_text()
-    check("证据详情" in drawer_text and "数据性质" in drawer_text, "3.2 失败轮证据抽屉可打开且字段完整")
-    page.screenshot(path="outputs/validation/pro-page-3.2-failed.png", full_page=True)
-    browser.close()
-
-sys.exit(1 if errors else 0)
+if __name__ == "__main__":
+    main()

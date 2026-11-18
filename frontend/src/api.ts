@@ -515,6 +515,8 @@ export interface WaitOptions {
   intervalMs?: number
   sleep?: (ms: number) => Promise<void>
   onUpdate?: (run: RunView) => void
+  /** 会话切换或轮次已到终态时取消：抛 RUN_WAIT_CANCELLED，且不再发起新请求。 */
+  signal?: AbortSignal
 }
 
 /**
@@ -527,6 +529,7 @@ export async function waitForRun(runId: string, options: WaitOptions = {}): Prom
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
   const deadline = Date.now() + timeoutMs
   for (;;) {
+    if (options.signal?.aborted) throw new ApiError('RUN_WAIT_CANCELLED', 0, '已停止等待该运行')
     const run = await readRun(runId)
     options.onUpdate?.(run)
     if (TERMINAL.has(run.status)) return run

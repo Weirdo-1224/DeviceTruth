@@ -288,6 +288,18 @@ describe('api 合同', () => {
     expect(calls).toHaveLength(1)
   })
 
+  it('会话切换时取消轮询：抛出 RUN_WAIT_CANCELLED 且不再发起新请求', async () => {
+    const controller = new AbortController()
+    stubFetchByUrl(() => jsonResponse(runView({ status: 'RUNNING' })))
+    const promise = waitForRun(RUN_ID, {
+      intervalMs: 1,
+      signal: controller.signal,
+      sleep: async () => { controller.abort() }
+    })
+    await expect(promise).rejects.toMatchObject({ code: 'RUN_WAIT_CANCELLED' })
+    expect(calls.filter((call) => call.url === '/api/runs/' + RUN_ID)).toHaveLength(1)
+  })
+
   it('读取运行与引用都按 runId 定位', async () => {
     stubFetch(jsonResponse(runView({ status: 'RUNNING' })), jsonResponse([]))
     expect((await readRun(RUN_ID)).status).toBe('RUNNING')
@@ -781,6 +793,72 @@ describe('运行事件与时间线', () => {
     // 旧流迟到事件：generation 已变 + runId 已空，双保险下不会填回展示
     source.emit('RUN_MODEL', runEvent(3, 'RUN_MODEL', { attempt: 1, outcome: 'OK' }))
     expect(controller.snapshot().events).toEqual([])
+  })
+
+  it('onChange 快照反映新增事件与终态，页面据此响应式更新而不是读非响应式对象', async () => {
+    const history = [runEvent(1, 'RUN_QUEUED', { status: 'QUEUED' })]
+    stubFetchByUrl((url) => (url.includes('/events') ? jsonResponse(history) : jsonResponse([])))
+    const controller = createRunTimelineController({ eventSourceFactory: (url) => new FakeEventSource(url) })
+    const snapshots: Array<{ runId: string | null; count: number; terminal: string | null }> = []
+    controller.onChange(() => {
+      const state = controller.snapshot()
+      snapshots.push({ runId: state.runId, count: state.events.length, terminal: state.terminalStatus })
+    })
+    await controller.follow(RUN_ID)
+    const source = FakeEventSource.instances.at(-1)!
+    source.emit('RUN_WAITING', runEvent(2, 'RUN_WAITING', { questionVersion: 1 }))
+    source.emit('RUN_TERMINAL', { status: 'WAITING_FOR_USER' })
+    expect(snapshots.at(-1)).toEqual({ runId: RUN_ID, count: 2, terminal: 'WAITING_FOR_USER' })
+    expect(controller.snapshot().live).toBe(false)
+  })
+
+  it('同一 run 流已断线后再次 follow 只做历史回读，不重复追加已展示的 seq', async () => {
+    const history = [runEvent(1, 'RUN_QUEUED', { status: 'QUEUED' }), runEvent(2, 'RUN_TOOL', { toolName: 'x', success: true })]
+    stubFetchByUrl((url) => (url.includes('/events') ? jsonResponse(history) : jsonResponse([])))
+    const controller = createRunTimelineController({ eventSourceFactory: (url) => new FakeEventSource(url) })
+    await controller.follow(RUN_ID)
+    FakeEventSource.instances.at(-1)!.failPermanently()
+    expect(controller.snapshot().live).toBe(false)
+    await controller.follow(RUN_ID)
+    expect(controller.snapshot().events.map((event) => event.seq)).toEqual([1, 2])
+    expect(FakeEventSource.instances).toHaveLength(2)
+  })
+
+  it('SSE 先于下一次轮询通知 WAITING：按持久 Run 回读可立即得到等待态与待答问题', async () => {
+    stubFetchByUrl((url) => {
+      if (url === '/api/runs/' + RUN_ID) {
+        return jsonResponse(runView({
+          status: 'WAITING_FOR_USER',
+          version: 2,
+          pendingQuestion: { pendingQuestionId: QUESTION_ID, questionVersion: 1, question: '请补充充电方式', requestedFields: ['充电方式'], askedAt: '2026-11-17T00:00:00Z' }
+        }))
+      }
+      return jsonResponse([])
+    })
+    const controller = createRunTimelineController({ eventSourceFactory: (url) => new FakeEventSource(url) })
+    /** 模拟页面侧回读：收到 RUN_WAITING 就立刻按提示的顺序读取持久 Run。 */
+    const signals: string[] = []
+    const observed: string[] = []
+    controller.onChange(() => {
+      const state = controller.snapshot()
+      for (const event of state.events) {
+        const key = event.type + ':' + event.seq
+        if (signals.includes(key)) continue
+        signals.push(key)
+        if (event.type === 'RUN_WAITING') observed.push('waiting-signal')
+      }
+    })
+    await controller.follow(RUN_ID)
+    const source = FakeEventSource.instances.at(-1)!
+    source.emit('RUN_WAITING', runEvent(1, 'RUN_WAITING', { questionVersion: 1 }))
+    expect(observed).toEqual(['waiting-signal'])
+    // 无需增量事件：立即回读持久 Run 即可得到等待态
+    const view = await readRun(RUN_ID)
+    expect(view.status).toBe('WAITING_FOR_USER')
+    expect(view.pendingQuestion?.question).toBe('请补充充电方式')
+    // 重放同一事件不会产生第二条时间线记录
+    source.emit('RUN_WAITING', runEvent(1, 'RUN_WAITING', { questionVersion: 1 }))
+    expect(controller.snapshot().events).toHaveLength(1)
   })
 
   it('取消运行：POST /cancel 返回更新后的 RunView；终态再取消把 409 映射为 ApiError', async () => {

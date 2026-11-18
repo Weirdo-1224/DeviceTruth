@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDiagnosisViewModel, buildInvestigationMessage, ROUND_FIELDS_NOTE, toReferenceView } from './diagnosisViewModel'
+import { buildDiagnosisViewModel, buildInvestigationMessage, previewOf, PREVIEW_LENGTH, ROUND_FIELDS_NOTE, toReferenceView } from './diagnosisViewModel'
 import type { AgentResult, MessageView, Reference, RunEvent, RunView } from './api'
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111'
@@ -239,5 +239,48 @@ describe('深入调查请求正文', () => {
     const message = buildInvestigationMessage('手册建议先读取故障日志', 'KNOWLEDGE')
     expect(message).toContain('请深入调查以下判断：手册建议先读取故障日志。')
     expect(message).not.toContain('候选')
+  })
+})
+
+describe('调查导航短预览', () => {
+  it('短句原样返回，长句按码点截断并补省略号且不改写原文', () => {
+    expect(previewOf('短判断')).toBe('短判断')
+    const emoji = '🔧'.repeat(PREVIEW_LENGTH + 3)
+    const preview = previewOf(emoji)
+    expect(Array.from(preview)).toHaveLength(PREVIEW_LENGTH + 1)
+    expect(preview.endsWith('…')).toBe(true)
+    // 不切断代理对：截断后仍是完整码点序列
+    expect([...preview].every((char) => char === '🔧' || char === '…')).toBe(true)
+  })
+
+  it('claim 同时给出原文与短预览，含否定与安全用语的原文不被改写', () => {
+    const text = '严禁在未断电情况下拆卸高压连接器；这是由具备资质人员按厂家规程执行的强制要求，不得省略。'
+    const model = buildDiagnosisViewModel({
+      run: run({ result: result({ claims: [{ text, certainty: 'SUPPORTED', referenceIds: [] }] }) })
+    })
+    const claim = model.claims[0]
+    expect(claim.text).toBe(text)
+    expect(claim.preview.length).toBeLessThan(text.length)
+    expect(claim.preview).toContain('严禁在未断电情况下')
+    expect(claim.preview.endsWith('…')).toBe(true)
+  })
+
+  it('KNOWLEDGE 与 POSSIBLE_CAUSES 分别得到不同的类别标题与相同 certainty 语义', () => {
+    const claims = [{ text: '判断一', certainty: 'SUPPORTED' as const, referenceIds: [] }]
+    const knowledge = buildDiagnosisViewModel({ run: run({ result: result({ category: 'KNOWLEDGE', claims }) }) })
+    const causes = buildDiagnosisViewModel({ run: run({ result: result({ category: 'POSSIBLE_CAUSES', claims }) }) })
+    expect(knowledge.claimsTitle).toBe('资料断言')
+    expect(causes.claimsTitle).toBe('候选原因')
+    expect(knowledge.claims[0].certaintyLabel).toBe('资料支持')
+    expect(causes.claims[0].certaintyLabel).toBe('资料支持')
+    expect(knowledge).not.toHaveProperty('probability')
+  })
+
+  it('空 claims 时仍保留摘要、建议与安全限制，供完整结果展示', () => {
+    const model = buildDiagnosisViewModel({ run: run({ result: result({ claims: [] }) }) })
+    expect(model.claims).toEqual([])
+    expect(model.summary).toBeTruthy()
+    expect(model.limitations).toContain('本次未进行现场核验。')
+    expect(model.suggestions.length).toBe(1)
   })
 })

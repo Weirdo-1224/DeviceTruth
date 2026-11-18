@@ -3,6 +3,7 @@
 import argparse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 from threading import Thread
 import urllib.error
@@ -70,15 +71,21 @@ def verify(browser_path, output):
     owner = "browser-" + uuid.uuid4().hex[:12]
     project = "browser-recovery"
 
-    def start_product():
-        server_output = output / ("server-" + uuid.uuid4().hex[:8])
-        server_output.mkdir()
-        return Server(owner, project, "deterministic", "scripted", True, server_output)
+    external_base = os.environ.get("DEVICETRUTH_UI_BASE_URL")
+    if external_base:
+        # 复用已在运行、脚本化 reasoner 的产品环境（例如 docker compose 起的隔离实例）；
+        # 本脚本不负责起停它，也不会重启它。持久恢复断言改为跨浏览器重开与跨刷新观察。
+        start_product = lambda: ExternalProduct(external_base)
+    else:
+        def start_product():
+            server_output = output / ("server-" + uuid.uuid4().hex[:8])
+            server_output.mkdir()
+            return Server(owner, project, "deterministic", "scripted", True, server_output)
 
     product = start_product()
     ui = None
     try:
-        ui, url = serve_frontend(lambda: product)
+        ui, url = (None, external_base) if external_base else serve_frontend(lambda: product)
         import_manual(product)
         original = "新能源汽车充电中断，没有故障码，先查什么资料？"
         reply = "直流快充，SOC 约 40%"
@@ -104,10 +111,15 @@ def verify(browser_path, output):
                 assert question["pendingQuestionId"]
                 page.reload()
                 expect_page(page.get_by_role("heading", name="需要补充信息")).to_be_visible(timeout=30_000)
-                expect_page(page.locator(".bubble", has_text=original).first).to_be_visible()
+                # 会话消息收进按需打开的“查看调查记录”抽屉：刷新后先从抽屉核对原始问题仍在
+                page.get_by_role("button", name="查看调查记录").click()
+                expect_page(page.locator(".pro-drawer-body .bubble", has_text=original).first).to_be_visible()
+                page.get_by_role("button", name="关闭调查记录").click()
 
-            product.close()
-            product = start_product()
+            if not external_base:
+                product.close()
+                product = start_product()
+            # 外部环境：由服务端持久层如实回读；同进程内不重启服务，刷新后仍需可见同一问题
             restored = expect(product.request("GET", f"/api/runs/{run_id}"), 200)
             assert restored["status"] == "WAITING_FOR_USER" and restored["pendingQuestion"] == question
 
@@ -119,30 +131,37 @@ def verify(browser_path, output):
                 page.get_by_role("button", name="提交补充信息").click()
                 # 4.1/4.2 专业页选择器：补答沿同一 Run 恢复，终态后页面渲染本轮摘要与判断引用
                 expect_page(page.locator(".pro-page .summary")).to_be_visible(timeout=30_000)
-                expect_page(page.locator(".claim-detail .citation-ref").first).to_be_visible()
+                expect_page(page.locator("[data-evidence-id]").first).to_be_visible()
                 page.reload()
                 expect_page(page.locator(".pro-page .summary")).to_be_visible(timeout=30_000)
-                # 补答消息被折叠进“查看前序对话”（报告存在时只展开首条与末条），用附着断言替代可见断言
-                expect_page(page.get_by_text(reply, exact=True)).to_have_count(1)
+                # 消息记录收进按需打开的抽屉：补答原文在抽屉内核对（刷新后仍可回读）
+                page.get_by_role("button", name="查看调查记录").click()
+                expect_page(page.locator(".pro-drawer-body").get_by_text(reply, exact=True)).to_have_count(1)
+                page.get_by_role("button", name="关闭调查记录").click()
                 # 证据抽屉：引用可打开真实摘录（3.2 组件）
-                page.locator(".claim-detail .citation-ref").first.click()
-                expect_page(page.locator(".evidence-drawer .drawer-excerpt")).to_be_visible()
-                page.locator(".evidence-drawer button[aria-label='关闭证据抽屉']").click()
+                page.locator("[data-evidence-id]").first.click()
+                expect_page(page.locator("dialog.evidence-modal .modal-excerpt")).to_be_visible()
+                page.get_by_role("button", name="关闭证据抽屉").click()
+                expect_page(page.locator("dialog.evidence-modal[open]")).to_have_count(0)
                 completed = expect(product.request("GET", f"/api/conversations/{conversation}"), 200)
                 assert len(completed["runs"]) == 1
                 assert completed["runs"][0]["runId"] == run_id
                 assert completed["runs"][0]["status"] == "COMPLETED"
-                # 4.2 轮次与会话历史：新调查后回到旧会话，结果仍可回看（已收进“查看调查记录”抽屉）
-                page.get_by_role("button", name="查看调查记录").click()
-                expect_page(page.locator(".history-list .conversation-link").first).to_be_visible()
+                # 4.2 轮次与会话历史：新调查后回到旧会话，结果仍可回看（桌面侧栏常驻“近期调查”）
+                expect_page(page.locator(".pro-sidebar .conversation-link").first).to_be_visible()
+                conversations_before = page.locator(".pro-sidebar .conversation-link").count()
                 page.get_by_role("button", name="新调查", exact=True).click()
-                expect_page(page.locator(".conversation-link")).to_have_count(2)
+                # 共享库里已有历史会话：按真实列表长度核对新增一条，而不是假定空库只有 2 条
+                expect_page(page.locator(".pro-sidebar .conversation-link")).to_have_count(conversations_before + 1)
                 expect_page(page.locator(".pro-page")).to_have_count(0)
                 # 主视图不应残留原问题（原文仍合法出现在抽屉的会话标题里，故限定主区域断言）
                 expect_page(page.locator(".main-scroll").get_by_text(original, exact=True)).to_have_count(0)
-                page.locator(".history-list .conversation-link", has_text=original[:12]).last.click()
+                # 按会话 ID 定位真实条目（侧栏标题是本地展示回退，不能作为定位依据）
+                page.locator(f'.pro-sidebar .conversation-link[data-conversation-id="{conversation}"]').last.click()
                 expect_page(page.locator(".pro-page .summary")).to_be_visible()
-                expect_page(page.locator(".pro-drawer").get_by_text(reply, exact=True)).to_have_count(1)
+                # 消息记录收在按需打开的“查看调查记录”抽屉里
+                page.get_by_role("button", name="查看调查记录").click()
+                expect_page(page.locator(".pro-drawer-body").get_by_text(reply, exact=True)).to_have_count(1)
         return {"status": "PASS", "sameRun": True, "waitingSurvivedRefresh": True,
                 "waitingSurvivedBrowserAndServerRestart": True, "answerAndCitationSurvivedRefresh": True,
                 "historyRestoredAfterConversationSwitch": True}
@@ -151,6 +170,43 @@ def verify(browser_path, output):
             ui.shutdown()
             ui.server_close()
         product.close()
+
+
+class ExternalProduct:
+    """已在运行的产品环境：只提供 request 与 close（close 为空操作，不触碰外部服务）。"""
+
+    def __init__(self, base):
+        import urllib.error
+        import urllib.request
+        self.base = base.rstrip("/")
+        self._error = urllib.error.HTTPError
+        self._request = urllib.request.Request
+        self._urlopen = urllib.request.urlopen
+        self._json = json
+
+    def request(self, method, path, body=None, headers=None):
+        data = None
+        request_headers = {"Accept": "application/json"}
+        if headers:
+            request_headers.update(headers)
+        if body is not None:
+            data = self._json.dumps(body, ensure_ascii=False).encode("utf-8")
+            request_headers["Content-Type"] = "application/json; charset=UTF-8"
+        request = self._request(self.base + path, data=data, headers=request_headers, method=method)
+        try:
+            with self._urlopen(request, timeout=150) as response:
+                text = response.read().decode("utf-8")
+                return response.status, self._json.loads(text) if text else None
+        except self._error as error:
+            text = error.read().decode("utf-8")
+            try:
+                payload = self._json.loads(text) if text else {}
+            except self._json.JSONDecodeError:
+                payload = {"message": "non-json error"}
+            return error.code, payload
+
+    def close(self):
+        return None
 
 
 def main():

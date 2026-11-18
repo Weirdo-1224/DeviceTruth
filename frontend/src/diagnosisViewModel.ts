@@ -39,6 +39,21 @@ const CERTAINTY_LABELS: Readonly<Record<Certainty, string>> = {
 /** 建议、不确定点与限制没有判断级关联字段，统一标注为“本轮”内容。 */
 export const ROUND_FIELDS_NOTE = '建议、不确定点与限制均为本轮内容，未逐条关联到单个判断'
 
+/** 调查导航短预览的默认长度（按码点计）；原文只在中央焦点与完整结果中出现。 */
+export const PREVIEW_LENGTH = 42
+
+export const USER_REPORT_NOTE = '你提交的描述按用户报告展示，未经现场核实，也不构成已登记来源'
+
+/**
+ * 确定性短预览：只在码点边界截断并补省略号，不改变文字内容、不加修饰，
+ * 保证含否定/安全用语的长句在原文处仍可核对。
+ */
+export function previewOf(text: string, limit = PREVIEW_LENGTH): string {
+  const characters = Array.from(text)
+  if (characters.length <= limit) return text
+  return characters.slice(0, limit).join('') + '…'
+}
+
 export interface ReferenceView {
   referenceId: string
   title: string
@@ -60,6 +75,8 @@ export interface ClaimView {
   index: number
   key: string
   text: string
+  /** 调查导航用的确定性短预览；原文仍在 text。 */
+  preview: string
   certainty: Certainty
   certaintyLabel: string
   referenceIds: string[]
@@ -102,6 +119,7 @@ export interface DiagnosisViewModel {
   /** 受控安全提示；无对应处置时为空串。 */
   safetyNotice: string
   dataNature: string | null
+
   /** AUTHORIZED 不等于真实现场已核验；其余数据性质不附加说明。 */
   dataNatureNote: string
   /** 本轮已取回资料（经 /references 或结果内引用取得），逐引用保留自身 dataNature。 */
@@ -167,6 +185,7 @@ function toClaimViews(result: AgentResult, runId: string | null, available: Read
       index,
       key: (runId ?? 'run') + ':' + index,
       text: claim.text,
+      preview: previewOf(claim.text),
       certainty: claim.certainty,
       certaintyLabel: CERTAINTY_LABELS[claim.certainty] ?? claim.certainty,
       referenceIds: [...claim.referenceIds],
