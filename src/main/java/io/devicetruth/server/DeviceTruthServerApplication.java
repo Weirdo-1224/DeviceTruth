@@ -5,7 +5,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /** 独立 Web 入口：持续提供 HTTP，不调用 CLI 的单次执行、报告落盘或退出逻辑。 */
 @SpringBootApplication(exclude = {org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration.class,
-        org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration.class})
+        org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration.class,
+        org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration.class,
+        org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration.class,
+        org.springframework.boot.autoconfigure.session.SessionAutoConfiguration.class})
 public class DeviceTruthServerApplication {
     public static void main(String[] args) {
         SpringApplication.run(DeviceTruthServerApplication.class, args);
