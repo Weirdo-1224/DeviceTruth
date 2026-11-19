@@ -1,5 +1,5 @@
 # 产品服务镜像（05-03）：只打包 fat JAR 与 product profile 启动入口，不含密钥、数据或前端源码。
-# JAR 由宿主 `mvn -q package` 产出后复制进来，镜像构建本身不联网拉依赖。
+# JAR 由宿主 `mvn -q package` 产出后复制进来；知识原件以独立数据包用于导入，不进服务镜像。
 FROM eclipse-temurin:21-jre
 
 WORKDIR /app

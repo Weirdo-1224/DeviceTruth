@@ -21,24 +21,60 @@ public final class KnowledgeSearchService {
     private static final double MIN_KEYWORD_COVERAGE = 0.20;
 
     /** 强类型嵌套过滤：只允许领域、设备型号与文档 ID，其他键在工具层即拒绝。 */
-    public record KnowledgeFilters(String domain, String deviceModel, UUID documentId) {
+    public record KnowledgeFilters(String domain, String deviceModel, UUID documentId, UUID releaseId, String indexProfile, ApplicabilityPolicy.Target applicability) {
         public static final KnowledgeFilters NONE = new KnowledgeFilters(null, null, null);
+
+        public KnowledgeFilters(String domain, String deviceModel, UUID documentId) {
+            this(domain, deviceModel, documentId, null, null, null);
+        }
+
+        public KnowledgeFilters(String domain, String deviceModel, UUID documentId, UUID releaseId, String indexProfile) {
+            this(domain, deviceModel, documentId, releaseId, indexProfile, null);
+        }
 
         public KnowledgeFilters {
             domain = domain == null || domain.isBlank() ? null : Checks.id(domain, "domain");
-            deviceModel = deviceModel == null || deviceModel.isBlank() ? null : Checks.id(deviceModel, "deviceModel");
+            deviceModel = deviceModel == null || deviceModel.isBlank() ? null : Checks.text(deviceModel, "deviceModel");
+            if (deviceModel != null && (deviceModel.length() > 128 || deviceModel.chars().anyMatch(Character::isISOControl)))
+                throw KnowledgeException.invalid("invalid deviceModel");
+            indexProfile = indexProfile == null || indexProfile.isBlank() ? null : Checks.id(indexProfile, "indexProfile");
         }
     }
 
     public record KnowledgeHit(UUID referenceId, UUID documentId, String documentVersion, UUID chunkId,
                                int chunkNo, Integer page, String section, String title, String content,
                                double similarity, String dataNature, Integer vectorRank, Integer keywordRank,
-                               double fusionScore) {}
+                               double fusionScore, String knowledgeId, UUID parentId, java.util.List<String> sourceIds,
+                               com.fasterxml.jackson.databind.JsonNode sourceLocations, UUID releaseId,
+                               ApplicabilityPolicy.Status applicabilityStatus, boolean verifiedApplicable,
+                               java.util.List<String> applicabilityLimitations,
+                               java.util.List<IdentifierExtractor.Identifier> matchedIdentifiers,
+                               Double denseScore, Integer denseRank, Double bm25Score, Integer bm25Rank,
+                               Integer identifierRank, Double rrfScore, Integer finalRank) {
+        public KnowledgeHit(UUID referenceId, UUID documentId, String documentVersion, UUID chunkId,
+                            int chunkNo, Integer page, String section, String title, String content,
+                            double similarity, String dataNature, Integer vectorRank, Integer keywordRank, double fusionScore) {
+            this(referenceId,documentId,documentVersion,chunkId,chunkNo,page,section,title,content,similarity,dataNature,
+                    vectorRank,keywordRank,fusionScore,null,null,List.of(),null,null,
+                    ApplicabilityPolicy.Status.UNKNOWN_APPLICABILITY,false,List.of(),List.of(),
+                    similarity,vectorRank,null,keywordRank,null,null,null);
+        }
+    }
 
     public record Excerpt(UUID referenceId, UUID documentId, String documentVersion, UUID chunkId, int chunkNo,
                           Integer page, String section, String title, String content, String dataNature) {}
 
-    public record SearchOutcome(List<KnowledgeHit> hits, boolean empty) {
+    public record RankingPosition(UUID chunkId,Integer denseRank,Integer bm25Rank,int rrfRank,
+                                  Double rerankerScore,Integer rerankerRank,Integer finalRank) {}
+    public record RankingTrace(List<RankingPosition> positions,boolean degraded,String reason,
+                               RerankerClient.Response usage,long elapsedMillis) {
+        public RankingTrace {positions=List.copyOf(positions);}
+    }
+    public record EnhancedOutcome(SearchOutcome evidence, RankingTrace ranking,
+                                  ContextRecoveryService.Result context) {}
+
+    public record SearchOutcome(List<KnowledgeHit> hits, boolean empty, HybridRetrievalService.Trace trace) {
+        public SearchOutcome(List<KnowledgeHit> hits, boolean empty) { this(hits,empty,null); }
         public SearchOutcome { hits = List.copyOf(hits); }
     }
 
@@ -68,8 +104,35 @@ public final class KnowledgeSearchService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final EmbeddingClient embeddings;
+    private final QueryVectorCache queryVectors;
     private final int maxHits;
     private final double minSimilarity;
+    private HybridRetrievalService hybrid;
+    private HybridRetrievalService.Mode defaultMode = HybridRetrievalService.Mode.LEGACY;
+
+    public KnowledgeSearchService withHybrid(HybridRetrievalService service, HybridRetrievalService.Mode mode) {
+        this.hybrid = java.util.Objects.requireNonNull(service);
+        this.defaultMode = java.util.Objects.requireNonNull(mode);
+        return this;
+    }
+
+    public SearchOutcome searchMode(ToolContext context, String query, KnowledgeFilters filters, int limit,
+                                    HybridRetrievalService.Mode mode) {
+        if (mode == null) mode = defaultMode;
+        if (mode == HybridRetrievalService.Mode.LEGACY) {
+            var outcome = searchChannel(context,query,filters,limit,SearchChannel.HYBRID);
+            return new SearchOutcome(outcome.hits(),outcome.empty(),new HybridRetrievalService.Trace(
+                    "LEGACY",List.of("LEGACY_VECTOR","LEGACY_KEYWORD"),java.util.Map.of(),"LEGACY",false,0));
+        }
+        if (hybrid == null) throw new KnowledgeException("HYBRID_NOT_CONFIGURED",503);
+        String normalized = query == null ? null : query.strip();
+        if (normalized == null || normalized.isEmpty() || normalized.codePointCount(0,normalized.length()) > MAX_QUERY_CHARS)
+            throw KnowledgeException.invalid("invalid query");
+        if (limit < 1) throw KnowledgeException.invalid("limit out of range");
+        if (KnowledgeIndexSchema.vectorDimension(jdbc) != embeddings.profile().dimension())
+            throw new KnowledgeException("EMBEDDING_DIMENSION_MISMATCH", 409);
+        return searchNew(context,normalized,filters,limit,mode);
+    }
 
     public KnowledgeSearchService(JdbcTemplate jdbc, TransactionTemplate transactions, EmbeddingClient embeddings,
                                   int maxHits, double minSimilarity) {
@@ -78,17 +141,25 @@ public final class KnowledgeSearchService {
         this.jdbc = jdbc;
         this.transactions = transactions;
         this.embeddings = embeddings;
+        this.queryVectors = new QueryVectorCache(jdbc, embeddings);
         this.maxHits = maxHits;
         this.minSimilarity = minSimilarity;
     }
 
     public SearchOutcome search(ToolContext context, String query, KnowledgeFilters filters, int limit) {
-        return searchChannel(context, query, filters, limit, SearchChannel.HYBRID);
+        return searchMode(context, query, filters, limit, defaultMode);
     }
 
     /** 独立通道仅供固定样本评估；Agent 默认使用 HYBRID。 */
     public SearchOutcome searchChannel(ToolContext context, String query, KnowledgeFilters filters, int limit,
                                        SearchChannel channel) {
+        return searchChannelBudgeted(context,query,filters,limit,channel,Integer.MAX_VALUE);
+    }
+
+    /** Same legacy ranks with an explicit original-content output budget BEFORE citation registration. */
+    public SearchOutcome searchChannelBudgeted(ToolContext context,String query,KnowledgeFilters filters,int limit,
+                                               SearchChannel channel,int maxTokens) {
+        if(maxTokens<1)throw KnowledgeException.invalid("invalid token budget");
         String normalized = query == null ? null : query.strip();
         if (normalized == null || normalized.isEmpty()) throw KnowledgeException.invalid("query is required");
         if (normalized.codePointCount(0, normalized.length()) > MAX_QUERY_CHARS)
@@ -100,13 +171,24 @@ public final class KnowledgeSearchService {
         int databaseDimension = KnowledgeIndexSchema.vectorDimension(jdbc);
         if (databaseDimension != embeddings.profile().dimension())
             throw new KnowledgeException("EMBEDDING_DIMENSION_MISMATCH", 409);
-        String literal = VectorLiteral.of(embed(normalized));
+        var snapshot = new ScopedKnowledgeStore(jdbc,embeddings.profile()).load(context,effective);
+        var extractor = new IdentifierExtractor();
+        var lexicon = new java.util.TreeMap<String,IdentifierExtractor.Type>();
+        snapshot.children().forEach(c -> lexicon.putAll(extractor.lexicon(c.metadata())));
+        var target = HybridRetrievalService.resolveTarget(effective,snapshot,extractor.extract(normalized,lexicon));
+        var policy = new ApplicabilityPolicy();
+        var allowed = snapshot.children().stream()
+                .filter(c -> policy.assess(c.metadata(),target).status() != ApplicabilityPolicy.Status.NOT_APPLICABLE)
+                .map(ScopedKnowledgeStore.Child::id).collect(java.util.stream.Collectors.toSet());
+        String literal = VectorLiteral.of(embed(context, normalized));
         int candidateLimit = Math.max(20, bounded * 4);
 
         List<HitRow> vectorRows = channel == SearchChannel.KEYWORD ? List.of()
                 : vectorCandidates(context, effective, literal, candidateLimit);
         List<HitRow> keywordRows = channel == SearchChannel.VECTOR ? List.of()
                 : keywordCandidates(context, effective, literal, normalized, candidateLimit);
+        vectorRows = vectorRows.stream().filter(r -> allowed.contains(r.chunkId())).toList();
+        keywordRows = keywordRows.stream().filter(r -> allowed.contains(r.chunkId())).toList();
         java.util.Map<UUID, HitRow> rows = new java.util.LinkedHashMap<>();
         java.util.Map<UUID, Integer> vectorRanks = new java.util.HashMap<>();
         java.util.Map<UUID, Integer> keywordRanks = new java.util.HashMap<>();
@@ -147,9 +229,85 @@ public final class KnowledgeSearchService {
                         (Candidate candidate) -> candidate.row().similarity()).reversed())
                 .thenComparing(candidate -> candidate.row().chunkId().toString()));
         if (candidates.isEmpty()) return new SearchOutcome(List.of(), true);
-        List<KnowledgeHit> hits = transactions.execute(status -> candidates.stream().limit(bounded)
-                .map(candidate -> register(context, run, candidate)).toList());
-        return new SearchOutcome(hits, false);
+        var selected=new ArrayList<Candidate>();int usedTokens=0;
+        for(var candidate:candidates) {
+            int cost=ContextualKnowledgeChunker.tokens(candidate.row().title()+"\n"+candidate.row().content())+1;
+            if(selected.size()>=bounded)break;
+            if((long)usedTokens+cost>maxTokens)continue;
+            usedTokens+=cost;selected.add(candidate);
+        }
+        List<KnowledgeHit> hits = transactions.execute(status -> {
+            new KnowledgeVisibilityGuard(jdbc,embeddings.profile()).validate(context,effective,snapshot,
+                    selected.stream().map(c->c.row().chunkId()).toList());
+            var originals=new java.util.HashMap<UUID,ScopedKnowledgeStore.Child>();snapshot.children().forEach(c->originals.put(c.id(),c));
+            for(var candidate:selected) {
+                var row=candidate.row();var original=originals.get(row.chunkId());
+                if(original==null||!java.util.Objects.equals(row.content(),original.content())
+                        ||!java.util.Objects.equals(row.title(),original.title())||!row.documentId().equals(original.documentId())
+                        ||!java.util.Objects.equals(row.documentVersion(),original.documentVersion())
+                        ||!java.util.Objects.equals(row.section(),original.section())||!java.util.Objects.equals(row.page(),original.page())
+                        ||row.chunkNo()!=original.chunkNo()||!java.util.Objects.equals(row.dataNature(),original.dataNature()))
+                    throw new KnowledgeException("KNOWLEDGE_SNAPSHOT_CHANGED",409);
+            }
+            requireRun(context);
+            return selected.stream().map(candidate -> register(context, run, candidate)).toList();
+        });
+        return new SearchOutcome(hits, hits.isEmpty());
+    }
+
+    private SearchOutcome searchNew(ToolContext context, String query, KnowledgeFilters filters, int limit,
+                                    HybridRetrievalService.Mode mode) {
+        RunScope run = requireRun(context);
+        var effective = filters == null ? KnowledgeFilters.NONE : filters;
+        var result = hybrid.retrieve(context,query,effective,Math.min(limit,maxHits),mode);
+        return registerNew(context,run,effective,result);
+    }
+
+    /** Explicit Java opt-in only; default searchMode/HTTP/Agent behavior stays unchanged. */
+    public EnhancedOutcome searchEnhanced(ToolContext context,String query,KnowledgeFilters filters,
+                                          EnhancedRetrievalService service,EnhancedRetrievalService.Options options) {
+        RunScope run=requireRun(context);
+        String normalized=query==null?null:query.strip();
+        if(normalized==null||normalized.isEmpty()||normalized.codePointCount(0,normalized.length())>MAX_QUERY_CHARS)
+            throw KnowledgeException.invalid("invalid query");
+        if(hybrid==null)throw new KnowledgeException("HYBRID_NOT_CONFIGURED",503);
+        var c=options.context();
+        var bounded=new EnhancedRetrievalService.Options(options.rerank(),options.instruction(),options.range(),
+                new ContextRecoveryService.Options(c.strategy(),Math.min(maxHits,c.maxChildren()),c.maxTokens(),c.maxParentTokens()));
+        var result=service.retrieve(context,normalized,filters,bounded);
+        var evidence=registerNew(context,run,filters==null?KnowledgeFilters.NONE:filters,result.retrieval());
+        RankingTrace trace=null;
+        if(result.reranking()!=null) {
+            var finalRanks=new java.util.HashMap<UUID,Integer>();
+            for(var hit:evidence.hits())finalRanks.put(hit.chunkId(),hit.finalRank());
+            var ranking=result.reranking();
+            // Candidate trace exposes positions only. Unreturned candidate bodies are not evidence output.
+            trace=new RankingTrace(ranking.ranked().stream().map(r->new RankingPosition(r.candidate().child().id(),
+                    r.candidate().denseRank(),r.candidate().bm25Rank(),r.rrfRank(),r.rerankerScore(),r.rerankerRank(),
+                    finalRanks.get(r.candidate().child().id()))).toList(),ranking.degraded(),ranking.reason(),ranking.usage(),ranking.elapsedMillis());
+        }
+        return new EnhancedOutcome(evidence,trace,result.context());
+    }
+
+    private SearchOutcome registerNew(ToolContext context,RunScope run,KnowledgeFilters effective,HybridRetrievalService.Result result) {
+        List<KnowledgeHit> hits = transactions.execute(status -> {
+            hybrid.revalidate(context,effective,result);
+            requireRun(context);
+            return result.candidates().stream().map(candidate -> {
+                var c = candidate.child();
+                var row = new HitRow(c.id(),c.chunkNo(),c.page(),c.section(),c.content(),c.documentId(),
+                        c.title(),c.documentVersion(),c.dataNature(),candidate.denseScore() == null ? 0 : candidate.denseScore());
+                var registered = register(context,run,new Candidate(row,candidate.denseRank() == null ? 0 : candidate.denseRank(),
+                        candidate.bm25Rank() == null ? 0 : candidate.bm25Rank(),candidate.bm25Score() == null ? 0 : candidate.bm25Score(),candidate.rrfScore()));
+                return new KnowledgeHit(registered.referenceId(),c.documentId(),c.documentVersion(),c.id(),c.chunkNo(),
+                        c.page(),c.section(),c.title(),c.content(),row.similarity(),c.dataNature(),candidate.denseRank(),candidate.bm25Rank(),
+                        candidate.rrfScore(),c.knowledgeId(),c.parentId(),ApplicabilityPolicy.strings(c.metadata().path("source_ids")),
+                        c.sourceLocations(),c.releaseId(),candidate.applicability().status(),candidate.applicability().verifiedApplicable(),
+                        candidate.applicability().limitations(),candidate.matchedIdentifiers(),candidate.denseScore(),candidate.denseRank(),
+                        candidate.bm25Score(),candidate.bm25Rank(),candidate.identifierRank(),candidate.rrfScore(),candidate.finalRank());
+            }).toList();
+        });
+        return new SearchOutcome(hits,hits.isEmpty(),result.trace());
     }
 
     private List<HitRow> vectorCandidates(ToolContext context, KnowledgeFilters filters, String literal, int limit) {
@@ -197,11 +355,16 @@ public final class KnowledgeSearchService {
                   AND c.embedding_profile = ? AND d.embedding_profile = ?
                   AND c.embedding_profile = d.embedding_profile
                   AND d.embedding_model = ? AND d.embedding_dimension = ?
-                  AND d.ingest_status = 'READY'
+                  AND (d.ingest_status = 'READY' OR (d.ingest_status = 'STAGED' AND d.release_id IS NOT NULL))
                 """);
         if (filters.domain() != null) sql.append(" AND d.domain = ?");
-        if (filters.deviceModel() != null) sql.append(" AND d.device_model = ?");
+        sql.append(" AND (d.release_id IS NULL OR EXISTS (SELECT 1 FROM dt_knowledge_release kr WHERE kr.id=d.release_id AND kr.owner_id=d.owner_id AND kr.project_id=d.project_id AND kr.status='READY'");
+        if (filters.releaseId() == null) sql.append(" AND kr.active AND NOT kr.is_test");
+        sql.append("))");
+        if (filters.deviceModel() != null) sql.append(" AND (d.device_model = ? OR EXISTS (SELECT 1 FROM dt_knowledge_model km WHERE km.document_id=d.id AND km.owner_id=d.owner_id AND km.project_id=d.project_id AND km.model_key=?))");
         if (filters.documentId() != null) sql.append(" AND d.id = ?");
+        if (filters.releaseId() != null) sql.append(" AND d.release_id = ?");
+        if (filters.indexProfile() != null) sql.append(" AND EXISTS (SELECT 1 FROM dt_knowledge_release ip WHERE ip.id=d.release_id AND ip.index_profile=?)");
         return sql.toString();
     }
 
@@ -210,8 +373,10 @@ public final class KnowledgeSearchService {
                 embeddings.profile().profileVersion(), embeddings.profile().profileVersion(),
                 embeddings.profile().model(), embeddings.profile().dimension()));
         if (filters.domain() != null) parameters.add(filters.domain());
-        if (filters.deviceModel() != null) parameters.add(filters.deviceModel());
+        if (filters.deviceModel() != null) { parameters.add(filters.deviceModel()); parameters.add(filters.deviceModel()); }
         if (filters.documentId() != null) parameters.add(filters.documentId());
+        if (filters.releaseId() != null) parameters.add(filters.releaseId());
+        if (filters.indexProfile() != null) parameters.add(filters.indexProfile());
         return parameters;
     }
 
@@ -334,9 +499,27 @@ public final class KnowledgeSearchService {
                 """, Boolean.class, chunkId, documentId, context.ownerId(), context.projectId()));
     }
 
-    private float[] embed(String query) {
+    /** Prepare the actual model-generated query before the Agent locks its tool transaction. */
+    public void prepare(ToolContext context, String query, KnowledgeFilters filters, HybridRetrievalService.Mode mode) {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive())
+            throw new EmbeddingException("QUERY_PREFETCH_TRANSACTION_FORBIDDEN");
+        requireRun(context);
+        String normalized = query == null ? "" : query.strip();
+        if (normalized.isEmpty() || normalized.codePointCount(0, normalized.length()) > MAX_QUERY_CHARS)
+            throw KnowledgeException.invalid("invalid query");
+        var selected = mode == null ? defaultMode : mode;
+        var effective = filters == null ? KnowledgeFilters.NONE : filters;
+        // Validate visibility before any external call; preparation never registers references.
+        new ScopedKnowledgeStore(jdbc, embeddings.profile()).load(context, effective);
+        if (selected != HybridRetrievalService.Mode.LEGACY && hybrid != null)
+            hybrid.prepareIndex(context, effective);
+        if (selected != HybridRetrievalService.Mode.BM25 && selected != HybridRetrievalService.Mode.IDENTIFIER)
+            queryVectors.get(context, normalized);
+    }
+
+    private float[] embed(ToolContext context, String query) {
         try {
-            return embeddings.embed(query);
+            return queryVectors.get(context, query);
         } catch (EmbeddingException failure) {
             throw KnowledgeException.fromEmbedding(failure);
         }

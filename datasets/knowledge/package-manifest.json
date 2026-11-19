@@ -1,0 +1,2059 @@
+{
+  "format_version": 1,
+  "release": "kb-v1.0",
+  "document_count": 343,
+  "source_original_count": 63,
+  "description": "Verified release inputs only. Evaluation questions, expected answers, historical reports and runtime caches are excluded. Original file paths and hashes are preserved.",
+  "files": [
+    {
+      "path": "datasets/knowledge/README.md",
+      "bytes": 1705,
+      "sha256": "661bc704bc2ba5eed414f801b1c9fe5b2350a6b64c8f71815a1732acabf0b29f"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/compatibility/EV-0026.md",
+      "bytes": 4941,
+      "sha256": "234da4ffbd266e4e0ed99e8a6d95cdae958ba56e554bd790dd031941564376f7"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/compatibility/EV-0036.md",
+      "bytes": 5338,
+      "sha256": "5821377b4484351e36be4b431d5b70768f68eb3c9fc31eea7325c10947371654"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/compatibility/EV-0052.md",
+      "bytes": 3710,
+      "sha256": "d5fda80788b0cb8d01694febcb3ed13758dbf7b7d90d5c168c0e7599ef8da589"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/compatibility/EV-0059.md",
+      "bytes": 2807,
+      "sha256": "67ec9b3821940be09619325308f224095670515bdc0a28e79f459081a8dd8cd8"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/compatibility/EV-0104.md",
+      "bytes": 3263,
+      "sha256": "aed14cc1ee615bfd93de9d6c426b53deea372c2af9f7eda9074e1b5f6534a136"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/compatibility/EV-0110.md",
+      "bytes": 3822,
+      "sha256": "15fbb33754d5fd9ba785189b40a8197ab940b0af98a32c5e7a6ee8dbaec1bc22"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/compatibility/EV-0116.md",
+      "bytes": 4239,
+      "sha256": "92cac28f8c54f418aee8fecedbac5ea12d23b137a9d3af5069e6ef2bbc347f98"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/compatibility/EV-0120.md",
+      "bytes": 3620,
+      "sha256": "304e25250c016c41183f25d6ee640778ec0a7db2537064bbac4c87da4283c80b"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/compatibility/EV-0124.md",
+      "bytes": 3790,
+      "sha256": "c0dfef4887481f926e4b802cdd3b9cca8fcfeab1d46bc8899a92c3607bb7ea30"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/compatibility/EV-0126.md",
+      "bytes": 3448,
+      "sha256": "8da609bf9101b1d0cdfde1abeefa39e4b7e6a669665a372b655120d49a6039d5"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/compatibility/EV-0129.md",
+      "bytes": 4055,
+      "sha256": "f231992bdb99773e9ee4989c7ab850f3855b6cd1f695e4439f96bbce69f4d012"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0001.md",
+      "bytes": 5290,
+      "sha256": "f41d263fe987516bd424e015e487599adc9151fc1a8dafa1efedc46b12bcef84"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0002.md",
+      "bytes": 5301,
+      "sha256": "4876aa76ab9b60df01e3374251f4b98b924f1ff8fc33f844de1700a5ac5fdf56"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0003.md",
+      "bytes": 5417,
+      "sha256": "ac696eee2f2efbc5d6b7b91355333acca372f94a0c64f380b556c888d43cd153"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0004.md",
+      "bytes": 5021,
+      "sha256": "2bbf2d6ea42ca040984cc709a8c4f16630a9bc6ef83d8c2ad1f8d1aeb1ed7667"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0005.md",
+      "bytes": 4330,
+      "sha256": "f40564b46a5f8d82756b1a5cad29f939a23627a2b2b702e0a7c9563df034bb68"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0010.md",
+      "bytes": 4764,
+      "sha256": "3a1f1b908bb647fc8d1a08aab515fa08853828f75bfffe13d25f3d8953477d7e"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0021.md",
+      "bytes": 5253,
+      "sha256": "f4f94fe9f51668bd017a5330b8411307dd86ed13799f64cfbf712fe8aabacfd3"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0022.md",
+      "bytes": 5375,
+      "sha256": "226ba326430e449c1b7bc14b85b6dc608f9a9199d7166e5cee8937ec4b94056d"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0025.md",
+      "bytes": 5256,
+      "sha256": "793a6b4284b41d3107220d058fab4521820a7bd0f9c382798d12b3af3c5caa49"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0027.md",
+      "bytes": 5172,
+      "sha256": "b250128f427f1f1b7b2ab2cb8f197e0e889d8a573b598f38bbea8574efe92a1a"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0030.md",
+      "bytes": 4783,
+      "sha256": "9174cab0d543b8dfa2eb9ce878edc9c28e8393e1e3e9c03efca5a1c5650ef431"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0031.md",
+      "bytes": 5719,
+      "sha256": "6306a524a0189d0ca76c6d734c9875578aad98ab23d207fc8b9121201cf098ad"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0032.md",
+      "bytes": 4523,
+      "sha256": "cd9e9a2917863463541e5b29f3ac9eb65beeedfab41b36e3249363b9ae2d8292"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0034.md",
+      "bytes": 4916,
+      "sha256": "7d7f2f685bfc23410869af8c45244c9e5744b4dfc8bab49df54138be52e3ef54"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0035.md",
+      "bytes": 5051,
+      "sha256": "1625005df5734c8853bce9efe98ab0746eebf4112dfc9bd19d3e6e97d140add0"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0037.md",
+      "bytes": 5253,
+      "sha256": "6cf6c92c294b2cdc54168ecebe31dc05155bb6f0a3397ca64fe04445dae49f72"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0040.md",
+      "bytes": 5476,
+      "sha256": "962c17c28e71be53c3196b80ace403b7f2a200f0fa3a69fff35a44c3a0fb6716"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0050.md",
+      "bytes": 3624,
+      "sha256": "f737560bc7d8f4badfc6da7316ea1064570a3092fa497ce55bee9a02f60e0263"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0054.md",
+      "bytes": 3506,
+      "sha256": "6aeb9cd1002bdb59ea730ef9b7b3230949b239bd8a95e013b6c0d6938e1cef31"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0058.md",
+      "bytes": 3290,
+      "sha256": "e0f717ecc53573676eb1971a6d967a0570a84c48a6f3413086d9996b4d0b864e"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0060.md",
+      "bytes": 3900,
+      "sha256": "475e915c8f0839d34327a91921cfb188838e1fd784999133d47dda6955763ea1"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0063.md",
+      "bytes": 2879,
+      "sha256": "d7e1a18bedcb218a4355334e65299714f04eecdb3ac4ecd4f1dcbaacb66f0118"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0064.md",
+      "bytes": 3512,
+      "sha256": "6e2c5e7af6deb27b2fcbf1260d144647a25799d51227b2985f0217a7adb2f969"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0065.md",
+      "bytes": 3888,
+      "sha256": "f0e96304aab869bd3751da550503199d5e6038fef1c6f606227a912cd3348a90"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0066.md",
+      "bytes": 3793,
+      "sha256": "0c1787e65f888e3c09ecf50dddb7f7221f33e0b79e5bc309238b75d236f1ac96"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0077.md",
+      "bytes": 3819,
+      "sha256": "9b3ebaa611bd4f71704b433409359bd625871d37398d6718e8197922714cfaf0"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0079.md",
+      "bytes": 3725,
+      "sha256": "bc25bb8cb7d2c0987856c9f0687cc026e95afcf64aa4f00e81bb04d44937aab0"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0081.md",
+      "bytes": 3471,
+      "sha256": "f170936a3a645d1deeb749c0a70f283f44f4a46b76677814a5c5c91e6cd1d10b"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0084.md",
+      "bytes": 3960,
+      "sha256": "438e9e9512694ee8ef4624adf18151606164beca44f6b3ef473fb93426f8da26"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0085.md",
+      "bytes": 3768,
+      "sha256": "31545ce93f76059519b790419166f5c3316e3f01b5bfd838c3082bad51e64f1a"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0087.md",
+      "bytes": 3452,
+      "sha256": "e689922d3566053a6a05568a323345b7d80c9cc41bfdbb011571c06f452b4e82"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0091.md",
+      "bytes": 3994,
+      "sha256": "a97bafb64a92175d1c75921bb3f0e99c1e32a35f1756d8c5de054abb4e084c9b"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0093.md",
+      "bytes": 3943,
+      "sha256": "f41813d435caced05ba2d5191fc0596154e9fcdbc35b2f36c966e6cad925bff2"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0094.md",
+      "bytes": 3981,
+      "sha256": "df25c6818dc4f4cda569455b5b62576db90f64ccc6d6b1593e4f4f53253eb906"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0095.md",
+      "bytes": 3289,
+      "sha256": "345e4df29750f127815b6d6eec97e7a5633a05f1c843c6b1f681edaeb9423404"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0096.md",
+      "bytes": 3950,
+      "sha256": "0b20ccd124f84532613dd817958003786a488c141c4c805a63446ae8e6c1a49c"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0098.md",
+      "bytes": 3886,
+      "sha256": "f74445d70ccd4b2d597a6029230bfe4b12cd6962ca192148a9ee6b760c6e7517"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0099.md",
+      "bytes": 2850,
+      "sha256": "7c79afe948d7b71f207614fcf6d4f425dc7274ecbdfc3047f52e1816da0e8de8"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0102.md",
+      "bytes": 4032,
+      "sha256": "6afd8543019416c06c98c0c4415f02f5280d656c43dd51b5fe1f1abf60787364"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0106.md",
+      "bytes": 4014,
+      "sha256": "16030e76bc67eff08a1d2095cdf809c802e379b04b1cb514e5cdefd73f452c3d"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0107.md",
+      "bytes": 3898,
+      "sha256": "ea97c406becada4aa78876b9970dfa056a66658ab6bae1be5240923461131c8a"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0108.md",
+      "bytes": 3468,
+      "sha256": "ea010271abc2ad200f7004c7f8bafd88aa3a2c0a255c6c7bdb5341bf32b3c12d"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0114.md",
+      "bytes": 3749,
+      "sha256": "b4f864a719f1cd68fd4e6dee64bd6a5d31b8b45594cc6a8416893ea01442750e"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0115.md",
+      "bytes": 4156,
+      "sha256": "166e92203db6cf5df3caf8eeced33d013de02c353a3498569b74d6613bdc4628"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0119.md",
+      "bytes": 4073,
+      "sha256": "03f9eb171220f2253cd2371ff1d42dea80013e402cd8acbebf3b8a0b93e13825"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fault_diagnosis/EV-0125.md",
+      "bytes": 4358,
+      "sha256": "52c6f7bea6b7defe9ea7714ff0e280dd0ba03572f93ac964236bca5b21526fbb"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0006.md",
+      "bytes": 3345,
+      "sha256": "0514edbb49f369ff02dfa9cff64419918d19c400347dfaec3a70b5198935db2c"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0007.md",
+      "bytes": 5342,
+      "sha256": "74d98e44c44d4c0635cbecf4aa62f8b265298843366b6a88ce7f6e62837ffb19"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0017.md",
+      "bytes": 4960,
+      "sha256": "d3be6b806b93c8a9a0a8585997b6de499eeeb7431a161eb5510c873a8ce948a2"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0024.md",
+      "bytes": 5349,
+      "sha256": "135869cc70febac6c7fd566ba562c1513a0fb3efd59b7ba6e34546ff6d9d29bc"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0028.md",
+      "bytes": 5585,
+      "sha256": "45272169ee34b91af7b1b6bcdf768c3495e6111572e3dff1bd54da958259621d"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0029.md",
+      "bytes": 4528,
+      "sha256": "d3fae79a2951b664c9b8744fd44606bfe8640fe30af76b448ab603d53d269985"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0033.md",
+      "bytes": 5325,
+      "sha256": "45435ce5cc7abf6bfc85d47b444cf484d31d8eae446c95280a0a23d2ef4ab7ce"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0044.md",
+      "bytes": 3486,
+      "sha256": "19873440e4576a1f2dbda04a6728525dcf21613b9abb362a962c9d37c984e2e0"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0057.md",
+      "bytes": 3931,
+      "sha256": "172c73c862858e021fca8d2be4bd7f3ac52b5fb670484839c10c19528a6a68c7"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0067.md",
+      "bytes": 3542,
+      "sha256": "84c757cc54cd2cd9055043b679faa4103925e1a9ad4f427b368cbc44d543dfac"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0068.md",
+      "bytes": 3599,
+      "sha256": "a38507c6ba92e6412d7f8d16aa3ce47282c39682aa7d9b66710e1773478191bb"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0070.md",
+      "bytes": 3816,
+      "sha256": "565e6b22ebc68191c0f80638987662dbc819f786ede380c279b9296298106a6c"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0071.md",
+      "bytes": 2936,
+      "sha256": "7f172db57200c340c896ec2f57a7035b1231f170f489fcd35753045215dbefd9"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0072.md",
+      "bytes": 3716,
+      "sha256": "5518f3390e8399b959bbb18d51afb268010cd4b30c69a895ff6fba2ee0244324"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0076.md",
+      "bytes": 3680,
+      "sha256": "c252fde11e9f7ba8810c2a031fde2aac61488a084e5e6510f3494ed48bf421c7"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0082.md",
+      "bytes": 3867,
+      "sha256": "2f2afa45e97b4f629d7c0fbace1cffa108a9787d5ddafbc833a3eb30fce42c9c"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0088.md",
+      "bytes": 3948,
+      "sha256": "7fa6cbff49d17180981443cc7fa59874891144f9829d8c02c925c4ebc7be458a"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0089.md",
+      "bytes": 3484,
+      "sha256": "e3c5e175ceebbb1645743b17ba7bf8418d8732a98f6d10e59a2608277903d97c"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0090.md",
+      "bytes": 4025,
+      "sha256": "d930c55a0ddf0e208a0707646ad4fece2083e9c599586a64f3f0b38df92e7c6e"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0097.md",
+      "bytes": 2686,
+      "sha256": "6f116a2902b342ca4eb706655b3f556f2bad5eed921d6fd8dc251be2ff7db7f3"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/fundamentals/EV-0112.md",
+      "bytes": 3925,
+      "sha256": "f3ae19419c0c7cbe05cac428f0e8f6cd9f008e0a6e82f8ac8c212681e89ab626"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0008.md",
+      "bytes": 5003,
+      "sha256": "fb6353f361d3a91bc771f876bfeb0f3cc60c91450e93f42a55e55da7d3196f33"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0009.md",
+      "bytes": 5093,
+      "sha256": "1cdfe32fc25f99f734a0016e81560ea4b728aeb9d1f337a7bcd117f81e5efaac"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0011.md",
+      "bytes": 3280,
+      "sha256": "d60ca69ff2704ad9fee0ac1cbd93a2a5568a8e04533f03f0b70a5e7c816f041c"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0012.md",
+      "bytes": 5077,
+      "sha256": "685bc3278917cf704ec8a9713764b0a65a8ee6ac53e81062341a1241cc7d0423"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0013.md",
+      "bytes": 6094,
+      "sha256": "def7d29ee0fdaec2ad7043ad541eded9e87fcde6de6fb687f5cdf8e8e787c8a4"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0014.md",
+      "bytes": 4913,
+      "sha256": "e8691a7989343ec3d259dcb8a9a89ec1693fd28b37e6168eae8266dfaac30b5d"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0015.md",
+      "bytes": 4888,
+      "sha256": "8f03f666f07f2e6552bd695ed9c7e0e442fcac8d0666b268472f9fed128fd7eb"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0016.md",
+      "bytes": 5067,
+      "sha256": "f134c217788a38c23d2fe411be338754638577509cc8c67bd385266f366cae0c"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0020.md",
+      "bytes": 5220,
+      "sha256": "f49843e5364b5432b01ef2ada08a19255f52ee835126d3283fd419952b7d362c"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0023.md",
+      "bytes": 3417,
+      "sha256": "500d9c91f350b00d89315893b685d704947d6a7da13fe2dbf1cd2bcf50924b71"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0038.md",
+      "bytes": 4482,
+      "sha256": "c3dfe1f2941a4da47e6adb969af0e613d4f5136468183b5e3a5e2a75760c1ee7"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0041.md",
+      "bytes": 4443,
+      "sha256": "af45bec79d7d7db13f91228fa294e2ac70fd411f6d633072bbbbbd6ed81e06da"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0042.md",
+      "bytes": 4036,
+      "sha256": "cfec124bb860d5abab8697e0ff610aba37db344884d656f39938d42707ba9f80"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0045.md",
+      "bytes": 3491,
+      "sha256": "10bb136ec59040b5a31e1c4969a9c408e748b56e114bed8a2ff0ed38be802583"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0046.md",
+      "bytes": 3571,
+      "sha256": "fc5843b8dc014e5105962b2ae1f000cfa76fa2c68dcc808463a9db8f6301712a"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0047.md",
+      "bytes": 3449,
+      "sha256": "2adf9aad05c45ffe8b3e630d7cb9330f998d9e77448aa5e067b9c7fd994fa115"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0080.md",
+      "bytes": 3925,
+      "sha256": "168d3c77b30f69de7f899e7995903bea0aab49fe75132c281c82f05dcf7ae022"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0083.md",
+      "bytes": 2822,
+      "sha256": "a6902e6bdd719d40b0dbcc221ebfbcad6aeb4f844513bea1e601fc81b5820146"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0086.md",
+      "bytes": 3372,
+      "sha256": "13d6ca5af0509969ac616a41812f9c551a9638db52d114327f860b7c4bb13510"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0103.md",
+      "bytes": 3324,
+      "sha256": "4c06bb93c35efe1cd98da3edc8aea18f5880a1917205b55cd88f658364be935a"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0105.md",
+      "bytes": 4002,
+      "sha256": "6bb0d3f4fc9e57762226a9841368d4818f6c4815ecf2b69b8548d567bea6de37"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0109.md",
+      "bytes": 3970,
+      "sha256": "d5225f2704389f6274d53cde923b3a8f91aa251201c4d4a61a989c1652c4d49a"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0117.md",
+      "bytes": 4044,
+      "sha256": "6c310d9c5de269812e4f4ad4778f0ddecfbc799ca52b6f75c47291a85668f5e6"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0118.md",
+      "bytes": 4320,
+      "sha256": "ccd4247eee6c42d794e4d4fadc68cea86929fc5b69f15406164a00f54f7a15b9"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0128.md",
+      "bytes": 3539,
+      "sha256": "b468825072398222224c70e9f2fc28f3f529f364f1cbc5923a6d8f6f8d1d8883"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/maintenance/EV-0130.md",
+      "bytes": 3717,
+      "sha256": "374aeeb55e0c19a97ac22f630b81bb67ea56fc1b8d82402818aa99e441d4eebc"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/recall/EV-0048.md",
+      "bytes": 3607,
+      "sha256": "9c9a38a6ae1fc19a37c37870ee7c55f52102fce092c12c2f7978dde284ad80da"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/recall/EV-0049.md",
+      "bytes": 2628,
+      "sha256": "e429f376620f063b5807e74d21312534826caf8afb8def217fac0d2a157ac650"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/recall/EV-0056.md",
+      "bytes": 3404,
+      "sha256": "f0cf185c1fca501a602b632f21fa802d14644a486719f043e1c322ed656d4153"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/recall/EV-0113.md",
+      "bytes": 3921,
+      "sha256": "0461a33df12145bee955de398db7709e733e0abe21814ac0aee174f5108e5da6"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/recall/EV-0127.md",
+      "bytes": 3990,
+      "sha256": "36c4127decf03aa49a92eb9167f0dc21bcec80f66dd6b33d023677d4de008924"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0018.md",
+      "bytes": 4963,
+      "sha256": "819544b1168ed01585f57bda41949934d12e427445b14dd52dc477f92bbb6cfd"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0019.md",
+      "bytes": 4048,
+      "sha256": "eefee6e482590e5a520c62192b14d1f466a798562fd9f573d6c2ed1a1a79adcf"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0039.md",
+      "bytes": 5604,
+      "sha256": "d7306db448c438ee985fdbbb59355ee41b533f0e413822d00ce84aaab82dd164"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0043.md",
+      "bytes": 3215,
+      "sha256": "4ec7d9703a427e09b8e84080f25af66a76809b5f4ef8c040dd43f2c62dc3f267"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0051.md",
+      "bytes": 3165,
+      "sha256": "951e16a7c3bcc3871e8e1a00b17a3db44d6bd7af835fc9b07bdb82bb2e7544f1"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0053.md",
+      "bytes": 3524,
+      "sha256": "5558b064826b3666df4ce851b95773db5e3348a8fe9b1651cb705d48aa1b4696"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0055.md",
+      "bytes": 3443,
+      "sha256": "a29fbf43d4ed6f10222cf687e7726a8d43b9b42926147d18c023985fcd885d16"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0061.md",
+      "bytes": 3027,
+      "sha256": "d161807d5ccc9ebd716246f796b1017b2abdfceb05101f55e41e66e6f4eafe1e"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0062.md",
+      "bytes": 3766,
+      "sha256": "b9b9206104fddd5b34b00cfde149b6d1cb87faf2a81c3424376aceddc62acaba"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0069.md",
+      "bytes": 3864,
+      "sha256": "42e371da2741dea3f63804e037975e213c4bd782eb9a6f2bec53e076d2d5731b"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0073.md",
+      "bytes": 3656,
+      "sha256": "ed1c4244e1e6eb9e4fc46d913a64e2dad78c75f9522cc1f00c50edd2bd73a461"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0074.md",
+      "bytes": 3617,
+      "sha256": "ea76a8ca4a41e4223311e62b3365dad0e1aa4bdc3ab56fd99216462f186ae0d4"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0075.md",
+      "bytes": 3706,
+      "sha256": "3d86306b4d271b8ada58a14216ad1b8990405540a119952b5757cddb12891f44"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0078.md",
+      "bytes": 3546,
+      "sha256": "47a825e17e35303fc6dc15a1698fddbe934360b013594bc97df401474e4aed55"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0092.md",
+      "bytes": 3946,
+      "sha256": "b9ba988c4af8bc7681d1a930b58bdd4ab715366e566302d329d0771ae12ab13d"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0100.md",
+      "bytes": 4066,
+      "sha256": "f0cff5950aa11f59ec8dd12bf5de280236c9d3da52fbfd9ba6481c038ec9865c"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0101.md",
+      "bytes": 3941,
+      "sha256": "b61d6ab023281c73cecde63ba0bab9edd68b192fa0c19085cfbcb0f200f88c84"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0111.md",
+      "bytes": 4028,
+      "sha256": "4d5d4edd5d941ffb23da91c7301e20c0e9542e9b45dd26dd58ded1b7b2c5e1b1"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0122.md",
+      "bytes": 4349,
+      "sha256": "ace4977c000ac779742d5cdc97231bc109d6e31323c5b330ce398270505c1d48"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/safety/EV-0123.md",
+      "bytes": 4159,
+      "sha256": "24e9b77433aa9c4edc327697c406dfe41ae95a85adeb7f5760677fc25593f029"
+    },
+    {
+      "path": "datasets/knowledge/curated/automotive/specification/EV-0121.md",
+      "bytes": 4419,
+      "sha256": "78b72746cd3b4a73429d3584c20e9af23a166b6ad4cd7254e6160cdab8412768"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0001.md",
+      "bytes": 3667,
+      "sha256": "c5616c559e44025db6330238027cec05a4738f12cc9e3d579f471571b2c99ba9"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0002.md",
+      "bytes": 3610,
+      "sha256": "b56e2489673e386655f7bcaa5fad2f0665322d3ec16e2591429709f0ee0d57ed"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0003.md",
+      "bytes": 3725,
+      "sha256": "d0a4321f06d0d4cae19b4fa8192859067c466f636e13a3b99072e89ea83ef803"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0004.md",
+      "bytes": 3678,
+      "sha256": "643c28cff284fdfc4543a56f1872d1539a99cbc102fe761e341ea891017a8e13"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0005.md",
+      "bytes": 3584,
+      "sha256": "2c08bca7b40e5df0bbc42352e5060f878f462980e43388f324556a1a190bf7c2"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0006.md",
+      "bytes": 3606,
+      "sha256": "4e6eb8e5aa03b0d2cf116fb880ba93f1bc88c4594183281ca8381ea441638463"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0007.md",
+      "bytes": 3733,
+      "sha256": "77181d05ee59144e1ec8d92a9510386449cc9edb9d30a2ff75d159256b50cd9e"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0008.md",
+      "bytes": 3638,
+      "sha256": "1e7c93569b4fd53128e4494c565057575eee060eb841fcae809ddbc10ab24d8f"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0009.md",
+      "bytes": 3667,
+      "sha256": "66972ffdb8e989a3c377fad74babcfd0a1ca4313145c6d7f542f968cd0465945"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0010.md",
+      "bytes": 3704,
+      "sha256": "96aebb1eb12263105f4f74eeb7a8bfab5d6387c9cf9c393fa64207d76ce82ddc"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0011.md",
+      "bytes": 3743,
+      "sha256": "24c0c3da9a96ee137dee61352f8efd6fd1aec44c2d6bc9d64cb3df1acb51dfa8"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0012.md",
+      "bytes": 3621,
+      "sha256": "850c9a842a60ea1b0f3581834989f0f800ddcbb8867326f69b4474ffe41451f3"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0013.md",
+      "bytes": 3654,
+      "sha256": "e4867b55eedbc71468dd447d9de79ead67909c7733108cddf2b3556249ad1b47"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0014.md",
+      "bytes": 3676,
+      "sha256": "e4e9f8adc5ba4bb5202d32288a091ba66bca50b14b4ff985aef4e77a3e455dd0"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0015.md",
+      "bytes": 3601,
+      "sha256": "cdfd973acb0f665b97636590bb6346aae88c98d072f4361f946b9876ecd5c2e3"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0016.md",
+      "bytes": 3692,
+      "sha256": "1fd3aa57b30374a6279754ff2a0b462f631aa287eb300a0bf90a414c5ac543a0"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0017.md",
+      "bytes": 3685,
+      "sha256": "319711a0591be47f88fc1f4e6b8a2a7b5fd44358defe5f6dff2c80c9b8692c28"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0018.md",
+      "bytes": 3734,
+      "sha256": "96811b380e46832221ec14650e7d2e852172867bcca91f98b6a38f9d2f7fe1c4"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0019.md",
+      "bytes": 3553,
+      "sha256": "5ff24897366477227cdfed63f2663ffc7e5e01be2543ef1c2ac484c59dab41e3"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0020.md",
+      "bytes": 3717,
+      "sha256": "e8f13c1372106c15670707d345684ca1aecba8a4f0cf950013cf62e54fe74bc5"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0021.md",
+      "bytes": 3697,
+      "sha256": "55459e80946ecfe265944a9404cedae0253c3fd6a10e57f935f8f674ba3ae877"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0022.md",
+      "bytes": 3648,
+      "sha256": "1bf0bc5f0c1be754483d255e5c6aaa78e880d892ebc49994f943e566ed6ea002"
+    },
+    {
+      "path": "datasets/knowledge/curated/carrier/RTU-0023.md",
+      "bytes": 3767,
+      "sha256": "be7811d6ea5378fce71c3440c2218ede3a132d2a4beadad10766ccb8a2410b8a"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0001.md",
+      "bytes": 5640,
+      "sha256": "f9b26311d89f61afd96f41bd23c6f5bba4f1c8d1eaad74760f0ffd6cf2f32410"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0002.md",
+      "bytes": 5284,
+      "sha256": "536999b87a99ce7a1b1c5749a17c9f86766c437d7f5d9a713993104afc6effbc"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0003.md",
+      "bytes": 5229,
+      "sha256": "a29916818fda2d2a219230d4382843d007518dff7aaa57f55bfe233d7a3c17c4"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0004.md",
+      "bytes": 5118,
+      "sha256": "d07d2f3eca9518d1549aaccaf47bb6b02e7a6e7af4b7cc35f979ea478e19b445"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0005.md",
+      "bytes": 5040,
+      "sha256": "05769e7b9b8d8aff29e6a7bea74d125587bcbc99a369d32061e9546b0a4ec25c"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0006.md",
+      "bytes": 5083,
+      "sha256": "e388c444616059198e0b3deb9bd0ef163c7c219081fc7bbaf0d768bad10e5bfa"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0007.md",
+      "bytes": 4832,
+      "sha256": "5f84389e1c6ac19e7adb8c95c3f67d63d616b794ad5032969e57dabd7678971e"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0008.md",
+      "bytes": 5169,
+      "sha256": "6b8f7ea2213d25a3be3f43b6db109854c8dd2e1a1f152b91454db1611885be3d"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0009.md",
+      "bytes": 5407,
+      "sha256": "5fabf6674cf833c3891831e4961f5dc3088de0a7bed9857d99427d567c3bf05a"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0010.md",
+      "bytes": 5367,
+      "sha256": "6d8ccff78d04f89baf2c5eb41e7747b0dee7ea83a8aeb5262bb451f467065cad"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0011.md",
+      "bytes": 5217,
+      "sha256": "c8c0eb72063387ac999eb97511e4cd4e030971ac917b526821ee00bc8a1c0822"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0012.md",
+      "bytes": 5045,
+      "sha256": "ba46183c4b53b515cb62c867dd1cd3e2a8d54fdcbe843c7023ad48d7412c887c"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0013.md",
+      "bytes": 4990,
+      "sha256": "9b7ff725edfc8c2510c42a83b9259ea7b25fe25e7a7f9f9532d82b61828707eb"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0014.md",
+      "bytes": 4750,
+      "sha256": "c45ab0e4b6501b73e23e90802470adb747bb0c0693cbc096103f783b75a29b60"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0015.md",
+      "bytes": 4703,
+      "sha256": "f6090bb5e27fc7878ad302531715cc837d531620efef74d6b7742ae151d74a31"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0016.md",
+      "bytes": 5296,
+      "sha256": "447200ce5dde84bf6de835762e114c1f8c0fe4a7f34973329f9e38bdded69f0a"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0017.md",
+      "bytes": 5331,
+      "sha256": "6a76055fd797c5d1774db008da233d5a85f898589b1c71a0a7830802c02f7e9e"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0018.md",
+      "bytes": 5211,
+      "sha256": "d2d02c5518b0f8c8bab58dd91c87cfd6f00a90cba254b96586a71424a8084ce9"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0019.md",
+      "bytes": 5066,
+      "sha256": "93feec00d8f78278026243cd1aced2b6d40f8b69ffa8c950f39d10238d4e1e8f"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0020.md",
+      "bytes": 4975,
+      "sha256": "8b63bb8e78cfb14856b894e376bba80432cada994444c09737b8f7863169a199"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0021.md",
+      "bytes": 4849,
+      "sha256": "05faec5b3a8146ad43dce43e209b6f052e7754293c055b9d7ddf258a131afc8f"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0022.md",
+      "bytes": 5333,
+      "sha256": "0d71cd312f286208cbe4446029b8545473a7054f202cf1f63eeb98b9f207a701"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0023.md",
+      "bytes": 5333,
+      "sha256": "4c2a60f457af79a917d9c053abcc49f0db9a91eed3e8d6e569febb6c82a2814e"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0024.md",
+      "bytes": 5091,
+      "sha256": "6916662c31fa204f91755e37dbac4c386d10079a6135a9275c6b08a540136694"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0025.md",
+      "bytes": 5215,
+      "sha256": "c08b644596405e6ceda72b7e90e6f3fdf96989fe52b0dd62d409603387bf95cd"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0026.md",
+      "bytes": 4675,
+      "sha256": "4a6862c55143c90ccce9cfc345502e3e444c9c40742265a3ffde3c1601170873"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0027.md",
+      "bytes": 4660,
+      "sha256": "c4c9030490105c7351c86f24ca20cffceece943d9758979cb06e5cdcb573a0b3"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0028.md",
+      "bytes": 4701,
+      "sha256": "b1763464054bc2963cc6121163d3b2b9864fa31b53e87a27517f6ab912d03c33"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0029.md",
+      "bytes": 4638,
+      "sha256": "c20d4466d4b26c2915b95a1b9686b45c69b75714bfa31dae6338fab3d747dcc6"
+    },
+    {
+      "path": "datasets/knowledge/curated/evidence_rules/RULE-0030.md",
+      "bytes": 4735,
+      "sha256": "375e943c6e07e0787cb1f8206762681422cd91b1982f6f6ad2365914d12f580d"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0003.md",
+      "bytes": 3856,
+      "sha256": "b73fe431bf84aa0c354cbabc293035bb013349c4042c82566c692fb83298675f"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0004.md",
+      "bytes": 3803,
+      "sha256": "88a201e649d571fd9c8424fad8d5c2cdd303d1606903c008bb4ccf87c2ea30c0"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0005.md",
+      "bytes": 3705,
+      "sha256": "41de8eea790d3f7c599d3c2150a457f14804960f8f78466258f2ad32825f35e7"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0023.md",
+      "bytes": 3740,
+      "sha256": "e34d0b4fe53753693f7b6d41e9521408261a7983d57a5a23825749019ca12b4b"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0025.md",
+      "bytes": 3281,
+      "sha256": "53a15b681f8b004b3233bf3b4d58a12add16951ea18d5af271f1318518f0dd49"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0053.md",
+      "bytes": 3826,
+      "sha256": "17a73a77adabe551b821b01265a7a51856cd4c60e411d410da2831708938b4fb"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0055.md",
+      "bytes": 3893,
+      "sha256": "fea5eef965d2522d28bc1f03ae5f950772652b9f6ebfd629f5ed45013a5148b0"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0056.md",
+      "bytes": 3677,
+      "sha256": "888cbc30dcebd46178e7e118c3c34b7441401b1a5b53844d450daa9584faf08e"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0066.md",
+      "bytes": 3980,
+      "sha256": "ba9682ac5f9b3cb925daa622a7049cd1d5d0581ebcdfa8570ab0f004bcac7736"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0070.md",
+      "bytes": 2843,
+      "sha256": "7428f7ad62e27be02d09b3c2282190310ba908ad812ee1041d6cbc13bfb04a1f"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0101.md",
+      "bytes": 3518,
+      "sha256": "c844232dee3c753cc9409bff7f1492b93b9f973837ac032df8360d7a49b6757a"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0103.md",
+      "bytes": 2980,
+      "sha256": "ed09920cdcbe9d023feaae661756e4efcf123497380f1eed374d8788db6dc38f"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0108.md",
+      "bytes": 3835,
+      "sha256": "7c46d66d0cef3057a83121a416a7b81e74910dec0ed9558e88ca299df100c626"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0116.md",
+      "bytes": 3831,
+      "sha256": "5a3f46d3259a3d690d336605da0e84e46a24f51d16be2e475c5c346ca50b3834"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0123.md",
+      "bytes": 3204,
+      "sha256": "63427f20e23c69943d2c39a5f7738efc2dc78190ba83fab805ee7c95ac7087f2"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0132.md",
+      "bytes": 4121,
+      "sha256": "e8610228425cbbb4caef01015b7d3917a2264ead8fc07d31ce7b89712fa69b29"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0135.md",
+      "bytes": 3342,
+      "sha256": "c9ff4e588fa7d1b69cf99214be03b9011a6fb1aee0e5411ba726047ea3e7740f"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0141.md",
+      "bytes": 4036,
+      "sha256": "6aad8cbbf833a67648ae74e688cb87e32aa36a80edaccce216b87a513bdb9f11"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0143.md",
+      "bytes": 4023,
+      "sha256": "5a52d063239b47a9fcaa0e4928c546b60fec90e8507fa13ccdeebbb40df1c791"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0145.md",
+      "bytes": 4242,
+      "sha256": "907f7fc48dc2da56896a7649e60855bb064f29849d186d5744649b37419b13ea"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0146.md",
+      "bytes": 4253,
+      "sha256": "fa2571b40efa7d7b4f7183a27f8d81db9c9ea0a137d8d78621a542c2df44f092"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0150.md",
+      "bytes": 4265,
+      "sha256": "5eac26121ef3a5bcac6712dd2597140471fcbdb9c7da8795f4cc6811827cb155"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0152.md",
+      "bytes": 4235,
+      "sha256": "c5e105c66043d6b5f59462c43a11c798a662e6ccbe8d53ea1c65e048f7aac01a"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0154.md",
+      "bytes": 4158,
+      "sha256": "eb7d63c48e8d715a35bb89ce6ce093f0d53e82c1cd7a11443f187dfb38f9115e"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0155.md",
+      "bytes": 4181,
+      "sha256": "c16a6b23cce94d0e6bb95625e44afc76253bd304a1db424fc71d5a56fceae182"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/compatibility/IND-0159.md",
+      "bytes": 4050,
+      "sha256": "ddae0242a7af5ac6fd420f02983fb96b35c2b60757757adbb925542b496e5a19"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0012.md",
+      "bytes": 3813,
+      "sha256": "43c77c2245d2572fe1edf4922fbd530b0156be330af769825392cdb364ad0b83"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0013.md",
+      "bytes": 3812,
+      "sha256": "791acfacaa6ada598d80fa10ad3a7d02f3ef0989a2275d47bc9eb6003b4aceff"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0014.md",
+      "bytes": 3705,
+      "sha256": "4a73fc12656de9f6bd17fe036c1b626fa04c51bb8d8b9c9dceaf68424d8050ab"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0015.md",
+      "bytes": 3798,
+      "sha256": "830301006c68c3cdcd679326ce860bf3a13aa3ee4e93de34ab126ce89c89a0d7"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0016.md",
+      "bytes": 3360,
+      "sha256": "4dd5e3392a47e82e209189117537994857d790b671ca1cca5dc55b6f03d9ce0f"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0018.md",
+      "bytes": 3797,
+      "sha256": "e1687388068a28e41c66720e81c052ee324691b282051205f245eef6e9a643bc"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0024.md",
+      "bytes": 3841,
+      "sha256": "222770399b8ef33793300db2bfdab5eafd134f83d564d86aee8eab8da747c9ba"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0026.md",
+      "bytes": 3815,
+      "sha256": "d67f91f631b466f2351b2a4c2dc96fd0a40b0dd61d924e80682cdbb4341803a9"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0028.md",
+      "bytes": 3844,
+      "sha256": "e52a211ce050212030c0501405ff5a217e9e65d236a4a34ecff6d5ff1866105a"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0029.md",
+      "bytes": 3779,
+      "sha256": "2f5025db181e06d5af2ecc623b62ada3acbc2fa3776fd79df606909a2f372b5a"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0031.md",
+      "bytes": 3972,
+      "sha256": "64f40a51d169e5dd039a8604e9700265edbe19134229b205c0d7a35a00ba627b"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0032.md",
+      "bytes": 3783,
+      "sha256": "f55cc4bc879bbca556730b1d0686117995b7bdeb09a4bc64915281af0b56e6f0"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0033.md",
+      "bytes": 3769,
+      "sha256": "3a2cbc1bf3dea11bd14901711f19099ceec4c91fcad565e65dc58920973bd35f"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0034.md",
+      "bytes": 3737,
+      "sha256": "296bed9ab0b17bc5173de0f41911c7020767f7fc746d88aa25d37472fd08d0de"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0035.md",
+      "bytes": 3260,
+      "sha256": "05f72245f63f665f0acd5ac64cc6ae638ebf046ae65b463ed794f189b102e867"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0037.md",
+      "bytes": 3758,
+      "sha256": "85df259e61f7289bff5499e2c0262360af8240f95b3c46e437c020037362cfbf"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0038.md",
+      "bytes": 3116,
+      "sha256": "3888cebb8e805471edd0325a867c60f82296d6908d34d29ee6fb6857c4ab6cd2"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0040.md",
+      "bytes": 3798,
+      "sha256": "435f38ace8e0d0ea3a6bfbc02386b12f6be0d15c5c2bfec2056b86b3df760361"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0042.md",
+      "bytes": 3638,
+      "sha256": "c78a61628d03f06fcc8162a3710659c77e8c0f761cf9df33742f15380e70128b"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0044.md",
+      "bytes": 3910,
+      "sha256": "58e235b5e377e69e9f6e0360ada0a972fc7e8949899058231e72d9dbfbdcdbd0"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0046.md",
+      "bytes": 3804,
+      "sha256": "6e0e403c55733198b3d4a9af151c84d1d134c1941e455a14f52a750b1c299b4f"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0048.md",
+      "bytes": 3605,
+      "sha256": "28b0c554f8d66d311fa37f098603aed8d2b161fa3c1c4463ae8fa5769196ed2f"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0049.md",
+      "bytes": 3824,
+      "sha256": "b3f15cbda0f254ef2cbbb93b3f0ad55d08e6f9fad37634ea6bf99eb3acf567e7"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0050.md",
+      "bytes": 3176,
+      "sha256": "d595365479d441e02a734112fa6596d86e2fafa014ba501b44d8377d5015a3d3"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0051.md",
+      "bytes": 3831,
+      "sha256": "efcbfb9544c465219fd9fd0d7565245d654a76e93359af02ded7425d326b8408"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0052.md",
+      "bytes": 3910,
+      "sha256": "714608ade7cdc3000084cae22d140c0abbf15f1cf63a628bfb6c8c5f46a2050a"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0060.md",
+      "bytes": 2950,
+      "sha256": "df6f114b8dfce4a9a54a47899718ca9b61f3dea9ac7cef944b32b94b2bf1999b"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0061.md",
+      "bytes": 3969,
+      "sha256": "13e8da6d3b70557d6c56795fe35995add919396706d12b9e669947ad78b2454c"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0062.md",
+      "bytes": 4016,
+      "sha256": "746f0faa228c594fb8a50deb55d1725ce76976efe2f9c891704fafbb114ee03c"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0063.md",
+      "bytes": 3846,
+      "sha256": "f7bc84564fe406ad891b6b6dc3bf50b69ab5a47ec98a6d760818264d28f3c76d"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0065.md",
+      "bytes": 3955,
+      "sha256": "b64f3c9d0ef31070c86dfa4a1e84dae686b0ec310eb77c689d0717cb4c19d398"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0067.md",
+      "bytes": 3954,
+      "sha256": "bf839a74757e52154b811de3247e06a1e45400b0cbf5c3af10c41f055fef0a19"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0068.md",
+      "bytes": 4046,
+      "sha256": "4b9ddc2ef906b495ffd088a06ea497067c235611fed3c1e8128175c72b795edd"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0072.md",
+      "bytes": 3912,
+      "sha256": "8793a11c3b0cf5c77a367c3113e73d608c6f35494a2d919fa9587484a66c73a2"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0075.md",
+      "bytes": 3861,
+      "sha256": "92098d3f9dc987f85762620d5f9e1b0bad7d2f76d22ce1d5788b5e98923c3355"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0077.md",
+      "bytes": 3554,
+      "sha256": "283057e701e3d15fd8b61e9ee63769857a951806f81bd7edcd3d6093841154d1"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0080.md",
+      "bytes": 3830,
+      "sha256": "b229a228f7edef96cf7410c770d8244b2016d5c04b6e269371f145734f953a65"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0081.md",
+      "bytes": 3855,
+      "sha256": "424cef7051286c9cbd80d76b3e0823f312008b9f69570cf15ff87b37ecf161db"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0082.md",
+      "bytes": 3245,
+      "sha256": "74b268dfbadd7699be9fa28a5aa7242102bfefea806059445e9dcbab72ed4c88"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0084.md",
+      "bytes": 3930,
+      "sha256": "1f96dc93e289fda1b20782e9971ef8f5667583f447cd9919672143f21cc879e2"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0085.md",
+      "bytes": 3855,
+      "sha256": "432a42b0335124f11ad4b18d925583ac84d4825240363f4c513dca7f6edb22e5"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0086.md",
+      "bytes": 3921,
+      "sha256": "337afc59728466c91fa6dc3e0b4d8e36af0547deecba04ae8a83cdedba81294a"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0087.md",
+      "bytes": 3933,
+      "sha256": "a651e215f1a16a8798bafcdb8f468e33c0e68cb9c00d88777a25fe293aeecfd3"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0089.md",
+      "bytes": 3925,
+      "sha256": "a2b47e91c233f742d056202a6aeb50fdb37e31a9f6d7ce2053a56f2771c2b135"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0092.md",
+      "bytes": 3746,
+      "sha256": "0e823ea55cc1c8671b87ad6e1f34d51cfd1ad652061137f3abc9569c4c8cdcbd"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0093.md",
+      "bytes": 3799,
+      "sha256": "c141b8b1138c9e6a1a0d015b56298d037a05cdbcf21f963d44c7f3155ed21ffe"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0094.md",
+      "bytes": 3815,
+      "sha256": "a65fee317f34e2d05d013c6881121606c5c3710622cfc8d2af3eb64e9edd1a9f"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0095.md",
+      "bytes": 3920,
+      "sha256": "d6ed93567fe3336282ebca5e5460c7a3355ffce2d27bff9b838008c6f6438078"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0096.md",
+      "bytes": 3783,
+      "sha256": "cfb91a12652555dd992b12f0385a2543c93cd66c7810295212249a4b00e1a536"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0097.md",
+      "bytes": 3790,
+      "sha256": "d9439b992de3b7497236d2ce587e0ada8be3c1ae6bda671ff5cca17fb61de7cc"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0098.md",
+      "bytes": 3782,
+      "sha256": "4767cfc5d406092a155ed23c292875066095a093a96dacb1315fc81512ce87d5"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0099.md",
+      "bytes": 3756,
+      "sha256": "13ce57ebfd3d79a58dbf2eb6f8fbb2a5eb7c81d170107a499d90bddc822cee24"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0102.md",
+      "bytes": 3156,
+      "sha256": "4b53acea737296c2c257b7b8dbaa223244d82de8573cbdec90c8a0819d096655"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0104.md",
+      "bytes": 3810,
+      "sha256": "5e9dfdb236c894942426c2e10127ec0e728ab5a80d085b020fe821f15c5029c8"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0106.md",
+      "bytes": 3811,
+      "sha256": "4f9f6ccabc3ecf4f3426c3c08c282c9be5882993da07a46e61e0ed1b1ea60c2e"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0107.md",
+      "bytes": 3793,
+      "sha256": "0b36d3706d037d19e8186c22417e6e3c1ec119c1782f125f562b4c5411fb5cf6"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0110.md",
+      "bytes": 3818,
+      "sha256": "dddcb8475b4a76de8c0075cb1cba39d6f6ec66e201364fdf5b58676427e862d9"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0113.md",
+      "bytes": 3809,
+      "sha256": "4d1d8e970430a4cb322d003deea9c7e1bb6e4c32433e9e8032f455efcfee2132"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0117.md",
+      "bytes": 3950,
+      "sha256": "e02e4f13f7c5736c9ebf582daecf44c2e37823a2957b20cafcb01deb8cdd519b"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0120.md",
+      "bytes": 2778,
+      "sha256": "1d08acf1703bae83793b96c3007aee2952b07b027648b9b22c102d3bb2988371"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0124.md",
+      "bytes": 3830,
+      "sha256": "36bf23ceda016cd3e1452f99ae8d159f90d56bc2e56c9240ede8929d165499da"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0125.md",
+      "bytes": 4039,
+      "sha256": "c8299b4427558ae3db087a2e4507b632e7757056dd3356baf5cb79450355de29"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0126.md",
+      "bytes": 3997,
+      "sha256": "8584ec60bdcaaeb046cc5fb2f7feda3ce5f5b2e41077d2d35355c9f95e490de4"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0128.md",
+      "bytes": 3794,
+      "sha256": "a50068074c020c867a28366db7396c8789517b6477b3c8f3007d93285cb2a237"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0129.md",
+      "bytes": 4121,
+      "sha256": "efa1dc57b6bbc57fad7407df11e983489c2526daf9992510533e6603afd97ba5"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0130.md",
+      "bytes": 4075,
+      "sha256": "f0a1139a35b6b587e3791507524253579a8f00a019836abe1e83a41b57b0ae13"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0134.md",
+      "bytes": 3741,
+      "sha256": "8ece4439172d2eaa63544373caa49070548c7c69ffb1cf40a2e18eef339369f5"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0137.md",
+      "bytes": 3050,
+      "sha256": "7268fc8bea941cbc2c8b20a0f0aee3f7e7d36e370598fd92cfb024e3249681f7"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0138.md",
+      "bytes": 3900,
+      "sha256": "e0bf7c5ba6815d4d3dcb29d96c9a699780a9ba0b33bcf6562dc81cff08ab71f9"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0139.md",
+      "bytes": 3932,
+      "sha256": "576caf4629ff0131f942540a7ab8b5b315d5f8f39f627bb4c6d7f2dae8bd6e43"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0142.md",
+      "bytes": 4116,
+      "sha256": "3cfe0fa5a177bd4ddb496cc7b24e902aacad497fda1b89c497acec9f29fda0be"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0144.md",
+      "bytes": 4211,
+      "sha256": "58b946edcc5fa79ba19d7f86a903fd7005e76348827c43babe0334015b09ac0a"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0147.md",
+      "bytes": 4267,
+      "sha256": "d5943cd019323bdfabf20d2c2974a181597c536be691c116c69f7bdc8a92ecaa"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0149.md",
+      "bytes": 4247,
+      "sha256": "bddd4b44d12f9089196580a83ba114ca347400722e3ad537a0be3433a165ccf7"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0156.md",
+      "bytes": 4102,
+      "sha256": "785e45720dfca8d2515247edd366fe966935e83d25cd7075d72c20ddd4b05261"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0157.md",
+      "bytes": 3982,
+      "sha256": "7391d963919c80c76f8c7eb96ae5a6743096304036b31e22050ac28af51d0109"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fault_diagnosis/IND-0160.md",
+      "bytes": 4048,
+      "sha256": "2ad8a98e830f6506e4e875d860008fa54c4b2eaba9e466c309d6d0c10d37adaa"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0001.md",
+      "bytes": 3821,
+      "sha256": "f2eac407b87fbbe0937b25493b5e0c9fbbad80cf490d4caf4d781b5518c2229e"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0002.md",
+      "bytes": 3735,
+      "sha256": "a69d6459253155c1062be5215d5697f5c79bea52de77ad0ee456f842d4de9d96"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0010.md",
+      "bytes": 3763,
+      "sha256": "f2fdf802c9fd391f0a1d494b3d95f003f5bdcd4bc17d1a0f4781c7d867d38081"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0011.md",
+      "bytes": 3771,
+      "sha256": "2974b066c0e5a5c5f86717fb62d33ae7e4515c08010cff75ddd44ea55343c459"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0017.md",
+      "bytes": 3816,
+      "sha256": "3160d27fdb164b1ac034f249c01da97127bdcfb406fb6d2e968f1d1d93d95880"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0019.md",
+      "bytes": 3803,
+      "sha256": "92962af1fb86aa29cf8da67197e039d4dff496be58a6c8638d810fa48078f3b4"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0021.md",
+      "bytes": 3854,
+      "sha256": "da7428aafe593bdbf57304f2d85ceb28585f018a0976b89977507e64e87764c6"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0027.md",
+      "bytes": 3813,
+      "sha256": "2f0d869d9fca54b7d08a703c9a20cff1726e37c5d1cb025ce183b57b34552e89"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0030.md",
+      "bytes": 3821,
+      "sha256": "1980295dac00f6f1b5e8ae79d4d1287e823b9bcb8a42e9a8a8a05465761c47b1"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0036.md",
+      "bytes": 3583,
+      "sha256": "4dccdf9fe2426605ece8319c83e4e8b7426af4df7b569c7e305b87098559b4e5"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0039.md",
+      "bytes": 3818,
+      "sha256": "4a554dc2126a581a7848491c05c0a0132f1900edae71850c89c633845c3122f1"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0041.md",
+      "bytes": 3777,
+      "sha256": "78b88ee8a6e3f42cf83a381771cac8a00728ca8285a4fe3ccdebc978df4b1a3f"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0043.md",
+      "bytes": 3791,
+      "sha256": "0d99ff4b575a3306fdff57ff61cf934d4e0bea3123db4e9536aa42085f2de29a"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0045.md",
+      "bytes": 3801,
+      "sha256": "340d75ddcca941b2ce85eda82d17bf65ef4ac93c6b9d45fd156c84c5b870ac19"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0059.md",
+      "bytes": 3795,
+      "sha256": "7382cd7e62e640036940bb41e9efcb326de418ccf960ef71c15ecdb0ee7ecc5f"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0064.md",
+      "bytes": 3858,
+      "sha256": "73505c38129152a575eb77b46944f3d3a095208ea8d5c7621b9c25938df394b8"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0071.md",
+      "bytes": 3937,
+      "sha256": "c2109a746881ba4c3c2d237976645d88af744f71fef4cb9ee6fb461553d7d730"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0074.md",
+      "bytes": 4003,
+      "sha256": "64d3c13c3d52f48e69a4b338bd4e640b40342dd837173b3b9dd16c8f2bd9ec46"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0076.md",
+      "bytes": 3869,
+      "sha256": "e42e12fbebb3493e5c448e22cc8dc1d2b2cfbe78efd7397e5e56f671405212c9"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0078.md",
+      "bytes": 3513,
+      "sha256": "4138077e6d539bbbe39c616105f93438f1211bd86ad51005d52c3eeea531f152"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0079.md",
+      "bytes": 3366,
+      "sha256": "8eb9ec52e0d793b4a7998c7dab2fded5ecfc36ec8c2acfafa9654f311fc2710f"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0090.md",
+      "bytes": 3866,
+      "sha256": "e3981227f3317d455abbc081fb5b6ca0702f72eb85dc7518d38c535c3fffb129"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0091.md",
+      "bytes": 3840,
+      "sha256": "622423bb677f6e4d3f323bd925573739eb5a54d9b0dc06474fbc1093e2c1093e"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/fundamentals/IND-0158.md",
+      "bytes": 4207,
+      "sha256": "ee87f20476422c2de56d783b3cb8ed83f8aca9e4d381dae4a1d7c534015990cd"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0009.md",
+      "bytes": 3802,
+      "sha256": "b628792b9e39d62db0c80e3f9cafa16f303e8653a62753ae5d6838fca0ede391"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0022.md",
+      "bytes": 3057,
+      "sha256": "1d9d6c571f1e2275200ac105f2d8000cfeff1e2b6527629ac67449c2f40f1586"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0054.md",
+      "bytes": 3445,
+      "sha256": "826fc4e640ed21a0a41f89a932e6232c7e1ac875dc8c3c608cd29fc3d5c8190e"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0057.md",
+      "bytes": 2911,
+      "sha256": "93ca58c24ac89d3dfd319a76d9150c1d429abc204a6196f064e6776b101091a1"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0069.md",
+      "bytes": 3191,
+      "sha256": "f7b5a20ad7c58c67dbf80e8d3cd58a134713522d4e4650216145929da821f095"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0073.md",
+      "bytes": 3879,
+      "sha256": "082589d080ebe2d3f77009552a8e71a003805e541e3c69b9b2d926b5a02927ba"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0088.md",
+      "bytes": 3872,
+      "sha256": "8c4e969b8cca882c1553af5f5c14f295776ea3aa89d64576de71b008c9964fe6"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0100.md",
+      "bytes": 3556,
+      "sha256": "4d331e86601cdd56f595a6ff8cb35f61df41407b83d504a79506f6b61a311032"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0105.md",
+      "bytes": 3852,
+      "sha256": "0af8f409bbc94eb661bf6fe343afd3b576819d64b85d90c981126f45aef67770"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0109.md",
+      "bytes": 3422,
+      "sha256": "26b9f1f33695c84146ec86d49d8a5d059cf710e6a50550f08f915e7c3fe9ae76"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0111.md",
+      "bytes": 3745,
+      "sha256": "88f4225f1fac69575ba81473868c3d97f59a143d649d855c6bbf793ec5f95ee6"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0112.md",
+      "bytes": 2992,
+      "sha256": "f7d2efa1f92bd65d927f48f92b3279e59204fe01991ece9aba9ab0dba92164bc"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0114.md",
+      "bytes": 3805,
+      "sha256": "98e6c2575c2edda324b4955e903f0f46d1f59388f21232bca6c42d26958c7383"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0118.md",
+      "bytes": 3931,
+      "sha256": "a92137b7110fc59bb9c42da314c17f31aa8d0cbf4a94cbbc784bf587a6911104"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0119.md",
+      "bytes": 3352,
+      "sha256": "f561427f24597933cd3a67ec8d597f28bb9aaf4d3d81dee25dc1dbabefe4235a"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0131.md",
+      "bytes": 4072,
+      "sha256": "49489318bd3d553d30d84591536e88367fe47a8a8cb3f6b40e6233650c63fea0"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0133.md",
+      "bytes": 3484,
+      "sha256": "3fda2ed98f30f368a2232e85a0ef269b1c57e786d652e858b35ea9dd7cbd8aae"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0136.md",
+      "bytes": 4079,
+      "sha256": "1af6e6752b1fb2235f291ed72901660fe1a55d0b2353c789128e3bc24b86bada"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0140.md",
+      "bytes": 3947,
+      "sha256": "25fe6867d21152811be25ad706ef22b4fedcee8cede9df15a11dcf48f8574aba"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0148.md",
+      "bytes": 4236,
+      "sha256": "2f78af0df77038012da314ec01d398fa544ce7824de8963d05a1f92bdcc260d1"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0151.md",
+      "bytes": 3990,
+      "sha256": "bf67dfcb1994be05ff6eb963ac3d30628b589ad687f439c1f3b2c9dd2bd70d97"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/maintenance/IND-0153.md",
+      "bytes": 4201,
+      "sha256": "3940c2d58c850bf52b56083bf3e0c96de33e9f1820dc28f7f75f1f2002461fea"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/safety/IND-0006.md",
+      "bytes": 3794,
+      "sha256": "f38adcb3a7a60e9f4233843c637b5144a4be400089fbf3bedabec09cead2bfe4"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/safety/IND-0007.md",
+      "bytes": 3799,
+      "sha256": "608bf3a30096205a55ec2759a8bf929d137c53268b213af8ced219f03f32e86d"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/safety/IND-0008.md",
+      "bytes": 3774,
+      "sha256": "15c96d9a210de3a2dfadcd0bc1e08010bcaa887ad45114e9006971718e8cc027"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/safety/IND-0020.md",
+      "bytes": 3777,
+      "sha256": "ca77dd376bb525b03fd885d977403482b480be0bc7cdb50ee931baa82c8f92d8"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/safety/IND-0047.md",
+      "bytes": 3852,
+      "sha256": "350ac86b73101a9f82f4e5f24d6aa185b8e3d9ec090c5765854bf854e09b2e82"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/safety/IND-0058.md",
+      "bytes": 3691,
+      "sha256": "628c2a2db101d625ffad69ba8341c972cc09e32c457baaae3bd9cc8265bb9e97"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/safety/IND-0083.md",
+      "bytes": 3704,
+      "sha256": "f0395c46934ce8e90084b8ab3e610b85259da89d863b525b479c1e7dca181e3b"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/safety/IND-0115.md",
+      "bytes": 3866,
+      "sha256": "1287b5817a9dfd2f13d7a5dd9b5833098942fae84cbae59f3b8ad4b001d61bf6"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/safety/IND-0122.md",
+      "bytes": 3880,
+      "sha256": "3affc18fd7821462b05e1cf8c68718f09834a8d6d28aaf7cabb858dbb3e5550c"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/specification/IND-0121.md",
+      "bytes": 3998,
+      "sha256": "470a46086b7d40aaab313bc3752a32946488138feef5dd71342193424e83e393"
+    },
+    {
+      "path": "datasets/knowledge/curated/industrial/specification/IND-0127.md",
+      "bytes": 4122,
+      "sha256": "b2aac9257478285009769ae667e7c4ababab42bb8005aa656359e22313e4dfea"
+    },
+    {
+      "path": "datasets/knowledge/curated/knowledge_units.jsonl",
+      "bytes": 1476582,
+      "sha256": "bc047021fb151683c5f5429443e25e4abc63b6f4d491f4a0e18936f35ff26875"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/EV-SRC08.pdf",
+      "bytes": 735259,
+      "sha256": "fe387b48c9823b2af5158cb93e5661e80342d4c1c79c91babb14a0be7e3e3ad6"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/EV-SRC09.pdf",
+      "bytes": 1063536,
+      "sha256": "704b8733b421fd8fd9a1fa85e08c16f841ec9cd569cd95257387d6bf33c7426a"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/EV-SRC10.pdf",
+      "bytes": 409558,
+      "sha256": "93e2ff454e38e0c2c5b0012cad9d04f68800f1a54a9c5a51dbf9ed9ab61ec5db"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/EV-SRC11.pdf",
+      "bytes": 166772,
+      "sha256": "03e222d642c8f5419211bf48ae737b023f956ea7a118c48054e9b6bd0a93c023"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/EV6-IN-OM.pdf",
+      "bytes": 18406723,
+      "sha256": "b9bfa128f7ba89c099c5cbf773c536da985e20d04b87b7d301dfabbbb2d56ded"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/EV6-UK-QRG.pdf",
+      "bytes": 539378,
+      "sha256": "86e62c9474a01d94c04adcfa787eb4d5c52c26c02f4ebdcc991dba5dea4935f2"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/IONIQ5-SG-ERG.pdf",
+      "bytes": 2001248,
+      "sha256": "5bf20d13062978b516aa3f4d683a407b08481e29ac978d720765827f5abfcb7f"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/IONIQ5-SG-OM.pdf",
+      "bytes": 29622818,
+      "sha256": "6dff1e7cf825aea23a28d81cf043890497850924f973949908d644d261a15e6e"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/R2-EV6-573.pdf",
+      "bytes": 214245,
+      "sha256": "a6b0da45fede1f53f8cbf41fdfddc51bbf09e5807c07efcf55ef8e871135294e"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/R2-EV6-VCMS.pdf",
+      "bytes": 688049,
+      "sha256": "a7349b428493b329c9533669d6b2fbe3873f25cde6d47afb01f7bc8187a2255b"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/R2-VCMS-TSB.pdf",
+      "bytes": 541421,
+      "sha256": "7e0bf2f37aba50f06bd67fee979e012a83ed21169310aed56333b27513918063"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/R3-IONIQ5-T9Q.pdf",
+      "bytes": 644731,
+      "sha256": "2c98166d2ea35d1460e124b0df1ce7e48ef593bccce248368fdcc8b5a23fbaab"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/R3-KIA-SC327-REPAIR.pdf",
+      "bytes": 2075358,
+      "sha256": "d4fa93708d6ecd471896438c57c8d105128041e39cd91d42ca682dbd7d92e397"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/R3-KIA-SC327Y.pdf",
+      "bytes": 1461415,
+      "sha256": "16c986902d7857b4f01a129bc73a674c183697c6627363ebf1f710d32af0f7da"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/R3-TESLA-DISABLE.md",
+      "bytes": 15637,
+      "sha256": "30839c66c5691d1fcc3332432358fd0aa72d8411077e3ca2c4bdba5462a5f0c4"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/R3-TESLA-ISOLATION.md",
+      "bytes": 8436,
+      "sha256": "980f6bfe051d8e38cb8614e844c59cc087e0ea6d06c79c4f708c063d53501a53"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/R3-TESLA-RELEASE.md",
+      "bytes": 40615,
+      "sha256": "5c4a3e15c9bf1f7b65c2d12d497fdd19e7aea1f6a014a64976049ed85f62321c"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-EV-SRC01.md",
+      "bytes": 3204,
+      "sha256": "986e0b307f311611c4331e60aec3184311a6052f6ac90123ad89a01fc728088f"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-EV-SRC02.md",
+      "bytes": 3888,
+      "sha256": "46232d313ecd0d6d646d097734550d50810aecf620109f9f57f8686506aebf39"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-EV-SRC03.md",
+      "bytes": 3500,
+      "sha256": "13fd2c9468b1fa5f84a2a150af644983e31f2ada40137ef032ed7ce16960ec3d"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-EV-SRC04.md",
+      "bytes": 8875,
+      "sha256": "abd24bf8e9d39c6f2ca602fc5b4744ca009e927c9bad369cafbf7fa98109bead"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-EV-SRC05.md",
+      "bytes": 6842,
+      "sha256": "20a72eaf02de94ec1f9ce3b41fbf3361af6aba2ff74ccd7f585843740e0b1555"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-EV-SRC06.md",
+      "bytes": 7344,
+      "sha256": "c11d2b96e76415d9cc3077f3a27c05c476639c8d387aab557ecb674cadffcb7f"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-EV-SRC07.md",
+      "bytes": 7938,
+      "sha256": "ebc0b0356e55a0b27172a6ff50639d43951e1cdcda5bda46fe7d1c76482821dc"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-EV-SRC13.md",
+      "bytes": 19078,
+      "sha256": "7516f992ae0334b5c1bdeb82b9ad9242648ab100c480acd996e54600b3006f68"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-EV-SRC14.md",
+      "bytes": 11969,
+      "sha256": "19092b91635d057ca06d7000c28d94a039d878b6396897a4f966909107caac61"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-EV-SRC15.md",
+      "bytes": 8565,
+      "sha256": "040b1e268f9b4a401f89c6fac81dbd6b50fcd80d5a17c785cb41fd819cbfec54"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-TESLA-BAT24.md",
+      "bytes": 6802,
+      "sha256": "957c019064efc20a6cfcccc50499eb62107d9b9b9a8650b51f94ca6089c4a4d6"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-TESLA-BRAKE.md",
+      "bytes": 15333,
+      "sha256": "bceb9f1136b2f25cb90afec736d9a2e8f259babc9847475ae41f1825810ee932"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-TESLA-HVIL-SERVICE.md",
+      "bytes": 18404,
+      "sha256": "b410e3a54612599164c0729f534d703c3b9238a4e6b92ebffa6c094413cb84ce"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-TESLA-SCHED.md",
+      "bytes": 5027,
+      "sha256": "43b9c58311992e557679f61562bd4c1b258d938e7e1696ec979b569a00596983"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-TESLA-TIRE.md",
+      "bytes": 24087,
+      "sha256": "2cfe53a596a7a6bc8340a90c4b7f2e694e93dc1055ca44ee1c2b1976355eeb12"
+    },
+    {
+      "path": "datasets/knowledge/raw/automotive/S-TESLA-WIPER.md",
+      "bytes": 2921,
+      "sha256": "75f62ecce920d0106fbf1db9fe60da564d866a09a1a4e23a65b461a38be12cd9"
+    },
+    {
+      "path": "datasets/knowledge/raw/carrier/PUB-027.pdf",
+      "bytes": 2555683,
+      "sha256": "6745b4018bb67780bb3b309655419c9a9041b708151d1e4a3cc6c07e99d2a74c"
+    },
+    {
+      "path": "datasets/knowledge/raw/carrier/PUB-028.pdf",
+      "bytes": 861469,
+      "sha256": "3249d8299958ae2a7c03b56b246dd9ad1669f181f217134d830eb08aea791214"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/PUB-001.pdf",
+      "bytes": 35605064,
+      "sha256": "2858fe1bb0a9d4b3a15c48ff8521108c0702a040276d458bf41856a6640cd2df"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/PUB-002.pdf",
+      "bytes": 222029,
+      "sha256": "5a34b3b89352fccc9482713f11a015488911070c54034a051ac062c91885723c"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-CERT-GUIDE.md",
+      "bytes": 162284,
+      "sha256": "42367a9b09269a458463d711e1fe344d0c81f182815dda6b65c2d0028bf81749"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-CPU-FW.md",
+      "bytes": 39730,
+      "sha256": "6b0657903fd24f75f3f464bd1ed5b0082e1010088a779159797094db5621d354"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-DIAG-CHANNEL.md",
+      "bytes": 33643,
+      "sha256": "f321e97e3ff9ada1395012874f9860142ae2b86fe5338738ec712988f7e9856e"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-DIAG-USER.md",
+      "bytes": 62961,
+      "sha256": "c53176edf5d4d9fbf1e35658fea0284344200bfa9a79ff9803dc9eb6832e66a0"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-DP-DESIGN.pdf",
+      "bytes": 2066772,
+      "sha256": "6da29c456228379597d24f7f25a018d008ef2056f61999587003b48156f95605"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-HMI-CERT-ERROR.md",
+      "bytes": 18862,
+      "sha256": "852e6f9438a3d921dc44dbd9c0a793cf3d6023351c061079123db840a146a6ef"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-HMI-CONNECT.md",
+      "bytes": 24448,
+      "sha256": "e8686172496283c196631ae195c80007a908984cc8bc406556fd83d27c4df1bb"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-HMI-CP-CERT.md",
+      "bytes": 14929,
+      "sha256": "e8eab36433978fe49092c8ea3cff028c969ca943f1edce8093a34c4f7e282394"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-HMI-TLS.md",
+      "bytes": 121529,
+      "sha256": "d817feecc4c817e5fdd10feeee1c15b268fa0bfe4c3b0f1d02873127f6728aab"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-IO-ACCESS.md",
+      "bytes": 15548,
+      "sha256": "34a6780277c3ac11db84f40172b7481dd73076ffb8712de407478a9737c5ab5f"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-PN-ASSEMBLE.pdf",
+      "bytes": 1893189,
+      "sha256": "e5db59544e3d2c00face595b96dbc5b9436740efd0fd92e5bdadefb4ecd34bbc"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-PN-COMMISSION.pdf",
+      "bytes": 2538858,
+      "sha256": "42ab91d4e1b951cd495fbf39deb3e5a5ceb7506f6d0abbd677c3f555099732c8"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-PN-DESIGN.pdf",
+      "bytes": 9502717,
+      "sha256": "ef4927cae1c4a2fe1c568f096b255b8fc84d6383c74402ae29b1721b692a400a"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-PROGRAM-GUIDE.md",
+      "bytes": 200567,
+      "sha256": "4ea5930531b20751b6c6c6f1e2fad080784d5263a041edc7d390eec37b123f6b"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-SB-TYPE.md",
+      "bytes": 11598,
+      "sha256": "53bcddba68a4566e3b1db435c9b58780d082b97feec8ed90cf02925b9b92cb33"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-STYLE-GUIDE.md",
+      "bytes": 135445,
+      "sha256": "fcefce6b4005ce7965ad83e446e5752c7c972ca3cd03c2b3acff98fb2c4199f5"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/R2-TIME-SYNC.md",
+      "bytes": 87378,
+      "sha256": "3a05479f1591f43dc63033e741d7156420e1cf937699e517ec847cd13d163379"
+    },
+    {
+      "path": "datasets/knowledge/raw/industrial/S-IND-KS-009.md",
+      "bytes": 216297,
+      "sha256": "9738b83172ba6004f83a2abf6d51c645e430ce3c0cfb3ae906253ffc9e9cff4b"
+    },
+    {
+      "path": "datasets/knowledge/reports/knowledge_v1_manifest.json",
+      "bytes": 686068,
+      "sha256": "6bfb69dd632e634390c969d1d2d113a5cd81dd1e1a9546a749822d8965398701"
+    },
+    {
+      "path": "datasets/knowledge/sources/source_registry.jsonl",
+      "bytes": 104875,
+      "sha256": "ca0ddf81c35233c14e8e7e8273b7a2410205208c6d85e9668b59de9685a6e3e8"
+    },
+    {
+      "path": "skills/automotive-diagnosis/SKILL.md",
+      "bytes": 2804,
+      "sha256": "e48c3bf25d2b08b746a6072f8ba8b5502136f78a29ffcb162f9773d75ca6332a"
+    },
+    {
+      "path": "skills/carrier-rtu-evidence-triage/SKILL.md",
+      "bytes": 3671,
+      "sha256": "a7f66404b61409cfd4f90206a4c720221e87bf8a94ee3f21ec125622bbcb448b"
+    },
+    {
+      "path": "skills/ev-charging-triage/SKILL.md",
+      "bytes": 4137,
+      "sha256": "b226215766caa4c35b11638aa625a10d8f15948af4409a0180430def227c4683"
+    },
+    {
+      "path": "skills/ev-maintenance-inspection/SKILL.md",
+      "bytes": 3455,
+      "sha256": "b878a0bc3b28e2d1550cd4cf4b1e85ed0a57ca193c1a67aa012746b3b15a871b"
+    },
+    {
+      "path": "skills/ev-powertrain-safety-investigation/SKILL.md",
+      "bytes": 4027,
+      "sha256": "1a3d996606015e6e656ebe0db0ab807db933b17d6a9b68211342f8e28cb52b81"
+    },
+    {
+      "path": "skills/factory-equipment/SKILL.md",
+      "bytes": 2817,
+      "sha256": "3465a6cddc36f5f1946aee2d6dc8ba810ab8561002b559a37c5f5e4e1f0e0675"
+    },
+    {
+      "path": "skills/industrial-configuration-investigation/SKILL.md",
+      "bytes": 3837,
+      "sha256": "c4bec14be82251b2b40d1e52dbc60b19ddbb71db3f4460d85d0603a18c02becc"
+    },
+    {
+      "path": "skills/industrial-controller-fault-triage/SKILL.md",
+      "bytes": 3961,
+      "sha256": "aeaaa7e9fe5f86bacbbf879e9f07d0f85af2222489dfc86d27e39da99e0bc573"
+    }
+  ]
+}

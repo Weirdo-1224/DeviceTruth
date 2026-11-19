@@ -85,6 +85,11 @@ public final class KnowledgeImportService {
         return importBytes(ownerId, projectId, request, request.content().getBytes(StandardCharsets.UTF_8), null);
     }
 
+    /** Frozen professional corpora reuse this module's JDBC, transactions and production embedding client. */
+    public KnowledgeCorpusService corpus() {
+        return new KnowledgeCorpusService(jdbc, transactions, embeddings);
+    }
+
     /** 兼容不指定文件的上传调用；新上传应传入自己的 fileId，保证文档关联和 PARSED 同事务完成。 */
     public ImportResult importMarkdown(String ownerId, String projectId, ImportRequest request, byte[] bytes) {
         if (!MARKDOWN_MIME.contains(request.mimeType())) throw new KnowledgeException("UNSUPPORTED_FILE_TYPE", 415);

@@ -220,11 +220,9 @@ class KnowledgeSearchTest {
                 SELECT f.path_key FROM dt_uploaded_file f JOIN dt_knowledge_document d ON d.source_file_id=f.id
                 WHERE d.id=?
                 """, String.class, id)).startsWith("knowledge/");
-        // 原始文件不写入数据库：文档表没有正文/大 JSONB 列，切片长度受控。
-        assertThat(jdbc.queryForObject("""
-                SELECT count(*) FROM information_schema.columns
-                WHERE table_name='dt_knowledge_document' AND (data_type='jsonb' OR column_name='content')
-                """, Integer.class)).isZero();
+        // Legacy MD import keeps its old behavior; V18 corpus-only original/metadata columns remain empty here.
+        assertThat(jdbc.queryForObject("SELECT original_text IS NULL AND normalized_metadata IS NULL FROM dt_knowledge_document WHERE id=?",
+                Boolean.class, id)).isTrue();
         assertThat(jdbc.queryForObject(
                 "SELECT max(char_length(content)) FROM dt_knowledge_chunk WHERE document_id=?", Integer.class, id))
                 .isLessThanOrEqualTo(480);
@@ -371,7 +369,7 @@ class KnowledgeSearchTest {
         assertThat(filters).containsEntry("additionalProperties", false);
         @SuppressWarnings("unchecked")
         Map<String, Object> filterProperties = (Map<String, Object>) filters.get("properties");
-        assertThat(filterProperties).containsOnlyKeys("domain", "deviceModel", "documentId");
+        assertThat(filterProperties).containsOnlyKeys("domain", "deviceModel", "documentId", "releaseId", "indexProfile", "applicability");
         @SuppressWarnings("unchecked")
         Map<String, Object> excerptProperties =
                 (Map<String, Object>) descriptors.get(1).inputSchema().get("properties");

@@ -10,6 +10,7 @@ import io.devicetruth.core.contract.AgentResult.Reference;
 import io.devicetruth.core.contract.AgentTaskInput.PendingQuestion;
 import io.devicetruth.core.contract.Checks;
 import io.devicetruth.core.reasoning.GeneralReasoner;
+import io.devicetruth.core.reasoning.ActionProposal;
 import io.devicetruth.core.reasoning.Reasoner;
 import io.devicetruth.core.runtime.TaskOrchestrator;
 import io.devicetruth.core.runtime.AgentExecutionCheckpoint;
@@ -76,6 +77,13 @@ public final class GeneralAgentService {
     private final ServerIdentity identity;
     private final CapabilityGateway gateway;
     private final Supplier<GeneralReasoner> reasoners;
+    private java.util.function.BiConsumer<ToolContext, ActionProposal.CallTool> toolPreparation;
+
+    public GeneralAgentService withToolPreparation(
+            java.util.function.BiConsumer<ToolContext, ActionProposal.CallTool> preparation) {
+        this.toolPreparation = java.util.Objects.requireNonNull(preparation);
+        return this;
+    }
     private final TaskOrchestrator orchestrator;
     private final boolean workerEnabled;
     private final ThreadPoolExecutor executor;
@@ -452,6 +460,7 @@ public final class GeneralAgentService {
                 return null;
             }
             var references = runs.references(identity, runId);
+            if (toolPreparation != null) reasoner = new PreparingToolReasoner(reasoner, toolContext, toolPreparation);
             var checkpoint = runs.checkpoint(identity, runId);
             var session = skills == null ? null : skills.open(gateway, toolContext, run.version() + 1);
             return orchestrator.runAgent(input, session == null ? gateway : session.gateway(),

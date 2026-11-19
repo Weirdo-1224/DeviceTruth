@@ -1,0 +1,5 @@
+# Frozen knowledge input hashes refer to exact bytes, including original line endings and whitespace.
+/datasets/knowledge/** -text whitespace=-trailing-space
+/datasets/knowledge/raw/** -diff
+# These Skill originals are also referenced by the frozen source registry.
+/skills/** text eol=lf

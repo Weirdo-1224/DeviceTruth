@@ -38,6 +38,10 @@ public record EmbeddingProfile(String provider, String baseUrl, String apiKey, S
 
     public boolean deterministic() { return PROVIDER_DETERMINISTIC.equals(provider); }
 
+    @Override public String toString() {
+        return "EmbeddingProfile[" + profileVersion() + ", credentials=REDACTED]";
+    }
+
     /**
      * 唯一档案标识：把供应商、模型、维度与修订都编码进去。
      * 只切换 provider 或模型时标签必然变化，不能被当作同一向量空间复用。
