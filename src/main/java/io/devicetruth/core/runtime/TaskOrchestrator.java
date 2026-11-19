@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /** 任务编排器：诊断运行的主循环。每轮迭代中推理器提出恰好一个动作，
@@ -43,12 +44,17 @@ public final class TaskOrchestrator {
     }
     /** 重复检测指纹：动作指纹 + 当时知识快照的组合，用于识别"原地空转"。 */
     private record Repetition(String knowledge,int count) {}
-    /** 通用 Agent 运行状态：等待用户补答不是终局，技术失败不产生答案；取消是显式终态，不伪装成失败。 */
+    /** 等待用户补答不是终局；无调查记录的技术失败不产生答案，已有调查可显式降级为有限结果。 */
     public enum AgentStatus { WAITING_FOR_USER, COMPLETED, FAILED, CANCELLED }
     /** 通用 Agent 一轮运行的结果：状态、答案/待答问题、消息序列、引用、事件与步数。 */
     public record AgentRunOutcome(AgentStatus status, AgentResult answer, AgentTaskInput.PendingQuestion question,
                                   List<AgentTaskInput.Message> messages, List<Reference> references,
-                                  List<RunEvent> events, int stepsUsed, String stopReason) {
+                                  List<RunEvent> events, int stepsUsed, String stopReason, boolean limited) {
+        public AgentRunOutcome(AgentStatus status, AgentResult answer, AgentTaskInput.PendingQuestion question,
+                               List<AgentTaskInput.Message> messages, List<Reference> references,
+                               List<RunEvent> events, int stepsUsed, String stopReason) {
+            this(status, answer, question, messages, references, events, stepsUsed, stopReason, false);
+        }
         public AgentRunOutcome {
             Checks.required(status, "status");
             messages = List.copyOf(messages);
@@ -266,6 +272,36 @@ public final class TaskOrchestrator {
                                     AgentExecutionCheckpoint checkpoint, java.util.function.IntConsumer reserveStep,
                                     java.util.function.Function<java.util.function.Supplier<ToolStep>, ToolStep> executeTool,
                                     java.util.function.Consumer<AgentExecutionCheckpoint> saveCheckpoint) {
+        return runAgent(input, gateway, toolContext, seedReferences, reasoner, abortCode, skillStep,
+                progress, conversationHistory, checkpoint, reserveStep, executeTool, saveCheckpoint,
+                () -> Long.MAX_VALUE);
+    }
+
+    public AgentRunOutcome runAgent(AgentTaskInput input, CapabilityGateway gateway, ToolContext toolContext,
+                                    List<Reference> seedReferences, GeneralReasoner reasoner,
+                                    java.util.function.Supplier<String> abortCode,
+                                    java.util.function.Supplier<SkillStep> skillStep,
+                                    java.util.function.Consumer<RunEvent> progress,
+                                    List<AgentTaskInput.Message> conversationHistory,
+                                    AgentExecutionCheckpoint checkpoint, java.util.function.IntConsumer reserveStep,
+                                    java.util.function.Function<java.util.function.Supplier<ToolStep>, ToolStep> executeTool,
+                                    java.util.function.Consumer<AgentExecutionCheckpoint> saveCheckpoint,
+                                    java.util.function.LongSupplier remainingMillis) {
+        return runAgent(input, gateway, toolContext, seedReferences, reasoner, abortCode, skillStep,
+                progress, conversationHistory, checkpoint, reserveStep, executeTool, saveCheckpoint,
+                remainingMillis, 30_000L);
+    }
+
+    public AgentRunOutcome runAgent(AgentTaskInput input, CapabilityGateway gateway, ToolContext toolContext,
+                                    List<Reference> seedReferences, GeneralReasoner reasoner,
+                                    java.util.function.Supplier<String> abortCode,
+                                    java.util.function.Supplier<SkillStep> skillStep,
+                                    java.util.function.Consumer<RunEvent> progress,
+                                    List<AgentTaskInput.Message> conversationHistory,
+                                    AgentExecutionCheckpoint checkpoint, java.util.function.IntConsumer reserveStep,
+                                    java.util.function.Function<java.util.function.Supplier<ToolStep>, ToolStep> executeTool,
+                                    java.util.function.Consumer<AgentExecutionCheckpoint> saveCheckpoint,
+                                    java.util.function.LongSupplier remainingMillis, long finalReserveMillis) {
         if (input == null || gateway == null || toolContext == null || reasoner == null)
             throw new IllegalArgumentException("input, gateway, toolContext and reasoner are required");
         var events = new ArrayList<RunEvent>();
@@ -281,17 +317,32 @@ public final class TaskOrchestrator {
         String feedback = checkpoint == null ? null : checkpoint.feedback();
         int steps = input.stepsUsed();
         int rejections = checkpoint == null ? 0 : checkpoint.rejections();
+        int noProgress = checkpoint == null ? 0 : checkpoint.noProgress();
+        boolean finalizing = checkpoint != null && checkpoint.finalizing();
         while (true) {
             // 协作式取消/总时限：模型每步之间检查，终态由持久层 CAS 收口
             String abort = abortCode == null ? null : abortCode.get();
-            if (abort != null) return aborted(input, messages, references, events, steps, abort, progress);
+            if (abort != null) return abortedOrLimited(input, messages, references, events, steps, abort, attemptedTools, toolResults, progress);
+            if (!finalizing && (noProgress >= 2 || steps >= input.maxSteps() - 1
+                    || remainingMillis.getAsLong() <= finalReserveMillis)) {
+                finalizing = true;
+                event(events, "RUN_PHASE", input.runVersion(), Map.of("phase", "FINALIZING",
+                        "reason", noProgress >= 2 ? "NO_PROGRESS" : "BUDGET_RESERVE"), progress);
+            }
             if (steps >= input.maxSteps()) {
+                var limited = limitedOutcome(input, messages, references, events, steps, "BUDGET_EXHAUSTED",
+                        attemptedTools, toolResults, progress);
+                if (limited != null) return limited;
                 event(events, "RUN_FAILED", input.runVersion(), Map.of("code", "BUDGET_EXHAUSTED"), progress);
                 return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                         List.copyOf(references.values()), events, steps, "BUDGET_EXHAUSTED");
             }
+            if (finalizing && (feedback == null || !feedback.contains("当前处于最终回答阶段")))
+                feedback = (feedback == null || feedback.isBlank() ? "" : feedback + "；")
+                        + "当前处于最终回答阶段：请基于现有上下文直接 ANSWER，不得继续调用工具";
             var skill = skillStep.get();
-            var context = new GeneralReasoner.Context(input.goalText(), messages, gateway.toolCatalog(skill.toolContext()),
+            var context = new GeneralReasoner.Context(input.goalText(), messages,
+                    finalizing ? List.of() : gateway.toolCatalog(skill.toolContext()),
                     List.copyOf(references.values()), attemptedTools, steps, input.maxSteps(), feedback,
                     skill.availableSkills(), skill.activeSkill(), input.selectedAssetId(), input.asOf(), toolResults,
                     conversationHistory);
@@ -301,15 +352,18 @@ public final class TaskOrchestrator {
             reserveStep.accept(++steps);
             ActionProposal action;
             try {
-                action = reasoner.propose(context, abortCode == null ? () -> null : abortCode);
+                action = reasoner.propose(context, abortCode == null ? () -> null : abortCode, remainingMillis);
                 if (action == null) throw new IllegalArgumentException("Reasoner returned null proposal");
             } catch (RuntimeException e) {
-                // 模型配置/传输/输出失败：技术失败，不产生答案，也不伪装成缺证
+                // 无调查记录时保留技术失败；已有调查时转为带原原因码的有限结果
                 String code = e instanceof ReasonerFailure failure ? failure.code() : "REASONER_FAILURE";
                 for (var attempt : reasoner.drainAttempts())
                     event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt), progress);
                 abort = abortCode == null ? null : abortCode.get();
-                if (abort != null) return aborted(input, messages, references, events, steps, abort, progress);
+                if (abort != null) return abortedOrLimited(input, messages, references, events, steps, abort, attemptedTools, toolResults, progress);
+                var limited = limitedOutcome(input, messages, references, events, steps, code,
+                        attemptedTools, toolResults, progress);
+                if (limited != null) return limited;
                 event(events, "RUN_FAILED", input.runVersion(), Map.of("code", code), progress);
                 return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                         List.copyOf(references.values()), events, steps, code);
@@ -320,7 +374,15 @@ public final class TaskOrchestrator {
             abort = abortCode == null ? null : abortCode.get();
             if (abort != null) {
                 event(events, "RUN_LATE_RESPONSE", input.runVersion(), Map.of("code", abort), progress);
-                return aborted(input, messages, references, events, steps, abort, progress);
+                return abortedOrLimited(input, messages, references, events, steps, abort, attemptedTools, toolResults, progress);
+            }
+            if (finalizing && !(action instanceof Answer)) {
+                var limited = limitedOutcome(input, messages, references, events, steps, "ANSWER_REQUIRED",
+                        attemptedTools, toolResults, progress);
+                if (limited != null) return limited;
+                event(events, "RUN_FAILED", input.runVersion(), Map.of("code", "ANSWER_REQUIRED"), progress);
+                return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
+                        List.copyOf(references.values()), events, steps, "ANSWER_REQUIRED");
             }
             // 模型调用期间可能撤销许可。执行动作前重新核验，核验耗时也计入总时限。
             var authorizedStep = skillStep.get();
@@ -328,43 +390,72 @@ public final class TaskOrchestrator {
             abort = abortCode == null ? null : abortCode.get();
             if (abort != null) {
                 event(events, "RUN_LATE_RESPONSE", input.runVersion(), Map.of("code", abort), progress);
-                return aborted(input, messages, references, events, steps, abort, progress);
+                return abortedOrLimited(input, messages, references, events, steps, abort, attemptedTools, toolResults, progress);
             }
-            if (action instanceof CallTool call) {
-                int step = steps;
-                int rejected = rejections;
-                ToolStep completed = executeTool.apply(() -> {
-                    String signature = reusableSignature(call, context.userMessageCount());
-                    String toolFeedback;
-                    Map<String, Object> audit;
-                    if (authorizedContext.allows(call.toolName())
-                            && canReuse(call, signature, toolResults, authorizedStep.activeSkill())) {
-                        attemptedTools.add(call.toolName());
-                        toolFeedback = "相同工具与参数的结果仍可使用，请结合现有上下文继续调查或回答";
-                        audit = Map.of("toolName", call.toolName(), "success", false, "errorCode", "DUPLICATE_CALL",
-                                "references", 0, "durationMs", 0, "retryable", false);
-                    } else {
-                        long started = System.nanoTime();
-                        var outcome = gateway.executeTool(authorizedContext, call.toolName(), call.arguments());
-                        attemptedTools.add(outcome.toolName());
-                        if (outcome.success()) {
-                            for (Reference reference : outcome.references()) mergeReference(references, reference);
-                            if (!"generate_diagnosis_report".equals(call.toolName()))
-                                toolResults.removeIf(result -> "generate_diagnosis_report".equals(result.toolName()));
-                        }
-                        toolFeedback = outcome.success() ? null : "工具调用失败：" + outcome.error().code();
-                        toolResults.add(boundedToolResult(outcome, signature));
-                        trimToolResults(toolResults);
-                        audit = Map.of("toolName", outcome.toolName(), "success", outcome.success(), "errorCode",
-                                outcome.error() == null ? "" : outcome.error().code(), "references",
-                                outcome.references().size(), "durationMs", (System.nanoTime() - started) / 1_000_000,
-                                "retryable", outcome.error() != null && outcome.error().retryable());
+            if (action instanceof CallTool || action instanceof CallTools) {
+                List<CallTool> calls = action instanceof CallTool single ? List.of(single)
+                        : ((CallTools) action).calls().stream()
+                                .map(call -> new CallTool(call.toolName(), call.arguments(), call.purpose())).toList();
+                if (action instanceof CallTools && calls.stream().anyMatch(call ->
+                        !authorizedContext.allows(call.toolName()) || isSkillStateTool(call.toolName()))) {
+                    rejections++;
+                    feedback = "批量动作只能包含当前已授权且相互独立的只读查询，Skill 激活与参考资料读取必须单独执行";
+                    event(events, "ACTION_REJECTED", input.runVersion(), Map.of("code", "INVALID_TOOL_BATCH"), progress);
+                    if (rejections > 2) {
+                        event(events, "RUN_FAILED", input.runVersion(), Map.of("code", "INVALID_TOOL_BATCH"), progress);
+                        return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
+                                List.copyOf(references.values()), events, steps, "INVALID_TOOL_BATCH");
                     }
-                    return new ToolStep(checkpoint(input, step, attemptedTools, toolResults,
-                            toolFeedback, rejected), audit);
-                });
-                feedback = completed.checkpoint().feedback();
-                event(events, "TOOL_RESULT", input.runVersion(), completed.audit(), progress);
+                    saveCheckpoint.accept(checkpoint(input, steps, attemptedTools, toolResults, feedback, rejections,
+                            noProgress, finalizing));
+                    continue;
+                }
+                int referencesBefore = references.size();
+                var resultsBefore = visibleResultFingerprints(toolResults);
+                int stagnant = noProgress;
+                boolean answerPhase = finalizing;
+                for (CallTool call : calls) {
+                    int step = steps;
+                    int rejected = rejections;
+                    ToolStep completed = executeTool.apply(() -> {
+                        String signature = reusableSignature(call, context.userMessageCount());
+                        String toolFeedback;
+                        Map<String, Object> audit;
+                        if (authorizedContext.allows(call.toolName())
+                                && canReuse(call, signature, toolResults, authorizedStep.activeSkill())) {
+                            attemptedTools.add(call.toolName());
+                            toolFeedback = "相同工具与参数的结果仍可使用，请结合现有上下文继续调查或回答";
+                            audit = Map.of("toolName", call.toolName(), "success", false, "errorCode", "DUPLICATE_CALL",
+                                    "references", 0, "durationMs", 0, "retryable", false);
+                        } else {
+                            long started = System.nanoTime();
+                            var outcome = gateway.executeTool(authorizedContext, call.toolName(), call.arguments());
+                            attemptedTools.add(outcome.toolName());
+                            if (outcome.success()) {
+                                for (Reference reference : outcome.references()) mergeReference(references, reference);
+                                if (!"generate_diagnosis_report".equals(call.toolName()))
+                                    toolResults.removeIf(result -> "generate_diagnosis_report".equals(result.toolName()));
+                            }
+                            toolFeedback = outcome.success() ? null : "工具调用失败：" + outcome.error().code();
+                            toolResults.add(boundedToolResult(outcome, signature));
+                            trimToolResults(toolResults);
+                            audit = Map.of("toolName", outcome.toolName(), "success", outcome.success(), "errorCode",
+                                    outcome.error() == null ? "" : outcome.error().code(), "references",
+                                    outcome.references().size(), "durationMs", (System.nanoTime() - started) / 1_000_000,
+                                    "retryable", outcome.error() != null && outcome.error().retryable());
+                        }
+                        return new ToolStep(checkpoint(input, step, attemptedTools, toolResults,
+                                toolFeedback, rejected, stagnant, answerPhase), audit);
+                    });
+                    feedback = completed.checkpoint().feedback();
+                    event(events, "TOOL_RESULT", input.runVersion(), completed.audit(), progress);
+                }
+                boolean madeProgress = references.size() > referencesBefore || toolResults.stream()
+                        .filter(result -> !resultsBefore.contains(visibleResultFingerprint(result)))
+                        .anyMatch(result -> !isEmptyResult(result));
+                noProgress = madeProgress ? 0 : noProgress + 1;
+                saveCheckpoint.accept(checkpoint(input, steps, attemptedTools, toolResults, feedback, rejections,
+                        noProgress, finalizing));
                 continue;
             }
             if (action instanceof AskUser ask) {
@@ -382,7 +473,7 @@ public final class TaskOrchestrator {
                                 List.copyOf(references.values()), events, steps, "UNSAFE_ANSWER");
                     }
                     saveCheckpoint.accept(checkpoint(input, steps, attemptedTools, toolResults,
-                            feedback, rejections));
+                            feedback, rejections, noProgress, finalizing));
                     continue;
                 }
                 // 版本号由持久层按 run 的 question_version 递增，这里只给初值
@@ -395,7 +486,8 @@ public final class TaskOrchestrator {
                         List.copyOf(references.values()), events, steps, "AWAITING_USER_INPUT");
             }
             if (action instanceof Answer draft) {
-                var verdict = answerGuard.review(input, List.copyOf(references.values()), draft);
+                var accessedAssetIds = accessedAssets(toolResults);
+                var verdict = answerGuard.review(input, List.copyOf(references.values()), draft, false, accessedAssetIds);
                 if (!verdict.allowed()) {
                     // 有界修正：只给模型一次重答机会，仍不合法就按失败结束，不伪装成答案
                     rejections++;
@@ -405,13 +497,18 @@ public final class TaskOrchestrator {
                         default -> "";
                     };
                     event(events, "ANSWER_REJECTED", input.runVersion(), Map.of("code", verdict.code()), progress);
+                    if (finalizing || rejections > 1) {
+                        var limited = limitedOutcome(input, messages, references, events, steps, verdict.code(),
+                                attemptedTools, toolResults, progress);
+                        if (limited != null) return limited;
+                    }
                     if (rejections > 1) {
                         event(events, "RUN_FAILED", input.runVersion(), Map.of("code", verdict.code()), progress);
                         return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
                                 List.copyOf(references.values()), events, steps, verdict.code());
                     }
                     saveCheckpoint.accept(checkpoint(input, steps, attemptedTools, toolResults,
-                            feedback, rejections));
+                            feedback, rejections, noProgress, finalizing));
                     continue;
                 }
                 messages.add(new AgentTaskInput.Message("ASSISTANT", verdict.answer().summary()));
@@ -432,19 +529,40 @@ public final class TaskOrchestrator {
                         List.copyOf(references.values()), events, steps, "MODEL_OUTPUT_INVALID");
             }
             saveCheckpoint.accept(checkpoint(input, steps, attemptedTools, toolResults, feedback,
-                    rejections));
+                    rejections, noProgress, finalizing));
         }
     }
 
     private static AgentExecutionCheckpoint checkpoint(AgentTaskInput input, int steps, List<String> attemptedTools,
             List<GeneralReasoner.ToolResult> results, String feedback,
             int rejections) {
+        return checkpoint(input, steps, attemptedTools, results, feedback, rejections, 0, false);
+    }
+
+    private static AgentExecutionCheckpoint checkpoint(AgentTaskInput input, int steps, List<String> attemptedTools,
+            List<GeneralReasoner.ToolResult> results, String feedback,
+            int rejections, int noProgress, boolean finalizing) {
         var successfulCalls = new java.util.HashSet<String>();
         for (var result : results)
             if (result.callSignature() != null && "true".equals(result.status().get("success")))
                 successfulCalls.add(result.callSignature());
         return new AgentExecutionCheckpoint(1, input.runId(), steps, attemptedTools, successfulCalls, results,
-                feedback, rejections);
+                feedback, rejections, noProgress, finalizing);
+    }
+
+    private static java.util.Set<String> visibleResultFingerprints(List<GeneralReasoner.ToolResult> results) {
+        return results.stream().map(TaskOrchestrator::visibleResultFingerprint)
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    private static String visibleResultFingerprint(GeneralReasoner.ToolResult result) {
+        return result.toolName() + "|" + result.dataNature() + "|" + new java.util.TreeMap<>(result.status());
+    }
+
+    private static boolean isEmptyResult(GeneralReasoner.ToolResult result) {
+        var status = result.status();
+        return "false".equals(status.get("success")) || "true".equals(status.get("empty"))
+                || "0".equals(status.get("hits")) || "0".equals(status.get("entries"));
     }
 
     /** 单个状态值的最大长度；超出截断并加标记，防止一条记录撑爆上下文。 */
@@ -555,6 +673,10 @@ public final class TaskOrchestrator {
             references.put(candidate.referenceId(), candidate);
     }
 
+    private static boolean isSkillStateTool(String toolName) {
+        return "activate_skill".equals(toolName) || "read_skill_reference".equals(toolName);
+    }
+
     /** 动态资产查询和报告在用户推进调查时重新读取，同一补答内仍受去重保护。 */
     private static String reusableSignature(CallTool call, long userMessages) {
         return switch (call.toolName()) {
@@ -581,6 +703,62 @@ public final class TaskOrchestrator {
     }
 
     private static EvidenceNeed need(String id,String description,NeedSource source,String ruleId) { return new EvidenceNeed(id,description,source,NeedStatus.OPEN,ruleId); }
+    private AgentRunOutcome abortedOrLimited(AgentTaskInput input, List<AgentTaskInput.Message> messages,
+            Map<String, Reference> references, List<RunEvent> events, int steps, String code,
+            List<String> attemptedTools, List<GeneralReasoner.ToolResult> toolResults,
+            java.util.function.Consumer<RunEvent> progress) {
+        if ("TOTAL_TIMEOUT".equals(code)) {
+            var limited = limitedOutcome(input, messages, references, events, steps, code,
+                    attemptedTools, toolResults, progress);
+            if (limited != null) return limited;
+        }
+        return aborted(input, messages, references, events, steps, code, progress);
+    }
+
+    private AgentRunOutcome limitedOutcome(AgentTaskInput input, List<AgentTaskInput.Message> messages,
+            Map<String, Reference> references, List<RunEvent> events, int steps, String code,
+            List<String> attemptedTools, List<GeneralReasoner.ToolResult> toolResults,
+            java.util.function.Consumer<RunEvent> progress) {
+        if (attemptedTools.isEmpty()) return null;
+        var accessedAssetIds = accessedAssets(toolResults);
+        String subject = input.selectedAssetId() != null ? input.selectedAssetId()
+                : accessedAssetIds.size() == 1 ? accessedAssetIds.getFirst() : null;
+        var referenceIds = references.values().stream().limit(5).map(Reference::referenceId).toList();
+        var draft = new Answer("HUMAN_REVIEW",
+                "本次调查未能形成可靠诊断，已保留实际取得的资料与运行记录，请由人工进一步核验。",
+                List.of(), List.of("请由具备资质的专业人员结合现场情况复核现有资料"),
+                List.of("最终回答未完成：" + code),
+                List.of("未形成可靠候选原因，仅保留已取得的资料。", "原失败原因：" + code), referenceIds, subject);
+        var verdict = answerGuard.review(input, List.copyOf(references.values()), draft, false, accessedAssetIds);
+        if (!verdict.allowed()) {
+            draft = new Answer("HUMAN_REVIEW",
+                    "本次调查未能形成可靠诊断，请由人工进一步核验。", List.of(), List.of(),
+                    List.of("最终回答未完成：" + code), List.of("原失败原因：" + code), List.of());
+            verdict = answerGuard.review(input, List.copyOf(references.values()), draft, false, Set.of());
+        }
+        if (!verdict.allowed()) return null;
+        messages.add(new AgentTaskInput.Message("ASSISTANT", verdict.answer().summary()));
+        event(events, "RUN_DEGRADED", input.runVersion(), Map.of("code", code,
+                "references", verdict.answer().references().size()), progress);
+        event(events, "ANSWER", input.runVersion(), Map.of(
+                "category", verdict.answer().category().name(),
+                "riskLevel", verdict.answer().riskLevel().name(),
+                "references", verdict.answer().references().size(), "limited", true), progress);
+        return new AgentRunOutcome(AgentStatus.COMPLETED, verdict.answer(), null, messages,
+                List.copyOf(references.values()), events, steps, "LIMITED_" + code, true);
+    }
+
+    private static LinkedHashSet<String> accessedAssets(List<GeneralReasoner.ToolResult> toolResults) {
+        var assets = new LinkedHashSet<String>();
+        for (var result : toolResults) {
+            if (!List.of("get_asset", "get_configuration", "get_maintenance_history", "get_observations")
+                    .contains(result.toolName())) continue;
+            String assetId = result.status().get("assetId");
+            if (assetId != null && !assetId.isBlank()) assets.add(assetId);
+        }
+        return assets;
+    }
+
     private AgentRunOutcome aborted(AgentTaskInput input, List<AgentTaskInput.Message> messages,
                                     Map<String, Reference> references, List<RunEvent> events, int steps, String code,
                                     java.util.function.Consumer<RunEvent> progress) {
@@ -606,6 +784,7 @@ public final class TaskOrchestrator {
     }
     /** 推理器失败异常：code 为稳定的错误码（如 DASHSCOPE_API_KEY_MISSING），区别于普通运行异常。 */
     public static final class ReasonerFailure extends RuntimeException {
+        private static final long serialVersionUID = 1L;
         private final String code;
         public ReasonerFailure(String code) { super(code); this.code=code; }
         public String code() { return code; }

@@ -9,7 +9,7 @@ import java.util.Map;
 
 /** 推理器提出的动作：五种形态之一，按 "type" 字段做 JSON 多态反序列化。
  *  每种形态的紧缩构造函数都会做协议级校验，非法提案在解析处即被拒绝。
- *  通用 Agent 追加 CALL_TOOL/ASK_USER/ANSWER 三形态：前两者不改变状态，ANSWER 由服务器校验后落库。 */
+ *  通用 Agent 追加 CALL_TOOL/CALL_TOOLS/ASK_USER/ANSWER 四形态：查询由宿主校验执行，ANSWER 由服务器校验后落库。 */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
 @JsonSubTypes({
     @JsonSubTypes.Type(value = ActionProposal.CallCapability.class, name = "CALL_CAPABILITY"),
@@ -18,6 +18,7 @@ import java.util.Map;
     @JsonSubTypes.Type(value = ActionProposal.RequestInformation.class, name = "REQUEST_INFORMATION"),
     @JsonSubTypes.Type(value = ActionProposal.Escalate.class, name = "ESCALATE"),
     @JsonSubTypes.Type(value = ActionProposal.CallTool.class, name = "CALL_TOOL"),
+    @JsonSubTypes.Type(value = ActionProposal.CallTools.class, name = "CALL_TOOLS"),
     @JsonSubTypes.Type(value = ActionProposal.AskUser.class, name = "ASK_USER"),
     @JsonSubTypes.Type(value = ActionProposal.Answer.class, name = "ANSWER")
 })
@@ -88,6 +89,21 @@ public sealed interface ActionProposal {
             }
         }
     }
+    /** 批量元素不携带动作多态信息，宿主校验后转换为 CallTool。 */
+    record ToolCall(String toolName, Map<String, Object> arguments, String purpose) {
+        public ToolCall {
+            Checks.id(toolName, "toolName");
+            Checks.text(purpose, "purpose");
+            arguments = Map.copyOf(Checks.required(arguments, "arguments"));
+        }
+    }
+    /** 一次提出少量相互独立的只读查询，由宿主逐项校验并执行。 */
+    record CallTools(List<ToolCall> calls) implements ActionProposal {
+        public CallTools {
+            calls = List.copyOf(Checks.list(calls));
+            if (calls.isEmpty() || calls.size() > 3) throw new IllegalArgumentException("calls size out of range");
+        }
+    }
     /** 向用户提出一个待答问题：问题的 ID/版本由服务器生成，模型只能给正文与所需字段。 */
     record AskUser(String question, List<String> requestedFields) implements ActionProposal {
         public AskUser {
@@ -99,8 +115,12 @@ public sealed interface ActionProposal {
     }
     /** 提交答案草稿：引用必须指向本 run 已取回集合，风险等级由服务器重新判定。 */
     record Answer(String category, String summary, List<AgentResult.Claim> claims, List<String> suggestions,
-                  List<String> uncertainties, List<String> limitations, List<String> referenceIds)
-            implements ActionProposal {
+                  List<String> uncertainties, List<String> limitations, List<String> referenceIds,
+                  String subjectAssetId) implements ActionProposal {
+        public Answer(String category, String summary, List<AgentResult.Claim> claims, List<String> suggestions,
+                      List<String> uncertainties, List<String> limitations, List<String> referenceIds) {
+            this(category, summary, claims, suggestions, uncertainties, limitations, referenceIds, null);
+        }
         public Answer {
             Checks.text(category, "category");
             Checks.text(summary, "summary");
@@ -109,6 +129,7 @@ public sealed interface ActionProposal {
             uncertainties = Checks.list(uncertainties);
             limitations = Checks.list(limitations);
             referenceIds = Checks.list(referenceIds);
+            if (subjectAssetId != null) Checks.id(subjectAssetId, "subjectAssetId");
         }
     }
 }

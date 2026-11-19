@@ -28,14 +28,13 @@ import org.springframework.web.multipart.MultipartFile;
 public class FileController {
     private static final Logger LOG = LoggerFactory.getLogger(FileController.class);
     private final FileUploadService files;
-    private final String ownerId;
-    private final String projectId;
+    private final io.devicetruth.server.HttpAccess access;
+    private String ownerId() { return access.current().storageIdentity().ownerId(); }
+    private String projectId() { return access.current().storageIdentity().projectId(); }
 
-    public FileController(FileUploadService files, @Value("${devicetruth.product.owner-id}") String ownerId,
-                          @Value("${devicetruth.product.project-id}") String projectId) {
+    public FileController(FileUploadService files, io.devicetruth.server.HttpAccess access) {
         this.files = files;
-        this.ownerId = ownerId;
-        this.projectId = projectId;
+        this.access = access;
     }
 
     @PostMapping(value = "/api/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -43,18 +42,23 @@ public class FileController {
             @RequestParam(required = false) String title, @RequestParam(defaultValue = "general") String domain,
             @RequestParam(required = false) String deviceModel, @RequestParam(defaultValue = "1.0") String version,
             @RequestParam(defaultValue = "SIMULATED") String dataNature) {
-        return ResponseEntity.accepted().body(files.upload(ownerId, projectId, file,
+        return ResponseEntity.accepted().body(files.upload(ownerId(), projectId(), file,
                 new FileUploadService.ImportMetadata(title, domain, deviceModel, version, dataNature)));
     }
 
     @GetMapping("/api/files/{fileId}")
     FileUploadService.FileView file(@PathVariable UUID fileId) {
-        return files.require(ownerId, projectId, fileId);
+        return files.require(ownerId(), projectId(), fileId);
     }
 
     @PostMapping("/api/files/{fileId}/retry")
     ResponseEntity<FileUploadService.FileView> retry(@PathVariable UUID fileId) {
-        return ResponseEntity.accepted().body(files.retry(ownerId, projectId, fileId));
+        return ResponseEntity.accepted().body(files.retry(ownerId(), projectId(), fileId));
+    }
+
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    ResponseEntity<?> accessFailure(org.springframework.web.server.ResponseStatusException e) {
+        return ResponseEntity.status(e.getStatusCode()).body(java.util.Map.of("code", e.getReason()==null?"NOT_FOUND_OR_DENIED":e.getReason()));
     }
 
     @ExceptionHandler(KnowledgeException.class)

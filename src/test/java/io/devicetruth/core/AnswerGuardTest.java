@@ -36,6 +36,66 @@ class AnswerGuardTest {
         return new Answer(category, summary, claims, List.of(), List.of(), List.of(), referenceIds);
     }
 
+    @Test void presentationClassificationDoesNotRejectWholeAnswer() throws Exception {
+        var collected = List.of(reference("r1", "SIMULATED"));
+        var observation = new Claim("模拟观测显示胎压信号", List.of("r1"), Certainty.SUPPORTED,
+                Claim.Kind.OBSERVATION, Claim.Relevance.CONTEXT);
+        var valid = guard.review(input(null), collected,
+                answer("POSSIBLE_CAUSES", "资料只支持背景观测。", List.of(observation), List.of("r1")));
+        assertThat(valid.allowed()).isTrue();
+        assertThat(valid.answer().claims().getFirst().kind()).isEqualTo(Claim.Kind.OBSERVATION);
+        assertThat(valid.answer().claims().getFirst().relevance()).isEqualTo(Claim.Relevance.CONTEXT);
+
+        var unrelatedCause = new Claim("无关原因", List.of("r1"), Certainty.POSSIBLE,
+                Claim.Kind.CAUSE, Claim.Relevance.UNRELATED);
+        var unrelated = guard.review(input(null), collected,
+                answer("POSSIBLE_CAUSES", "候选分析", List.of(unrelatedCause), List.of("r1")));
+        assertThat(unrelated.allowed()).isTrue();
+        assertThat(unrelated.answer().claims().getFirst().relevance()).isEqualTo(Claim.Relevance.UNRELATED);
+        var unknownDirect = new Claim("分类不明的直接判断", List.of("r1"), Certainty.POSSIBLE,
+                Claim.Kind.UNKNOWN, Claim.Relevance.DIRECT);
+        var downgraded = guard.review(input(null), collected,
+                answer("KNOWLEDGE", "资料回答", List.of(unknownDirect), List.of("r1")));
+        assertThat(downgraded.allowed()).isTrue();
+        assertThat(downgraded.answer().claims().getFirst().relevance()).isEqualTo(Claim.Relevance.UNKNOWN);
+        var knowledgeCause = new Claim("一般原因", List.of("r1"), Certainty.POSSIBLE,
+                Claim.Kind.CAUSE, Claim.Relevance.DIRECT);
+        assertThat(guard.review(input(null), collected,
+                answer("KNOWLEDGE", "资料可以解释一般原因", List.of(knowledgeCause), List.of("r1"))).allowed()).isTrue();
+
+        var legacy = io.devicetruth.adapter.Json.MAPPER.readValue(
+                "{\"text\":\"旧判断\",\"referenceIds\":[],\"certainty\":\"POSSIBLE\"}", Claim.class);
+        assertThat(legacy.kind()).isEqualTo(Claim.Kind.UNKNOWN);
+        assertThat(legacy.relevance()).isEqualTo(Claim.Relevance.UNKNOWN);
+        assertThat(guard.review(input(null), collected,
+                answer("POSSIBLE_CAUSES", "旧结果仍可读取", List.of(legacy), List.of("r1"))).allowed()).isTrue();
+    }
+
+    @Test void subjectDeclarationIsValidatedAndMultipleCandidatesStayAmbiguous() {
+        var collected = List.of(reference("r1", "SIMULATED"));
+        var declared = new Answer("POSSIBLE_CAUSES", "资料只支持候选原因。", List.of(), List.of(), List.of(),
+                List.of(), List.of("r1"), "EV-DEMO-017");
+        var confirmed = guard.review(input(null), collected, declared, false, java.util.Set.of("EV-DEMO-017"));
+        assertThat(confirmed.allowed()).isTrue();
+        assertThat(confirmed.answer().subjectAssetId()).isEqualTo("EV-DEMO-017");
+        assertThat(confirmed.answer().assetResolution()).isEqualTo("CONFIRMED");
+
+        assertThat(guard.review(input("EV-DEMO-001"), collected, declared, false,
+                java.util.Set.of("EV-DEMO-001", "EV-DEMO-017")).code()).isEqualTo("SUBJECT_MISMATCH");
+        assertThat(guard.review(input(null), collected, declared, false, java.util.Set.of("EV-DEMO-001")).code())
+                .isEqualTo("SUBJECT_MISMATCH");
+
+        var undeclared = answer("POSSIBLE_CAUSES", "资料只支持候选原因。", List.of(), List.of("r1"));
+        var ambiguous = guard.review(input(null), collected, undeclared, false,
+                java.util.Set.of("EV-DEMO-001", "EV-DEMO-017"));
+        assertThat(ambiguous.allowed()).isTrue();
+        assertThat(ambiguous.answer().subjectAssetId()).isNull();
+        assertThat(ambiguous.answer().assetResolution()).isEqualTo("AMBIGUOUS");
+        var single = guard.review(input(null), collected, undeclared, false, java.util.Set.of("EV-DEMO-017"));
+        assertThat(single.answer().subjectAssetId()).isNull();
+        assertThat(single.answer().assetResolution()).isNull();
+    }
+
     @Test void confirmedFindingIsRejectedWithoutFieldVerification() {
         var collected = List.of(reference("r1", "SIMULATED"));
         var draft = answer("CONFIRMED_FINDING", "已确诊为充电控制器损坏，可以直接更换。",

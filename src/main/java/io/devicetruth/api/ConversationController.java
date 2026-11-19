@@ -3,7 +3,6 @@ package io.devicetruth.api;
 import io.devicetruth.api.ApiDtos.CreateSessionResponse;
 import io.devicetruth.api.ApiDtos.DiagnosisEventsResponse;
 import io.devicetruth.api.ApiDtos.DiagnosisView;
-import io.devicetruth.api.ApiDtos.HealthResponse;
 import io.devicetruth.api.ApiDtos.MessageRequest;
 import io.devicetruth.api.ApiDtos.MessageView;
 import io.devicetruth.api.ApiDtos.MessagesResponse;
@@ -24,6 +23,7 @@ import io.devicetruth.core.contract.Models.DiagnosisResult;
 import java.net.URI;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,9 +34,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** S1 会话、消息与诊断状态入口；诊断由有界异步执行器真实调用 Core。 */
+/** S1 会话、消息与诊断状态入口；诊断由有界异步执行器真实调用 Core。仅 legacy profile 装配。 */
 @RestController
 @RequestMapping("/api")
+@Profile("legacy")
 public class ConversationController {
     private final ConversationService conversations;
     private final ConversationFlowService flow;
@@ -90,9 +91,6 @@ public class ConversationController {
         return new DiagnosisEventsResponse(snapshot.diagnosisId(), RunEventViews.available(snapshot),
                 RunEventViews.of(snapshot), ApiDtos.SIMULATED);
     }
-
-    @GetMapping("/health")
-    public HealthResponse health() { return new HealthResponse("UP", ApiDtos.SIMULATED); }
 
     private MessageView view(ConversationMessage message) {
         return new MessageView(message.messageId(), message.role().name(),

@@ -25,16 +25,17 @@ import org.springframework.web.bind.annotation.*;
 @Profile("product")
 public class AssetController {
     private final AssetFactService service;
-    private final ServerIdentity identity;
+    private final io.devicetruth.server.HttpAccess access;
+    private ServerIdentity identity() { return access.current().storageIdentity(); }
 
-    public AssetController(AssetFactService service, ServerIdentity identity) {
+    public AssetController(AssetFactService service, io.devicetruth.server.HttpAccess access) {
         this.service = service;
-        this.identity = identity;
+        this.access = access;
     }
 
     /** 已登记资产清单（本人/项目范围）。 */
     @GetMapping("/api/assets")
-    List<String> assets() { return service.assets(identity.ownerId(), identity.projectId()); }
+    List<String> assets() { return service.assets(identity().ownerId(), identity().projectId()); }
 
     /**
      * 资产身份、组件清单，以及指定时点的配置/维修事实组合视图。
@@ -43,8 +44,8 @@ public class AssetController {
     @GetMapping("/api/assets/{assetId}")
     ResponseEntity<?> asset(@PathVariable String assetId, @RequestParam(required = false) String asOf) {
         Instant at = parseInstant(asOf);
-        if (!service.exists(identity.ownerId(), identity.projectId(), assetId)) return notFound();
-        return ResponseEntity.ok(service.composite(identity.ownerId(), identity.projectId(), assetId, at));
+        if (!service.exists(identity().ownerId(), identity().projectId(), assetId)) return notFound();
+        return ResponseEntity.ok(service.composite(identity().ownerId(), identity().projectId(), assetId, at));
     }
 
     @GetMapping("/api/assets/{assetId}/configuration")
@@ -52,7 +53,7 @@ public class AssetController {
                                     @RequestParam(required = false) String attribute,
                                     @RequestParam(required = false) String asOf) {
         Instant at = parseInstant(asOf);
-        ConfigurationOutcome outcome = service.configuration(identity.ownerId(), identity.projectId(), assetId,
+        ConfigurationOutcome outcome = service.configuration(identity().ownerId(), identity().projectId(), assetId,
                 componentId, attribute, at);
         return outcome.success() ? ResponseEntity.ok(outcome) : failure(outcome.errorCode(), outcome.message());
     }
@@ -61,7 +62,7 @@ public class AssetController {
     ResponseEntity<?> maintenance(@PathVariable String assetId, @RequestParam(required = false) String componentId,
                                   @RequestParam(required = false) String asOf) {
         Instant at = parseInstant(asOf);
-        MaintenanceOutcome outcome = service.maintenance(identity.ownerId(), identity.projectId(), assetId,
+        MaintenanceOutcome outcome = service.maintenance(identity().ownerId(), identity().projectId(), assetId,
                 componentId, at);
         return outcome.success() ? ResponseEntity.ok(outcome) : failure(outcome.errorCode(), outcome.message());
     }
@@ -91,6 +92,11 @@ public class AssetController {
     private static ResponseEntity<?> notFound() {
         return ResponseEntity.status(404).body(Map.of("code", "NOT_FOUND_OR_DENIED",
                 "message", "资产不存在或无权访问", "retryable", false, "traceId", UUID.randomUUID().toString()));
+    }
+
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    ResponseEntity<?> accessFailure(org.springframework.web.server.ResponseStatusException e) {
+        return ResponseEntity.status(e.getStatusCode()).body(java.util.Map.of("code", e.getReason()==null?"NOT_FOUND_OR_DENIED":e.getReason()));
     }
 
     @ExceptionHandler(QueryException.class)

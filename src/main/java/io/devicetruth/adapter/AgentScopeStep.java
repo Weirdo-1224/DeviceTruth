@@ -40,7 +40,7 @@ public final class AgentScopeStep {
         this.transport = transport;
     }
 
-    /** 用 API Key 构造 qwen-plus 订阅：非流式、关闭思考模式，45 秒超时。 */
+    /** 用 API Key 构造 qwen-plus 订阅：非流式、关闭思考模式，默认 45 秒且可被 Run 剩余预算缩短。 */
     public static AgentScopeStep qwen(String apiKey) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalArgumentException("DASHSCOPE_API_KEY is required for --reasoner=qwen; online verification is BLOCKED_BY_ENV");
@@ -72,14 +72,20 @@ public final class AgentScopeStep {
     }
 
     StructuredAgentReasoner.CompletionResult completeWithUsage(String system, String input) {
+        return completeWithUsage(system, input, timeout);
+    }
+
+    StructuredAgentReasoner.CompletionResult completeWithUsage(String system, String input, Duration remaining) {
+        Duration requestTimeout = remaining.compareTo(timeout) < 0 ? remaining : timeout;
+        if (requestTimeout.isZero() || requestTimeout.isNegative()) throw new IllegalStateException("Model deadline exhausted");
         if (transport != null) transport.reported = null;
         var messages = List.of(
                 Msg.builder().name("protocol").role(MsgRole.SYSTEM).textContent(system).build(),
                 Msg.builder().name("snapshot").role(MsgRole.USER).textContent(input).build());
         var responses = model.stream(messages, List.of(), GenerateOptions.builder()
                 .temperature(0.0).responseFormat(ResponseFormat.jsonObject())
-                .executionConfig(ExecutionConfig.builder().timeout(timeout).maxAttempts(1).build()).build())
-                .collectList().block(timeout);
+                .executionConfig(ExecutionConfig.builder().timeout(requestTimeout).maxAttempts(1).build()).build())
+                .collectList().block(requestTimeout);
         if (responses == null) throw new IllegalStateException("Model returned no response");
         String text = responses.stream().flatMap(r -> r.getContent().stream())
                 .filter(TextBlock.class::isInstance).map(TextBlock.class::cast)

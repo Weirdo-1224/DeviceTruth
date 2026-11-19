@@ -15,7 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** M2 真实 HTTP 验收：QUERY 两类查询、来源字段、双时间、未知资产不混用证据。 */
 @SpringBootTest(classes = DeviceTruthServerApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "spring.profiles.active=legacy")
 class QueryHttpTest {
     @Autowired TestRestTemplate rest;
 

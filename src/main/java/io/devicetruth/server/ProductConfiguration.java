@@ -76,7 +76,7 @@ public class ProductConfiguration {
      * initMethod=recoverQueued 在装配完成后接手上一个进程遗留的 QUEUED 任务（M0 队列交接）。
      * 事件通知钩子取 RunEventStreamService.publish：只在事件事务提交后调用（先提交后发布）。
      */
-    @Bean(initMethod = "recoverQueued")
+    @Bean(initMethod = "recoverAuthenticatedQueued")
     @DependsOn("productFlyway")
     GeneralAgentService generalAgentService(HikariDataSource source, Environment environment,
             @Qualifier("agentCapabilityGateway") CapabilityGateway gateway,
@@ -89,7 +89,8 @@ public class ProductConfiguration {
             @Value("${devicetruth.agent.max-queue:10}") int maxQueue,
             @Value("${devicetruth.agent.worker-enabled:true}") boolean workerEnabled,
             @Value("${devicetruth.agent.lease-seconds:60}") long leaseSeconds,
-            @Value("${devicetruth.agent.max-recovery-attempts:3}") int maxRecoveryAttempts) {
+            @Value("${devicetruth.agent.max-recovery-attempts:3}") int maxRecoveryAttempts,
+            @Value("${devicetruth.agent.recovery-scan-limit:50}") int recoveryScanLimit) {
         var jdbc = new JdbcTemplate(source);
         var transactions = new TransactionTemplate(new DataSourceTransactionManager(source));
         return new GeneralAgentService(new ConversationRepository(jdbc),
@@ -98,7 +99,7 @@ public class ProductConfiguration {
                 transactions,
                 identity, gateway, agentReasoners(agentReasonerName(environment, reasonerName)), maxConcurrentRuns,
                 maxQueue, workerEnabled, fileUploadService, leaseSeconds, maxRecoveryAttempts, skills,
-                runEventStreamService::publish).withToolPreparation(knowledgeTools::prepare);
+                runEventStreamService::publish, recoveryScanLimit).withToolPreparation(knowledgeTools::prepare);
     }
 
     /**

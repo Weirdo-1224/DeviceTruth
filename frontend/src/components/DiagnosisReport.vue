@@ -1,173 +1,174 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import UiIcon from './UiIcon.vue'
-import type { AgentResult, Reference, RunStatus } from '../api'
+import { REPORT_STATUS_LABELS, canRetryReportReferences, reportReferenceNumbers } from '../reportView'
+import type { RunView } from '../api'
+import type { ClaimView, DiagnosisViewModel, ReferenceView } from '../diagnosisViewModel'
 
-/**
- * 结构化诊断报告：全部内容来自持久 run 结果与已登记引用，只呈现真实证据。
- * 依据与候选原因按 certainty 分开；没有现场核验时不得把候选原因说成已确诊。
- */
 const props = defineProps<{
-  status: RunStatus
-  result: AgentResult | null
-  failureCode: string | null
+  run: RunView
+  model: DiagnosisViewModel
+  references: ReferenceView[]
+  referencesState: 'loading' | 'ready' | 'empty' | 'unavailable' | 'denied' | 'notFound' | 'error'
+  referencesNote: string
   failureText?: string
-  references: Reference[]
-
 }>()
 
-const emit = defineEmits<{ (event: 'toggle-reference', referenceId: string): void }>()
+const emit = defineEmits<{
+  close: []
+  print: []
+  openReference: [referenceId: string]
+  retryReferences: []
+}>()
 
-const facts = computed(() => (props.result?.claims ?? []).filter((claim) => claim.certainty !== 'POSSIBLE'))
-const possibleCauses = computed(() => (props.result?.claims ?? []).filter((claim) => claim.certainty === 'POSSIBLE'))
-const manualItems = computed(() => {
-  const result = props.result
-  if (!result) return []
-  const items = [...result.uncertainties, ...result.limitations]
-  if (result.category === 'HUMAN_REVIEW') items.unshift('本次结论需要人工复核后再执行任何现场操作')
-  return items
-})
-const safetyNotice = computed(() => {
-  const disposition = props.result?.safetyDisposition ?? ''
-  if (disposition === 'REQUIRES_QUALIFIED_PERSONNEL') return '涉及高风险操作：必须由具备资质的专业人员按厂家规程处理，本系统不提供操作步骤'
-  if (disposition === 'PROHIBITED') return '该请求涉及被禁止的设备操作，系统不提供执行指引'
-  return ''
-})
-const categoryLabels: Record<AgentResult['category'], string> = {
-  KNOWLEDGE: '资料答复',
-  POSSIBLE_CAUSES: '候选原因',
-  CONFIRMED_FINDING: '已核实结论',
-  HUMAN_REVIEW: '待人工核验'
-}
-function certaintyLabel(certainty: string): string {
-  return certainty === 'CONFIRMED' ? '已核实' : certainty === 'SUPPORTED' ? '资料支持' : '可能原因'
-}
+const statusLabel = computed(() => REPORT_STATUS_LABELS[props.run.status])
+const referenceNumbers = computed(() => reportReferenceNumbers(props.references))
+const claimGroups = computed(() => [
+  { key: 'direct', title: '直接相关候选原因', claims: props.model.directCauses },
+  { key: 'context', title: '背景观测与上下文', claims: props.model.contextClaims },
+  { key: 'other', title: '其他与未知判断', claims: props.model.otherClaims }
+].filter(group => group.claims.length))
 
 function referenceLabel(referenceId: string): string {
-  const index = props.references.findIndex(reference => reference.referenceId === referenceId)
-  return index >= 0 ? '引用 ' + (index + 1) : '#' + referenceId.slice(0, 8)
+  const number = referenceNumbers.value.get(referenceId)
+  return number ? `[${number}]` : '[引用不可用]'
+}
+
+function claimReferenceLabels(claim: ClaimView): string {
+  return claim.referenceIds.map(referenceLabel).join(' ')
 }
 </script>
 
 <template>
-  <section v-if="status === 'FAILED'" class="card report failure" role="alert">
-    <h2>本次没有得到答案</h2>
-    <p>{{ failureText || ('失败原因码：' + (failureCode ?? '未返回原因码')) }}</p>
-    <p v-if="failureText && failureCode" class="hint">原因码：{{ failureCode }}</p>
-    <p class="hint">可以在输入框重新描述问题后再次发起调查；历史消息与已取回的引用仍保留。</p>
-  </section>
-
-  <section v-else-if="status === 'CANCELLED'" class="card report cancelled">
-    <h2>本次调查已取消</h2>
-    <p class="hint">取消前的消息、追问与时间线仍保存在服务器，可随时重新发起调查。</p>
-  </section>
-
-  <section v-else-if="!result" class="card report waiting">
-    <h2>诊断报告</h2>
-    <p class="hint">
-      {{ status === 'WAITING_FOR_USER' ? '等待你补充信息后继续生成结论。'
-        : status === 'QUEUED' || status === 'RUNNING' ? '调查进行中，完成后这里会显示结构化报告。'
-        : '还没有执行过调查。' }}
-    </p>
-  </section>
-
-  <section v-else class="card report">
+  <article class="diagnosis-report pro-card" aria-labelledby="diagnosis-report-title">
     <header class="report-header">
-      <h2><UiIcon name="file" /> 诊断报告</h2>
-      <span class="badge" :class="{ review: result.category === 'HUMAN_REVIEW' }">
-        {{ categoryLabels[result.category] }} · 风险 {{ result.riskLevel }} · {{ result.dataNature }}
-      </span>
+      <div>
+        <p class="report-eyebrow">INVESTIGATION REPORT / 调查报告</p>
+        <h1 id="diagnosis-report-title" tabindex="-1">设备检修诊断报告</h1>
+        <p class="report-run">Run ID：{{ run.runId }}</p>
+      </div>
+      <div class="pro-report-actions">
+        <button type="button" class="pro-outline" @click="emit('close')">返回工作台</button>
+        <button type="button" class="pro-outline" @click="emit('print')"><UiIcon name="file" /> 打印 / 另存为 PDF</button>
+      </div>
     </header>
-    <div class="conclusion">
-      <UiIcon name="target" />
-      <div><h3>本次调查结论</h3><p class="summary">{{ result.summary }}</p></div>
-    </div>
-    <p v-if="safetyNotice" class="safety" role="note">{{ safetyNotice }}</p>
 
-    <div v-if="references.length > 0" class="section">
-      <h3><UiIcon name="link" /> 关键资料（{{ references.length }}）</h3>
-      <ul class="references">
-        <li v-for="reference in references" :key="reference.referenceId">
-          <button type="button" class="link citation" @click="emit('toggle-reference', reference.referenceId)">
-            《{{ reference.title }}》{{ reference.section ?? '' }}
-            <span v-if="reference.page">（第 {{ reference.page }} 页）</span>
-          </button>
+    <section class="report-meta" aria-label="调查信息">
+      <dl>
+        <div><dt>调查目标</dt><dd>{{ model.taskQuestion || '（本轮目标消息不可用）' }}</dd></div>
+        <div><dt>实际排查对象</dt><dd>{{ model.selectedAssetId || model.assetResolutionLabel }}</dd></div>
+        <div v-if="model.changedFromAssetId"><dt>对象变更</dt><dd>{{ model.changedFromAssetId }} → {{ model.selectedAssetId || model.assetResolutionLabel }}</dd></div>
+        <div><dt>对象状态</dt><dd>{{ model.assetResolutionLabel }}</dd></div>
+        <div><dt>业务时点</dt><dd>{{ new Date(run.asOf).toLocaleString('zh-CN', { hour12: false }) }}</dd></div>
+        <div><dt>Run 状态</dt><dd>{{ statusLabel }}</dd></div>
+        <div><dt>风险 / 数据性质</dt><dd>{{ model.riskLevel || '未返回' }} / {{ model.dataNature || '未返回' }}</dd></div>
+      </dl>
+    </section>
+
+    <section v-if="run.status === 'FAILED'" class="report-state" role="alert">
+      <h2>本次没有得到答案</h2>
+      <p>{{ failureText || ('失败原因码：' + (run.failureCode ?? '未返回原因码')) }}</p>
+      <p v-if="failureText && run.failureCode" class="hint">原因码：{{ run.failureCode }}</p>
+    </section>
+    <section v-else-if="run.status === 'CANCELLED'" class="report-state">
+      <h2>本次调查已取消</h2>
+      <p>取消前的消息、追问与已登记来源仍保留。</p>
+    </section>
+    <section v-else-if="run.status !== 'COMPLETED'" class="report-state">
+      <h2>{{ statusLabel }}</h2>
+      <p v-if="run.pendingQuestion">{{ run.pendingQuestion.question }}</p>
+      <p v-else>当前尚未形成完成结论，报告仅展示已持久化的信息。</p>
+    </section>
+    <template v-else>
+      <section class="report-conclusion">
+        <h2>当前结论</h2>
+        <p class="report-short">{{ model.shortConclusion }}</p>
+        <p class="report-summary">{{ model.summary || '未返回摘要' }}</p>
+      </section>
+      <p v-if="model.safetyNotice" class="safety">{{ model.safetyNotice }}</p>
+      <p v-if="model.dataNatureNote" class="report-note">{{ model.dataNatureNote }}</p>
+
+      <section class="report-section">
+        <h2>建议行动与人工核验</h2>
+        <h3>建议行动</h3>
+        <ol v-if="model.suggestions.length"><li v-for="(item, index) in model.suggestions" :key="index">{{ item }}</li></ol>
+        <p v-else class="hint">无</p>
+        <h3>不确定点</h3>
+        <ul v-if="model.uncertainties.length"><li v-for="(item, index) in model.uncertainties" :key="index">{{ item }}</li></ul>
+        <p v-else class="hint">无</p>
+        <h3>限制</h3>
+        <ul v-if="model.limitations.length"><li v-for="(item, index) in model.limitations" :key="index">{{ item }}</li></ul>
+        <p v-else class="hint">无</p>
+      </section>
+
+      <section v-for="group in claimGroups" :key="group.key" class="report-section">
+        <h2>{{ group.title }}（{{ group.claims.length }}）</h2>
+        <ol class="report-claims">
+          <li v-for="claim in group.claims" :key="claim.key">
+            <span class="certainty" :class="{ possible: claim.certainty === 'POSSIBLE' }">{{ claim.certaintyLabel }}</span>
+            {{ claim.text }}
+            <span v-if="claim.referenceIds.length" class="report-citations">{{ claimReferenceLabels(claim) }}</span>
+            <small v-if="claim.referenceNote" class="hint">（{{ claim.referenceNote }}）</small>
+          </li>
+        </ol>
+      </section>
+      <p v-if="!model.claims.length" class="report-state">本轮没有结构化判断。</p>
+    </template>
+
+    <section class="report-section report-sources">
+      <h2>来源与引用（{{ references.length }}）</h2>
+      <p class="hint">{{ referencesNote }}</p>
+      <button v-if="canRetryReportReferences(referencesState)" type="button" class="text-button pro-report-actions"
+              @click="emit('retryReferences')">重试读取来源</button>
+      <p v-if="referencesState === 'empty'" class="hint">本轮没有已登记来源。</p>
+      <ol>
+        <li v-for="(reference, index) in references" :key="reference.referenceId" class="report-source">
+          <h3>[{{ index + 1 }}] 《{{ reference.title }}》</h3>
+          <p>{{ reference.sourceTypeLabel }} · 版本 {{ reference.sourceVersion }} · {{ reference.locatingNote || '未提供页码或章节' }} · {{ reference.dataNature }}</p>
+          <p v-if="reference.excerpt" class="source-excerpt">{{ reference.excerpt }}</p>
         </li>
-      </ul>
-    </div>
-
-    <div v-if="possibleCauses.length > 0" class="section">
-      <h3><UiIcon name="target" /> 候选原因（{{ possibleCauses.length }}）</h3>
-      <ul>
-        <li v-for="(claim, index) in possibleCauses" :key="index">
-          <span class="certainty possible">{{ certaintyLabel(claim.certainty) }}</span>
-          {{ claim.text }}
-          <button v-for="id in claim.referenceIds" :key="id" type="button" class="citation-ref" @click="emit('toggle-reference', id)">{{ referenceLabel(id) }}</button>
-        </li>
-      </ul>
-    </div>
-
-    <div v-if="manualItems.length > 0" class="section">
-      <h3><UiIcon name="check" /> 人工核验与限制（{{ manualItems.length }}）</h3>
-      <ol class="manual">
-        <li v-for="(item, index) in manualItems" :key="index">{{ item }}</li>
       </ol>
-    </div>
-
-    <div v-if="result.suggestions.length > 0" class="section">
-      <h3><UiIcon name="bolt" /> 建议行动</h3>
-      <ul>
-        <li v-for="(suggestion, index) in result.suggestions" :key="index">{{ suggestion }}</li>
-      </ul>
-    </div>
-
-    <details v-if="facts.length > 0" class="fact-details">
-      <summary><UiIcon name="file" /> 已知事实与依据（{{ facts.length }}）</summary>
-      <ul>
-        <li v-for="(claim, index) in facts" :key="index">
-          <span class="certainty supported">{{ certaintyLabel(claim.certainty) }}</span>
-          {{ claim.text }}
-          <button v-for="id in claim.referenceIds" :key="id" type="button" class="citation-ref" @click="emit('toggle-reference', id)">{{ referenceLabel(id) }}</button>
-        </li>
-      </ul>
-    </details>
-  </section>
+      <p class="report-note">来源可追溯，不等于现场核验。AUTHORIZED 仅说明来源已授权；FIELD_OBSERVATION 不证明接入真机。</p>
+    </section>
+  </article>
 </template>
 
 <style scoped>
-.report { border: 1px solid #dcdffc; border-radius: 12px; padding: 12px 15px; background: #f9f9fe; overflow-wrap: anywhere; }
-.report-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
-.report h2 { font-size: 20px; margin: 0; }
-.report-header h2 svg { color: var(--primary); margin-right: 6px; }
-.badge, .certainty, .citation-ref { font-size: 12px; border-radius: 7px; padding: 2px 7px; color: var(--accent); background: #eae9ff; }
-.badge.review, .certainty.possible { color: var(--warning); background: #ffefca; }
-.conclusion { display: flex; align-items: flex-start; gap: 11px; background: #eeedfc; border-radius: 8px; padding: 9px 12px; margin: 10px 0; }
-.conclusion > svg { color: var(--primary); font-size: 22px; margin-top: 2px; }
-.conclusion h3 { color: var(--accent); font-size: 13px; margin: 0 0 3px; }
-.summary { font-size: 16px; font-weight: 700; margin: 0; line-height: 1.48; }
-.safety { background: #fff2dc; color: #783f13; border-radius: 7px; padding: 7px 9px; margin: 8px 0; font-size: 13px; }
-.section { display: grid; grid-template-columns: minmax(137px, 23%) minmax(0, 1fr); gap: 9px; border-top: 1px solid var(--line); padding: 7px 3px; }
-.section h3 { font-size: 13px; margin: 2px 0 0; }
-.section h3 svg { color: var(--accent); margin-right: 4px; }
-.section ul, .section ol { margin: 0; padding-left: 18px; line-height: 1.5; }
-.section li + li { margin-top: 2px; }
-.fact-details { border-top: 1px solid var(--line); padding: 7px 3px 0; }
-.fact-details summary { cursor: pointer; font-size: 13px; font-weight: 700; }
-.fact-details summary svg { color: var(--accent); margin-right: 4px; }
-.fact-details ul { margin: 7px 0 0; padding-left: 18px; line-height: 1.5; }
-.section .manual { list-style: none; padding-left: 0; counter-reset: manual; }
-.manual li { display: flex; align-items: baseline; gap: 7px; counter-increment: manual; }
-.manual li::before { content: counter(manual); flex: none; min-width: 18px; border-radius: 50%; background: #e7e5fc; color: var(--accent); text-align: center; font-size: 11px; line-height: 18px; }
-.certainty { white-space: nowrap; margin-right: 4px; }
-.citation-ref, .link { cursor: pointer; border: 0; color: var(--accent); }
-.citation-ref { margin-left: 4px; }
-.link { padding: 0; background: none; text-align: left; font-weight: 650; }
-.link:hover, .citation-ref:hover { text-decoration: underline; }
-.references { font-size: 13px; color: var(--muted); }
-.failure { border-color: #f2c8cd; background: #fff4f4; }
-.failure h2 { color: #9d303c; }
-.cancelled { border-color: var(--line); background: #f6f6fb; }
+.diagnosis-report { max-width: 1040px; margin: 0 auto; padding: 24px 28px; color: var(--text); }
+.report-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--line); padding-bottom: 16px; }
+.report-eyebrow { margin: 0 0 5px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: 0.07em; }
+.report-header h1 { margin: 0; font-size: 24px; }
+.report-run { margin: 6px 0 0; color: var(--text-3); font-size: 11px; overflow-wrap: anywhere; }
+.pro-report-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.report-meta { padding: 14px 0; }
+.report-meta dl { display: grid; gap: 6px; margin: 0; }
+.report-meta dl div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; font-size: 13px; }
+.report-meta dt { color: var(--text-3); }
+.report-meta dd { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
+.report-conclusion { border-radius: 12px; background: var(--soft); padding: 14px 16px; }
+.report-conclusion h2, .report-section h2, .report-state h2 { margin: 0 0 8px; font-size: 16px; color: var(--accent-2); }
+.report-short { margin: 0 0 8px; font-size: 18px; font-weight: 730; line-height: 1.5; }
+.report-summary { margin: 0; color: var(--text-2); line-height: 1.7; white-space: pre-wrap; }
+.report-section { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+.report-section h3 { margin: 10px 0 5px; font-size: 13px; color: var(--text); }
+.report-section ol, .report-section ul { margin: 0; padding-left: 22px; color: var(--text-2); line-height: 1.65; }
+.report-section li + li { margin-top: 5px; }
+.report-claims li { overflow-wrap: anywhere; }
+.certainty { display: inline-block; border-radius: 999px; padding: 1px 8px; margin-right: 5px; font-size: 11px;
+  color: var(--accent-2); background: var(--soft); }
+.certainty.possible { color: var(--warn); background: var(--warn-bg); }
+.report-citations { color: var(--accent-2); white-space: nowrap; }
+.report-state { border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-top: 14px; }
+.safety { border-radius: 10px; background: var(--warn-bg); color: var(--warn); padding: 10px 12px; line-height: 1.6; }
+.report-note { border-radius: 9px; background: var(--warn-bg); color: var(--warn); padding: 9px; font-size: 12px; line-height: 1.6; }
+.report-source { break-inside: avoid; }
+.report-source h3 { overflow-wrap: anywhere; }
+.source-excerpt { border-left: 3px solid var(--primary); background: var(--log-bg); padding: 9px 11px; white-space: pre-wrap; }
+.hint { color: var(--text-3); font-size: 12px; }
 @media (max-width: 680px) {
-  .section { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+  .diagnosis-report { padding: 16px 14px; }
+  .report-header h1 { font-size: 21px; }
+  .report-meta dl div { grid-template-columns: 88px minmax(0, 1fr); }
 }
 </style>

@@ -13,7 +13,7 @@ DeviceTruth 提供设备检修对话、知识检索与章节引用、标准 Skil
 3. 启动 PostgreSQL、构建并导入知识，步骤见 [知识库部署与运维](docs/knowledge-operations.md)。
 4. 启动标准 `product` 服务和前端。首次启动安装 8 个默认 Skill，之后保留数据库中已停用或缩小权限的设置。
 
-本项目当前使用服务器固定的 owner/project 身份，适合单用户或受控内网部署。多人共享上线仍需接入真实认证。模拟资产和观测保留 `SIMULATED` 标记。
+产品已支持账号登录、个人/团队空间及成员授权。登录后选择空间；运维导入应使用该空间对应的存储身份，步骤见运维说明。模拟资产和观测保留 `SIMULATED` 标记。
 
 ## 构建与测试
 
@@ -49,14 +49,16 @@ java -Dloader.main=io.devicetruth.server.DeviceTruthServerApplication \
 
 `GET /api/health` 为进程健康检查。产品接口包括 `/api/conversations`、`/api/runs/{id}`、运行事件/SSE、引用与 Skill，以及 `/api/knowledge/*`、`/api/files`。上传支持 Markdown；PDF 上传尚未实现，正式知识中的 PDF 原件已预先整理为可导入正文。
 
-Docker Compose 会读取项目 `.env`：先完成知识导入，再运行 `docker compose --profile product up -d --build`。前端默认 `http://127.0.0.1:8081`。数据库镜像当前配置 `pull_policy: never`，首次运行需先获取 `compose.yaml` 中固定版本的镜像。更多备份、恢复和故障处理见 [运维说明](docs/operations.md)。
+Docker Compose 会读取项目 `.env`：先完成知识导入，再运行 `docker compose --profile product up -d --build`。前端默认 `http://127.0.0.1:8081`。数据库镜像当前配置 `pull_policy: never`，首次运行需先获取 `compose.yaml` 中固定版本的镜像。更多备份、恢复和故障处理见 [运维说明](docs/operations/operations.md)。
+
+`product` 与 `legacy` HTTP 装配相互隔离；旧演示接口需显式启动 `--spring.profiles.active=legacy`，不带 profile 时仅提供健康探针。后续规格与变更使用 `openspec/` 管理。
 
 ## 知识与 Skill
 
 - 示例环境配置使用 Dense + Lucene BM25（CJK、20 候选、RRF60、等权、Exact）；`DEVICETRUTH_KNOWLEDGE_MODE=LEGACY` 可切回旧模式。
 - 模型产生的实际查询词先在数据库事务外获取向量，正式工具步骤只读缓存、重新校验可见性并登记引用。缺失的词法索引根据数据库内容重建，无需复制本机索引。
 - 知识导入生成 `READY_INACTIVE` 版本；显式激活后才对普通产品检索可见。导入、激活、回滚均通过 [通用运维入口](docs/knowledge-operations.md) 操作。
-- `skills/` 包含汽车、工厂设备及 6 个专项 Skill。配置和格式见 [领域 Skill](docs/domain-skills.md)、[Skill 规范](docs/skill-normalization.md)。权限取服务器许可与 Skill 声明的交集。
+- `skills/` 包含汽车、工厂设备及 6 个专项 Skill。配置和格式见 [领域 Skill](docs/skills/domain-skills.md)、[Skill 规范](docs/skills/skill-normalization.md)。权限取服务器许可与 Skill 声明的交集。
 - 真实知识使用 `text-embedding-v4`、1024 维及固定档案修订。更换模型或维度需要建立匹配的新知识版本，不能混用原向量。
 
 可选设置 `DEVICETRUTH_ASSETS_SEED_FIXTURES=true`、`DEVICETRUTH_ASSETS_FIXTURES=SC-0245-B`，在自己的数据库中加入随仓库提供的工厂演示资产。已有设备业务数据应通过受控导入或备份迁移管理。

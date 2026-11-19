@@ -62,7 +62,7 @@ class GeneralAgentApiTest {
         base = base(app);
         otherBase = base(otherOwnerApp);
         misconfiguredBase = base(misconfiguredApp);
-        rest = new TestRestTemplate();
+        rest = io.devicetruth.server.AuthenticatedProductTestSupport.client(app, otherOwnerApp, misconfiguredApp);
         jdbc = new JdbcTemplate(app.getBean(HikariDataSource.class));
         importManual();
     }
@@ -90,8 +90,8 @@ class GeneralAgentApiTest {
 
     private static ConfigurableApplicationContext open(String owner, String project, String agentReasoner,
                                                        boolean workerEnabled) {
-        return new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+        var context = new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--logging.level.org.springframework=WARN", "--logging.level.org.springframework.jdbc=INFO",
                 "--devicetruth.core.reasoner=scripted", "--devicetruth.agent.reasoner=" + agentReasoner,
                 "--devicetruth.agent.worker-enabled=" + workerEnabled,
@@ -100,6 +100,8 @@ class GeneralAgentApiTest {
                 "--devicetruth.product.owner-id=" + owner, "--devicetruth.product.project-id=" + project,
                 "--devicetruth.embedding.provider=deterministic", "--devicetruth.embedding.model=deterministic-char2",
                 "--devicetruth.embedding.dimension=1024", "--devicetruth.embedding.profile-revision=1");
+        AuthenticatedProductTestSupport.register(context);
+        return context;
     }
 
     private static String base(ConfigurableApplicationContext context) {

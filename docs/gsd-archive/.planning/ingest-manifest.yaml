@@ -1,0 +1,12 @@
+# 本次明确来源与优先级；不是自动发现后将所有旧 spec 再冻结。
+# role 为本轮说明字段；GSD 正式输入使用 path/type/precedence。
+docs:
+  - path: docs/design/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md
+    type: PRD
+    precedence: 0
+# 以下历史/现状资料用于源码定位与迁移解释，不参与覆盖需求基准：
+# docs/DeviceTruth_Core_V0.1_Spec_Pack/{spec,task,state}.md
+# docs/DeviceTruth_V0.2_S0_S1/{spec,task,state}.md
+# CURRENT_PROJECT_STATUS.md
+# AGENTS.md 为仓库操作约束，非产品需求替代来源。
+

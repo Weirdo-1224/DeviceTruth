@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 通用 Agent 的推理器接口：每轮只提出一个动作（CALL_TOOL/ASK_USER/ANSWER）。
+ * 通用 Agent 的推理器接口：每轮只提出一个动作（CALL_TOOL/CALL_TOOLS/ASK_USER/ANSWER）。
  * 实现方只“提议”，能否执行、引用是否成立、风险如何，全部由主机校验。
  * Context 由持久层重建：原始目标、完整消息序列、已授权工具目录与本 run 已取回引用。
  */
@@ -18,6 +18,12 @@ public interface GeneralReasoner {
     /** 允许带内部重试的适配器在发起下一次请求前检查本次运行是否已结束。 */
     default ActionProposal propose(Context context, java.util.function.Supplier<String> abortCode) {
         return propose(context);
+    }
+
+    /** 真实模型可按 Run 剩余时间缩短单次等待；本地推理器无需使用该预算。 */
+    default ActionProposal propose(Context context, java.util.function.Supplier<String> abortCode,
+                                   java.util.function.LongSupplier remainingMillis) {
+        return propose(context, abortCode);
     }
 
     String name();

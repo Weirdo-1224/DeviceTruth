@@ -11,6 +11,34 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.*;
 
 class PreparingToolReasonerTest {
+    @Test void batchPreparationPreservesAuthenticatedScopeAndRemainingTime() {
+        UUID actor = UUID.randomUUID(), workspace = UUID.randomUUID();
+        var scope = new ToolContext("owner", "project", UUID.randomUUID(), UUID.randomUUID(), null,
+                Instant.now(), null, Set.of(KnowledgeTools.SEARCH), actor, workspace);
+        var queries = new ArrayList<String>();
+        GeneralReasoner delegate = new GeneralReasoner() {
+            public String name() { return "batch-fixture"; }
+            public ActionProposal propose(Context context) { throw new AssertionError("remaining budget must be forwarded"); }
+            public ActionProposal propose(Context context, java.util.function.Supplier<String> abort,
+                                          java.util.function.LongSupplier remaining) {
+                assertThat(remaining.getAsLong()).isEqualTo(1234);
+                return new ActionProposal.CallTools(List.of(
+                        new ActionProposal.ToolCall(KnowledgeTools.SEARCH, Map.of("query", "first"), "lookup"),
+                        new ActionProposal.ToolCall(KnowledgeTools.SEARCH, Map.of("query", "second"), "lookup")));
+            }
+        };
+        var wrapper = new PreparingToolReasoner(delegate, scope, (current, call) -> {
+            assertThat(current.actorUserId()).isEqualTo(actor);
+            assertThat(current.workspaceId()).isEqualTo(workspace);
+            queries.add((String) call.arguments().get("query"));
+        });
+        var spec = new io.devicetruth.core.capability.AgentToolTypes.ToolSpec(KnowledgeTools.SEARCH, "lookup", "knowledge",
+                true, Map.of("type", "object"), "result");
+        var context = new GeneralReasoner.Context("goal", List.of(), List.of(spec), List.of(), List.of(), 0, 10, null);
+        assertThat(wrapper.propose(context, () -> null, () -> 1234)).isInstanceOf(ActionProposal.CallTools.class);
+        assertThat(queries).containsExactly("first", "second");
+    }
+
     @Test void prefetchUsesGeneratedQueryAndEffectiveSkillGrantAndHonorsCancellation() {
         var calls = new AtomicInteger();
         var action = new ActionProposal.CallTool(KnowledgeTools.SEARCH, Map.of("query", "generated query"), "lookup");

@@ -58,7 +58,7 @@ class ResourceAuthorizationTest {
         baseA = base(ownerA);
         baseB = base(ownerB);
         baseOtherProject = base(otherProject);
-        rest = new TestRestTemplate();
+        rest = io.devicetruth.server.AuthenticatedProductTestSupport.client(ownerA, ownerB, otherProject);
         jdbc = new JdbcTemplate(ownerA.getBean(com.zaxxer.hikari.HikariDataSource.class));
     }
 
@@ -81,7 +81,7 @@ class ResourceAuthorizationTest {
 
     private static ConfigurableApplicationContext open(String owner, String project, boolean seedAssets) {
         return new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--logging.level.org.springframework=WARN", "--logging.level.org.springframework.jdbc=INFO",
                 "--devicetruth.core.reasoner=scripted", "--devicetruth.agent.reasoner=scripted",
                 // 本用例只验证读路径授权，不启动 worker，避免后台 run 干扰断言。
@@ -192,6 +192,50 @@ class ResourceAuthorizationTest {
     }
 
     @Test
+    void inheritedContextReferenceIsReRegisteredUnderNewRunWithNewReferenceId() throws Exception {
+        // 5.1 正向：深入调查继承的合法引用在新 Run 下以新引用 ID 重新登记（来源一致但绝不复用旧 ID），
+        // 旧 Run 的引用保持不变；跨身份读取新 Run 引用仍 404。
+        var conversation = post(baseA, "/api/conversations", Map.of());
+        assertThat(conversation.getStatusCode().value()).isEqualTo(201);
+        String conversationId = readId(conversation.getBody());
+        var first = submit(baseA, "/api/conversations/" + conversationId + "/messages",
+                Map.of("schemaVersion", 1, "userMessage", "第一次调查：看看这台设备"));
+        assertThat(first.getStatusCode().value()).isEqualTo(202);
+        String firstRunId = readRunId(first.getBody());
+
+        // worker 关闭，run 停在 QUEUED：直接登记一条身份范围内的来源引用作为“本轮已取回证据”
+        UUID sourceRefId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO dt_evidence_reference(id,run_id,conversation_id,owner_id,project_id,source_type,
+                    source_id,source_version,retrieved_at,data_nature)
+                VALUES (?,?,?,?,?,'CONFIGURATION','CFG-CTRL-01','2026.1',now(),'SIMULATED')
+                """, sourceRefId, UUID.fromString(firstRunId), UUID.fromString(conversationId), "owner-a", "project-a");
+
+        var second = submit(baseA, "/api/conversations/" + conversationId + "/messages",
+                Map.of("schemaVersion", 1, "userMessage", "请深入调查以下判断：控制器版本异常。",
+                        "contextRefs", List.of(Map.of("referenceId", sourceRefId.toString()))));
+        assertThat(second.getStatusCode().value()).isEqualTo(202);
+        String secondRunId = readRunId(second.getBody());
+        assertThat(secondRunId).isNotEqualTo(firstRunId);
+
+        // 新 Run 的引用：sourceId 一致，referenceId 是重新登记的新 ID，不是旧 ID 的复制
+        var inherited = get(baseA, "/api/runs/" + secondRunId + "/references");
+        assertThat(inherited.getStatusCode().value()).isEqualTo(200);
+        var inheritedTree = io.devicetruth.adapter.Json.MAPPER.readTree(inherited.getBody());
+        assertThat(inheritedTree).hasSize(1);
+        assertThat(inheritedTree.get(0).get("sourceId").asText()).isEqualTo("CFG-CTRL-01");
+        assertThat(inheritedTree.get(0).get("referenceId").asText()).isNotEqualTo(sourceRefId.toString());
+
+        // 旧 Run 的原始引用不被改动或挪走
+        var original = get(baseA, "/api/runs/" + firstRunId + "/references");
+        assertThat(original.getStatusCode().value()).isEqualTo(200);
+        assertThat(original.getBody()).contains(sourceRefId.toString());
+
+        // 跨身份读取新 Run 继承的引用仍被拒绝
+        assertThat(get(baseB, "/api/runs/" + secondRunId + "/references").getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
     void foreignRunAndConversationAreNotReadable() {
         var conversation = post(baseA, "/api/conversations", Map.of());
         String conversationId = readId(conversation.getBody());
@@ -252,6 +296,14 @@ class ResourceAuthorizationTest {
             return io.devicetruth.adapter.Json.MAPPER.readTree(json).get("conversationId").asText();
         } catch (Exception e) {
             throw new IllegalStateException("Unexpected conversation body: " + json, e);
+        }
+    }
+
+    private static String readRunId(String json) {
+        try {
+            return io.devicetruth.adapter.Json.MAPPER.readTree(json).get("runId").asText();
+        } catch (Exception e) {
+            throw new IllegalStateException("Unexpected run body: " + json, e);
         }
     }
 }

@@ -9,6 +9,7 @@ import io.devicetruth.application.agent.GeneralAgentService.AgentTaskInput;
 import io.devicetruth.application.agent.GeneralAgentService.RunView;
 import io.devicetruth.application.agent.GeneralAgentService.ServerIdentity;
 import io.devicetruth.core.capability.CapabilityGateway;
+import io.devicetruth.core.contract.AgentResult;
 import io.devicetruth.core.reasoning.ActionProposal;
 import io.devicetruth.core.reasoning.GeneralReasoner;
 import io.devicetruth.core.reasoning.Reasoner;
@@ -73,7 +74,7 @@ class AgentLifecycleTest {
             statement.execute("CREATE DATABASE " + databaseName);
         }
         app = new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--logging.level.org.springframework=WARN", "--logging.level.org.springframework.jdbc=INFO",
                 "--devicetruth.core.reasoner=scripted",
                 "--spring.datasource.url=" + databaseBaseUrl + databaseName,
@@ -113,7 +114,7 @@ class AgentLifecycleTest {
     private static void importManual() throws Exception {
         var headers = new org.springframework.http.HttpHeaders();
         headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
-        var response = new org.springframework.boot.test.web.client.TestRestTemplate().exchange(
+        var response = io.devicetruth.server.AuthenticatedProductTestSupport.client(app).exchange(
                 base + "/api/knowledge/documents", org.springframework.http.HttpMethod.POST,
                 new org.springframework.http.HttpEntity<>(Map.of(
                         "title", "充电系统检修手册（演示资料）", "domain", "automotive-demo", "version", "2026.1",
@@ -420,6 +421,38 @@ class AgentLifecycleTest {
         }
     }
 
+    @Test void investigatedRunPublishesLimitedAnswerAfterTotalDeadline() throws Exception {
+        var shortRuns = new AgentRunRepository(jdbc, 100);
+        GeneralReasoner slow = new GeneralReasoner() {
+            private int round;
+            @Override public String name() { return "slow-after-search"; }
+            @Override public ActionProposal propose(Context context) {
+                if (round++ == 0) return new ActionProposal.CallTool("search_knowledge",
+                        Map.of("query", "充电中断"), "先取得调查记录");
+                LockSupport.parkNanos(Duration.ofMillis(250).toNanos());
+                return new ActionProposal.Answer("KNOWLEDGE", "迟到的正常答案不应被采纳。",
+                        List.of(), List.of(), List.of(), List.of(), List.of());
+            }
+        };
+        var service = new GeneralAgentService(conversations, shortRuns, transactions, IDENTITY, gateway,
+                () -> slow, 1, 1, true, null, LEASE_SECONDS, 3);
+        try {
+            UUID conversation = service.create().conversationId();
+            UUID runId = service.submit(conversation, UUID.randomUUID(), input("新能源汽车充电中断")).runId();
+            assertThat(awaitTerminal(service, runId, "COMPLETED")).isEqualTo("COMPLETED");
+            var view = service.run(runId);
+            assertThat(view.failureCode()).isNull();
+            assertThat(view.result().category()).isEqualTo(AgentResult.Category.HUMAN_REVIEW);
+            assertThat(view.result().summary()).doesNotContain("迟到的正常答案");
+            assertThat(view.result().limitations()).anyMatch(item -> item.contains("TOTAL_TIMEOUT"));
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_DEGRADED'", Integer.class, runId))
+                    .isEqualTo(1);
+        } finally {
+            service.shutdown();
+        }
+    }
+
     @Test void reportedTokenUsageIsCumulativeAcrossReplyAndMissingAttempt() throws Exception {
         GeneralReasoner reasoner = new GeneralReasoner() {
             private int turn;
@@ -613,9 +646,8 @@ class AgentLifecycleTest {
     // ---------- Nyquist 审计补漏（AGENT-04 步数/时长预算口径） ----------
 
     @Test
-    void stepBudgetExhaustionFailsRunWithStableCodeAndNoAnswer() throws Exception {
-        // AGENT-04 步数预算：模型只调工具不作答、持续到步数上限时必须 FAILED/BUDGET_EXHAUSTED，
-        // 稳定错误码入审计事件，绝不产出答案或停留在 RUNNING
+    void finalStepToolProposalDeliversLimitedAnswerAfterInvestigation() throws Exception {
+        // 已有调查记录时，步数耗尽交付带原原因码的有限结果，不停留 RUNNING、不伪装正常诊断。
         UUID runId = transactions.execute(status -> {
             var conversation = conversations.create(IDENTITY, Instant.now());
             var messageId = conversations.append(IDENTITY, conversation.conversationId(), UUID.randomUUID(),
@@ -623,7 +655,7 @@ class AgentLifecycleTest {
             return runs.enqueue(IDENTITY, conversation.conversationId(), messageId, Instant.now(), Instant.now())
                     .runId();
         });
-        // 收紧步数预算到 2：两步工具调用后必然耗尽，无需依赖默认预算
+        // 收紧步数预算到 2：最后一步用于回答；模型仍只调工具时转为有限结果
         jdbc.update("UPDATE dt_agent_run SET budget=jsonb_set(budget,'{limits,maxSteps}','2',true) WHERE id=?",
                 runId);
         GeneralReasoner looping = new GeneralReasoner() {
@@ -636,15 +668,16 @@ class AgentLifecycleTest {
         var service = service(1, 1, looping);
         try {
             service.recoverQueued();
-            assertThat(awaitTerminal(service, runId, "FAILED")).isEqualTo("FAILED");
-            assertThat(service.run(runId).failureCode()).isEqualTo("BUDGET_EXHAUSTED");
-            assertThat(service.run(runId).result()).isNull();
+            assertThat(awaitTerminal(service, runId, "COMPLETED")).isEqualTo("COMPLETED");
+            assertThat(service.run(runId).failureCode()).isNull();
+            assertThat(service.run(runId).result().category()).isEqualTo(AgentResult.Category.HUMAN_REVIEW);
+            assertThat(service.run(runId).result().limitations()).anyMatch(item -> item.contains("ANSWER_REQUIRED"));
             assertThat(jdbc.queryForObject(
-                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_FAILED'"
-                            + " AND safe_payload->>'code'='BUDGET_EXHAUSTED'", Integer.class, runId)).isEqualTo(1);
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_DEGRADED'"
+                            + " AND safe_payload->>'code'='ANSWER_REQUIRED'", Integer.class, runId)).isEqualTo(1);
             assertThat(jdbc.queryForObject(
                     "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_ANSWER'",
-                    Integer.class, runId)).isZero();
+                    Integer.class, runId)).isEqualTo(1);
         } finally {
             service.shutdown();
         }

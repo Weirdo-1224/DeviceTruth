@@ -94,7 +94,7 @@ class SkillRuntimeIntegrationTest {
 
     private static ConfigurableApplicationContext open() {
         return new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--devicetruth.core.reasoner=scripted", "--devicetruth.agent.reasoner=scripted",
                 "--devicetruth.agent.worker-enabled=false", "--spring.datasource.url=" + pgBaseUrl + database,
                 "--spring.datasource.username=" + user, "--spring.datasource.password=" + password,
@@ -138,7 +138,7 @@ class SkillRuntimeIntegrationTest {
         }
 
         var port = ((WebServerApplicationContext) app).getWebServer().getPort();
-        var audit = new TestRestTemplate().getForEntity(
+        var audit = io.devicetruth.server.AuthenticatedProductTestSupport.client(app).getForEntity(
                 "http://127.0.0.1:" + port + "/api/runs/" + waiting.runId() + "/skill", Map.class);
         assertThat(audit.getStatusCode().value()).isEqualTo(200);
         assertThat(audit.getBody().get("skillId")).isEqualTo(ID);

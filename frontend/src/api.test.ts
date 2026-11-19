@@ -6,6 +6,7 @@ import {
   ApiError,
   describeFailure,
   listAssets,
+  listConversationSummaries,
   listConversations,
   newRequestKey,
   openRunEventStream,
@@ -13,6 +14,7 @@ import {
   readReferences,
   readRunEvents,
   replyToQuestion,
+  selectContextRefs,
   sendMessage,
   uploadMarkdown,
   waitForFile,
@@ -178,6 +180,43 @@ describe('api 合同', () => {
     expect(finished.pendingQuestion?.pendingQuestionId).toBe(QUESTION_ID)
   })
 
+  it('轮询在 CANCELLED 同样停止（取消是终态，不继续空等）', async () => {
+    stubFetch(
+      jsonResponse(runView({ status: 'RUNNING' })),
+      jsonResponse(runView({ status: 'CANCELLED' }))
+    )
+    const seen: string[] = []
+    const finished = await waitForRun(RUN_ID, { sleep: async () => {}, onUpdate: (run) => seen.push(run.status) })
+
+    expect(seen).toEqual(['RUNNING', 'CANCELLED'])
+    expect(finished.status).toBe('CANCELLED')
+    expect(calls).toHaveLength(2)
+  })
+
+  it('readReferences 回读失败/取消轮已登记证据，字段原样返回', async () => {
+    const registered = [
+      {
+        referenceId: 'ref-failed-1',
+        sourceType: 'KNOWLEDGE_DOCUMENT',
+        sourceId: 'doc-9',
+        sourceVersion: '2026.1',
+        chunkId: 'chunk-9',
+        title: '维修手册',
+        page: null,
+        section: '4.2 充电中断',
+        excerpt: '红灯常亮优先检查供电。',
+        dataNature: 'AUTHORIZED'
+      }
+    ]
+    stubFetch(jsonResponse(registered))
+    const refs = await readReferences(RUN_ID)
+
+    expect(calls[0].url).toBe('/api/runs/' + RUN_ID + '/references')
+    expect(refs).toEqual(registered)
+    expect(refs[0].page).toBeNull()
+    expect(refs[0].section).toBe('4.2 充电中断')
+  })
+
   it('轮询到 COMPLETED 时返回答案与引用', async () => {
     stubFetch(
       jsonResponse(
@@ -250,9 +289,28 @@ describe('api 合同', () => {
     expect(calls).toHaveLength(1)
   })
 
-  it('读取运行与引用都按 runId 定位', async () => {
-    stubFetch(jsonResponse(runView({ status: 'RUNNING' })), jsonResponse([]))
-    expect((await readRun(RUN_ID)).status).toBe('RUNNING')
+  it('会话切换时取消轮询：抛出 RUN_WAIT_CANCELLED 且不再发起新请求', async () => {
+    const controller = new AbortController()
+    stubFetchByUrl(() => jsonResponse(runView({ status: 'RUNNING' })))
+    const promise = waitForRun(RUN_ID, {
+      intervalMs: 1,
+      signal: controller.signal,
+      sleep: async () => { controller.abort() }
+    })
+    await expect(promise).rejects.toMatchObject({ code: 'RUN_WAIT_CANCELLED' })
+    expect(calls.filter((call) => call.url === '/api/runs/' + RUN_ID)).toHaveLength(1)
+  })
+
+  it('读取运行与引用都按 runId 定位，并保留统一排查对象', async () => {
+    stubFetch(jsonResponse(runView({
+      status: 'RUNNING', investigatedAssetId: 'EV-DEMO-017', assetResolution: 'CONFIRMED',
+      changedFromAssetId: 'OFFICE-1'
+    })), jsonResponse([]))
+    const current = await readRun(RUN_ID)
+    expect(current.status).toBe('RUNNING')
+    expect(current.investigatedAssetId).toBe('EV-DEMO-017')
+    expect(current.assetResolution).toBe('CONFIRMED')
+    expect(current.changedFromAssetId).toBe('OFFICE-1')
     expect(await readReferences(RUN_ID)).toEqual([])
     expect(calls.map((call) => call.url)).toEqual(['/api/runs/' + RUN_ID, '/api/runs/' + RUN_ID + '/references'])
   })
@@ -292,11 +350,79 @@ describe('api 合同', () => {
     })
   })
 
+  it('深入调查提交选中判断的继承引用：仅 referenceId、无 replyTo、保留原设备', async () => {
+    stubFetch(jsonResponse(runView({ runId: '55555555-5555-4555-8555-555555555555' }), 202))
+    await sendMessage(
+      CONVERSATION_ID,
+      '请深入调查以下候选判断（尚未确诊）：充电中断与 BMS 有关。',
+      'key-investigate-1',
+      [],
+      'CAR-B',
+      ['ref-a', 'ref-b']
+    )
+
+    expect(calls).toHaveLength(1)
+    const headers = new Headers(calls[0].init.headers)
+    expect(headers.get('Idempotency-Key')).toBe('key-investigate-1')
+    expect(bodyOf(calls[0])).toEqual({
+      schemaVersion: 1,
+      userMessage: '请深入调查以下候选判断（尚未确诊）：充电中断与 BMS 有关。',
+      selectedAssetId: 'CAR-B',
+      contextRefs: [{ referenceId: 'ref-a' }, { referenceId: 'ref-b' }]
+    })
+    expect(bodyOf(calls[0]).replyTo).toBeUndefined()
+  })
+
+  it('深入调查不传 contextRefs 时请求体保持旧合同，兼容原有调用', async () => {
+    stubFetch(jsonResponse(runView(), 202))
+    await sendMessage(CONVERSATION_ID, '普通补充现场信息', 'key-plain')
+    expect(bodyOf(calls[0])).toEqual({ schemaVersion: 1, userMessage: '普通补充现场信息' })
+  })
+
+  it('selectContextRefs 保持原顺序去重', () => {
+    expect(selectContextRefs(['ref-1', 'ref-2', 'ref-1', '', 'ref-3', 'ref-2'])).toEqual({
+      referenceIds: ['ref-1', 'ref-2', 'ref-3'],
+      omittedCount: 0
+    })
+  })
+
+  it('selectContextRefs 最多前 10 条并给出省略数量，供按钮旁明示', () => {
+    const ids = Array.from({ length: 13 }, (_, index) => 'ref-' + index)
+    const selection = selectContextRefs(ids)
+    expect(selection.referenceIds).toEqual(ids.slice(0, 10))
+    expect(selection.omittedCount).toBe(3)
+  })
+
+  it('selectContextRefs 对空判断安全返回空清单，无引用也可调查', () => {
+    expect(selectContextRefs([])).toEqual({ referenceIds: [], omittedCount: 0 })
+  })
+
   it('每次请求都生成不同的幂等键', () => {
     const first = newRequestKey()
     const second = newRequestKey()
     expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
     expect(first).not.toBe(second)
+  })
+
+  it('会话摘要支持搜索、设备、状态与游标参数，并保留非当前会话待答状态', async () => {
+    stubFetch(jsonResponse({
+      items: [{ conversationId: CONVERSATION_ID, title: '空调不转', investigatedAssetId: 'EV-DEMO-017',
+        latestRunStatus: 'WAITING_FOR_USER', activeRunCount: 1, waitingRunCount: 1, runCount: 2,
+        updatedAt: '2026-11-18T00:00:00Z' }], nextCursor: 'next-1'
+    }))
+    const page = await listConversationSummaries({
+      q: '空调 故障', assetId: 'EV-DEMO-017', status: 'WAITING_FOR_USER', cursor: 'cursor/1', limit: 20
+    })
+    const url = new URL(calls[0].url, 'http://local')
+    expect(url.pathname).toBe('/api/conversations/summaries')
+    expect(url.searchParams.get('q')).toBe('空调 故障')
+    expect(url.searchParams.get('assetId')).toBe('EV-DEMO-017')
+    expect(url.searchParams.get('status')).toBe('WAITING_FOR_USER')
+    expect(url.searchParams.get('cursor')).toBe('cursor/1')
+    expect(url.searchParams.get('limit')).toBe('20')
+    expect(page.items[0].waitingRunCount).toBe(1)
+    expect(page.items[0].latestRunStatus).toBe('WAITING_FOR_USER')
+    expect(page.nextCursor).toBe('next-1')
   })
 
   it('历史会话列表按服务器身份返回，用于刷新/重开后的恢复', async () => {
@@ -696,6 +822,72 @@ describe('运行事件与时间线', () => {
     // 旧流迟到事件：generation 已变 + runId 已空，双保险下不会填回展示
     source.emit('RUN_MODEL', runEvent(3, 'RUN_MODEL', { attempt: 1, outcome: 'OK' }))
     expect(controller.snapshot().events).toEqual([])
+  })
+
+  it('onChange 快照反映新增事件与终态，页面据此响应式更新而不是读非响应式对象', async () => {
+    const history = [runEvent(1, 'RUN_QUEUED', { status: 'QUEUED' })]
+    stubFetchByUrl((url) => (url.includes('/events') ? jsonResponse(history) : jsonResponse([])))
+    const controller = createRunTimelineController({ eventSourceFactory: (url) => new FakeEventSource(url) })
+    const snapshots: Array<{ runId: string | null; count: number; terminal: string | null }> = []
+    controller.onChange(() => {
+      const state = controller.snapshot()
+      snapshots.push({ runId: state.runId, count: state.events.length, terminal: state.terminalStatus })
+    })
+    await controller.follow(RUN_ID)
+    const source = FakeEventSource.instances.at(-1)!
+    source.emit('RUN_WAITING', runEvent(2, 'RUN_WAITING', { questionVersion: 1 }))
+    source.emit('RUN_TERMINAL', { status: 'WAITING_FOR_USER' })
+    expect(snapshots.at(-1)).toEqual({ runId: RUN_ID, count: 2, terminal: 'WAITING_FOR_USER' })
+    expect(controller.snapshot().live).toBe(false)
+  })
+
+  it('同一 run 流已断线后再次 follow 只做历史回读，不重复追加已展示的 seq', async () => {
+    const history = [runEvent(1, 'RUN_QUEUED', { status: 'QUEUED' }), runEvent(2, 'RUN_TOOL', { toolName: 'x', success: true })]
+    stubFetchByUrl((url) => (url.includes('/events') ? jsonResponse(history) : jsonResponse([])))
+    const controller = createRunTimelineController({ eventSourceFactory: (url) => new FakeEventSource(url) })
+    await controller.follow(RUN_ID)
+    FakeEventSource.instances.at(-1)!.failPermanently()
+    expect(controller.snapshot().live).toBe(false)
+    await controller.follow(RUN_ID)
+    expect(controller.snapshot().events.map((event) => event.seq)).toEqual([1, 2])
+    expect(FakeEventSource.instances).toHaveLength(2)
+  })
+
+  it('SSE 先于下一次轮询通知 WAITING：按持久 Run 回读可立即得到等待态与待答问题', async () => {
+    stubFetchByUrl((url) => {
+      if (url === '/api/runs/' + RUN_ID) {
+        return jsonResponse(runView({
+          status: 'WAITING_FOR_USER',
+          version: 2,
+          pendingQuestion: { pendingQuestionId: QUESTION_ID, questionVersion: 1, question: '请补充充电方式', requestedFields: ['充电方式'], askedAt: '2026-11-17T00:00:00Z' }
+        }))
+      }
+      return jsonResponse([])
+    })
+    const controller = createRunTimelineController({ eventSourceFactory: (url) => new FakeEventSource(url) })
+    /** 模拟页面侧回读：收到 RUN_WAITING 就立刻按提示的顺序读取持久 Run。 */
+    const signals: string[] = []
+    const observed: string[] = []
+    controller.onChange(() => {
+      const state = controller.snapshot()
+      for (const event of state.events) {
+        const key = event.type + ':' + event.seq
+        if (signals.includes(key)) continue
+        signals.push(key)
+        if (event.type === 'RUN_WAITING') observed.push('waiting-signal')
+      }
+    })
+    await controller.follow(RUN_ID)
+    const source = FakeEventSource.instances.at(-1)!
+    source.emit('RUN_WAITING', runEvent(1, 'RUN_WAITING', { questionVersion: 1 }))
+    expect(observed).toEqual(['waiting-signal'])
+    // 无需增量事件：立即回读持久 Run 即可得到等待态
+    const view = await readRun(RUN_ID)
+    expect(view.status).toBe('WAITING_FOR_USER')
+    expect(view.pendingQuestion?.question).toBe('请补充充电方式')
+    // 重放同一事件不会产生第二条时间线记录
+    source.emit('RUN_WAITING', runEvent(1, 'RUN_WAITING', { questionVersion: 1 }))
+    expect(controller.snapshot().events).toHaveLength(1)
   })
 
   it('取消运行：POST /cancel 返回更新后的 RunView；终态再取消把 409 映射为 ApiError', async () => {

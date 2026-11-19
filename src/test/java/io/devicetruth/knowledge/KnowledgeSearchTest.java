@@ -65,7 +65,7 @@ class KnowledgeSearchTest {
         otherApp = open("owner-b", "project-a", 1024);
         base = base(app);
         otherBase = base(otherApp);
-        rest = new TestRestTemplate();
+        rest = io.devicetruth.server.AuthenticatedProductTestSupport.client(app, otherApp);
         jdbc = new JdbcTemplate(app.getBean(HikariDataSource.class));
     }
 
@@ -93,7 +93,7 @@ class KnowledgeSearchTest {
     private static ConfigurableApplicationContext openWith(String owner, String project, String provider,
                                                            int dimension) {
         List<String> arguments = new java.util.ArrayList<>(List.of(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--logging.level.org.springframework=WARN", "--logging.level.org.springframework.jdbc=INFO",
                 "--devicetruth.core.reasoner=scripted",
                 "--spring.datasource.url=" + databaseBaseUrl + databaseName,
@@ -106,8 +106,10 @@ class KnowledgeSearchTest {
                 "--devicetruth.embedding.profile-revision=1"));
         if (EmbeddingProfile.PROVIDER_DETERMINISTIC.equals(provider))
             arguments.add("--devicetruth.embedding.model=deterministic-char2");
-        return new SpringApplicationBuilder(DeviceTruthServerApplication.class)
+        var opened = new SpringApplicationBuilder(DeviceTruthServerApplication.class)
                 .run(arguments.toArray(String[]::new));
+        io.devicetruth.server.AuthenticatedProductTestSupport.register(opened);
+        return opened;
     }
 
     private static String base(ConfigurableApplicationContext context) {

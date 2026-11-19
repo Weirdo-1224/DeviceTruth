@@ -15,7 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(classes = DeviceTruthServerApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"devicetruth.router.mode=online", "devicetruth.core.reasoner=offline-unsupported"})
+        properties = {"devicetruth.router.mode=online", "devicetruth.core.reasoner=offline-unsupported",
+                "spring.profiles.active=legacy"})
 class RouterUnavailableHttpTest {
     @Autowired TestRestTemplate rest;
 

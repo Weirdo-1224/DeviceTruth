@@ -12,7 +12,10 @@ import java.util.UUID;
  */
 public record ToolContext(String ownerId, String projectId, UUID conversationId, UUID runId,
                           String selectedAssetId, Instant requestedAt, Instant asOf,
-                          Set<String> allowedTools) {
+                          Set<String> allowedTools, UUID actorUserId, UUID workspaceId) {
+    public ToolContext(String ownerId,String projectId,UUID conversationId,UUID runId,String selectedAssetId,Instant requestedAt,Instant asOf,Set<String> allowedTools) {
+        this(ownerId,projectId,conversationId,runId,selectedAssetId,requestedAt,asOf,allowedTools,null,null);
+    }
     public ToolContext {
         Checks.id(ownerId, "ownerId");
         Checks.id(projectId, "projectId");

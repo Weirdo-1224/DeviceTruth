@@ -17,13 +17,18 @@ export interface PendingQuestion {
 }
 
 export type Certainty = 'POSSIBLE' | 'SUPPORTED' | 'CONFIRMED'
+export type ClaimKind = 'CAUSE' | 'OBSERVATION' | 'CONCLUSION' | 'OTHER' | 'UNKNOWN'
+export type ClaimRelevance = 'DIRECT' | 'CONTEXT' | 'UNRELATED' | 'UNKNOWN'
 export type AnswerCategory = 'KNOWLEDGE' | 'POSSIBLE_CAUSES' | 'CONFIRMED_FINDING' | 'HUMAN_REVIEW'
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'PROHIBITED'
+export type AssetResolution = 'SELECTED' | 'CONFIRMED' | 'AMBIGUOUS' | 'UNCONFIRMED'
 
 export interface Claim {
   text: string
   referenceIds: string[]
   certainty: Certainty
+  kind?: ClaimKind
+  relevance?: ClaimRelevance
 }
 
 export interface Reference {
@@ -50,6 +55,8 @@ export interface AgentResult {
   riskLevel: RiskLevel
   safetyDisposition: string
   dataNature: string
+  subjectAssetId?: string | null
+  assetResolution?: 'CONFIRMED' | 'AMBIGUOUS' | null
 }
 
 export interface FileView {
@@ -74,6 +81,30 @@ export interface ConversationView {
   updatedAt: string
 }
 
+export interface ConversationSummary {
+  conversationId: string
+  title: string
+  investigatedAssetId: string | null
+  latestRunStatus: RunStatus
+  activeRunCount: number
+  waitingRunCount: number
+  runCount: number
+  updatedAt: string
+}
+
+export interface ConversationSummaryPage {
+  items: ConversationSummary[]
+  nextCursor: string | null
+}
+
+export interface ConversationSummaryQuery {
+  q?: string
+  assetId?: string
+  status?: 'ACTIVE' | RunStatus
+  cursor?: string
+  limit?: number
+}
+
 export interface MessageView {
   messageId: string
   seq: number
@@ -92,6 +123,9 @@ export interface RunView {
   version: number
   requestedAt: string
   asOf: string
+  investigatedAssetId?: string | null
+  assetResolution?: AssetResolution
+  changedFromAssetId?: string | null
   dataNature: string
   pendingQuestion: PendingQuestion | null
   result: AgentResult | null
@@ -163,6 +197,7 @@ const FAILURE_LABELS: Readonly<Record<string, string>> = {
   UNCONFIRMED_FINDING: '缺少现场核验，不能给出确诊结论',
   UNSAFE_ANSWER: '答案包含不安全的设备操作建议，已拒绝',
   INVALID_ANSWER: '答案格式不符合协议，已拒绝',
+  SUBJECT_MISMATCH: '答案中的排查设备与本轮确认对象不一致，已拒绝',
   PERSIST_FAILURE: '保存结果失败，请重试',
   AGENT_RUN_FAILURE: '服务内部错误，请重试',
   RECOVERY_ATTEMPT_LIMIT: '任务多次中断且恢复次数已达上限，已停止；请重新发起调查'
@@ -219,6 +254,17 @@ export function createConversation(): Promise<ConversationView> {
 /** 历史会话列表：刷新/重开浏览器后凭它找回会话，不依赖原页面线程。 */
 export function listConversations(): Promise<ConversationView[]> {
   return call<ConversationView[]>('/api/conversations', { method: 'GET' })
+}
+
+export function listConversationSummaries(query: ConversationSummaryQuery = {}): Promise<ConversationSummaryPage> {
+  const params = new URLSearchParams()
+  if (query.q?.trim()) params.set('q', query.q.trim())
+  if (query.assetId) params.set('assetId', query.assetId)
+  if (query.status) params.set('status', query.status)
+  if (query.cursor) params.set('cursor', query.cursor)
+  if (query.limit != null) params.set('limit', String(query.limit))
+  const suffix = params.size ? '?' + params.toString() : ''
+  return call<ConversationSummaryPage>('/api/conversations/summaries' + suffix, { method: 'GET' })
 }
 
 /** 已登记资产清单（服务器身份范围内）；下拉选择可空，不指定设备也能问答。 */
@@ -291,6 +337,8 @@ const STREAM_EVENT_TYPES: readonly string[] = [
   'RUN_FAILED',
   'RUN_CANCELLED',
   'RUN_LATE_RESPONSE',
+  'RUN_PHASE',
+  'RUN_DEGRADED',
   'RUN_TERMINAL'
 ]
 
@@ -433,13 +481,41 @@ export async function waitForFile(fileId: string, timeoutMs = 60_000): Promise<F
   }
 }
 
-/** 发送一条新的自由消息：没有 replyTo，服务器据此开启新的 run。assetId 可空。 */
+/** 深入调查可继承的引用上限，与服务器合同一致：每项仅 referenceId，超出即拒绝。 */
+export const CONTEXT_REF_LIMIT = 10
+
+export interface ContextRefSelection {
+  /** 去重后的 referenceId，保持原顺序，最多 CONTEXT_REF_LIMIT 条。 */
+  referenceIds: string[]
+  /** 超出上限被省略的数量；界面须明示省略而不是静默截断。 */
+  omittedCount: number
+}
+
+/** 从选中判断的引用 ID 构造继承清单：保持原顺序去重，最多前 10 条，其余计入省略数。 */
+export function selectContextRefs(referenceIds: readonly string[]): ContextRefSelection {
+  const seen = new Set<string>()
+  const selected: string[] = []
+  let omittedCount = 0
+  for (const id of referenceIds) {
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    if (selected.length < CONTEXT_REF_LIMIT) selected.push(id)
+    else omittedCount += 1
+  }
+  return { referenceIds: selected, omittedCount }
+}
+
+/**
+ * 发送一条新的自由消息：没有 replyTo，服务器据此开启新的 run。assetId 可空。
+ * contextRefs 为深入调查继承的引用 ID（仅 ID，不含身份/权限），原有调用默认空列表。
+ */
 export function sendMessage(
   conversationId: string,
   userMessage: string,
   requestKey = newRequestKey(),
   attachmentIds: string[] = [],
-  selectedAssetId: string | null = null
+  selectedAssetId: string | null = null,
+  contextRefs: readonly string[] = []
 ): Promise<RunView> {
   return call<RunView>(
     '/api/conversations/' + encodeURIComponent(conversationId) + '/messages',
@@ -449,7 +525,8 @@ export function sendMessage(
         schemaVersion: 1,
         userMessage,
         ...(attachmentIds.length > 0 ? { attachments: attachmentIds.map((fileId) => ({ fileId })) } : {}),
-        ...(selectedAssetId ? { selectedAssetId } : {})
+        ...(selectedAssetId ? { selectedAssetId } : {}),
+        ...(contextRefs.length > 0 ? { contextRefs: contextRefs.map((referenceId) => ({ referenceId })) } : {})
       })
     },
     requestKey
@@ -486,6 +563,8 @@ export interface WaitOptions {
   intervalMs?: number
   sleep?: (ms: number) => Promise<void>
   onUpdate?: (run: RunView) => void
+  /** 会话切换或轮次已到终态时取消：抛 RUN_WAIT_CANCELLED，且不再发起新请求。 */
+  signal?: AbortSignal
 }
 
 /**
@@ -498,6 +577,7 @@ export async function waitForRun(runId: string, options: WaitOptions = {}): Prom
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
   const deadline = Date.now() + timeoutMs
   for (;;) {
+    if (options.signal?.aborted) throw new ApiError('RUN_WAIT_CANCELLED', 0, '已停止等待该运行')
     const run = await readRun(runId)
     options.onUpdate?.(run)
     if (TERMINAL.has(run.status)) return run

@@ -1,0 +1,321 @@
+{
+  "analysis_started": "2026-11-08",
+  "planning_delivered": "2026-11-09",
+  "timezone": "Asia/Shanghai",
+  "head": "b7befa08f702675d05dcc9560cf7eb87e4b778c2",
+  "design": {
+    "path": "docs/design/DeviceTruth_V1.0_通用设备检修Agent_完整产品设计方案_PostgreSQL.md",
+    "sha256": "c80a4c9292787b181ddb2406cae4746b83f602993b22eaaa8c2c42af5d698120"
+  },
+  "source_counts": {
+    "main_java": 52,
+    "test_java": 28
+  },
+  "baseline_test_command": "mvn -o -q test",
+  "jdk": "21.0.13.0.2",
+  "maven": "3.9.9",
+  "test_totals": {
+    "tests": 145,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "test_suites": [
+    {
+      "suite": "io.devicetruth.adapter.AgentScopeStepTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.adapter.ModelConfigurationTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.adapter.OpenAiReasonerTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.adapter.QwenReasonerTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.app.ApplicationTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.application.ConversationServiceTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.application.DiagnosisApplicationServiceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.application.DiagnosisRunServiceTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.application.LlmTaskRouterTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.application.QueryServiceTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.application.SafePublicFieldsTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.application.SupportedScenarioCatalogTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.application.SymptomResolverTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.application.TaskRouterTest",
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.core.AcceptanceTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.core.DecisionGuardTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.core.EvidenceManagerTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.core.ExtensibilityTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.core.GatewayTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.core.ProtocolTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.core.RuntimeTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.server.DiagnosisHttpTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.server.DiagnosisSafetyMappingTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.server.QueryHttpTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.server.RouterUnavailableHttpTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.server.ServerAtomicityHttpTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.server.ServerCapacityHttpTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "io.devicetruth.server.ServerHttpTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "source_hashes": {
+    ".mvn/maven.config": "baddfe0d827fe0ca01a97ec6d65c520b8973b80d7789a1dbb562e046be154229",
+    ".mvn/settings.xml": "9e790ade66faaa1c754c3d566468a59553c11dc540962181ef375f0386e5d8ce",
+    "datasets/fixtures/a/asset.json": "1782c68fdab811bc97f6857ab44373f30f14a7cb487c832a72a457acbf4febc2",
+    "datasets/fixtures/b/asset.json": "fbf455b9509f6b5924f0f144d0c42c8c009a3f7595723f05b9b64448db812e43",
+    "datasets/fixtures/c/asset.json": "d1ed9c72ccd954af8bcb92761fcb5d478215e77f4568705aea2fc3a35835f863",
+    "datasets/fixtures/d/asset.json": "4f11bf36695192955cf49e66790583af778b45d914cb9f42c3bf1342c8e249a2",
+    "datasets/scenarios.json": "d2ad9478b322bdc3ee4afc1b9dc8be8b283ba1787d687f57d4e0dbc46902867f",
+    "pom.xml": "0db1a658798c6a38dd09fc199eebc2275a2db5304157e0dc9b17c216154e9485",
+    "scripts/use-java21.ps1": "cd07d541c9a9f3d01b221104c5318e2b80807b56c740138f047263cf21a9c86e",
+    "scripts/verify_cli.py": "688f35fa2948042ae3a6712c2b6f1e04c17f9af42ef34faa4455324e28be277d",
+    "scripts/verify_online.py": "0e20f4cf755fecf4426da6338119620b89f735e4b9063890e9b41812f7e2b7d1",
+    "skills/automotive-demo/rules.json": "09abaae9a34c7dbebb6ad5cbe8dca87252ffddb0b4ab6467b81a34cb4c81adeb",
+    "src/main/java/io/devicetruth/adapter/AgentScopeStep.java": "363a6b71ec152a18a0cb17f28f009e44383595f1251b2e62823aecb9f914a101",
+    "src/main/java/io/devicetruth/adapter/Json.java": "ce4f33ccf00f3ddd067b4c915085ed8593f79498412d33a64751d1b7895bb93d",
+    "src/main/java/io/devicetruth/adapter/JsonRepositories.java": "09519c6fa3b4cd28260270da14f72d75caa2fca035341bf093e5d4f01927d58d",
+    "src/main/java/io/devicetruth/adapter/ModelConfiguration.java": "1ad4ed3ddb1fbff058b7ce7ef45f35d55a5d493037b34ba7db3028d79c719c15",
+    "src/main/java/io/devicetruth/adapter/OpenAiReasoner.java": "3096d6cb36573679370ede6a7168f9e6708d8797544d446979fb77812199779d",
+    "src/main/java/io/devicetruth/adapter/QwenReasoner.java": "e70310507eb5f83d3bfc4b180195df64db50c538af132d4a8e57714d56d012f0",
+    "src/main/java/io/devicetruth/adapter/RunReportWriter.java": "5bc7cafc9b42043487769c3631084ddba36d7fccb3136b5599297b602345f079",
+    "src/main/java/io/devicetruth/adapter/StructuredReasoner.java": "73c058a1f1a0c93e930e8e42de9c81b958b5a1e62cf4d5cb048fdfa164ce337a",
+    "src/main/java/io/devicetruth/api/ApiDtos.java": "1421ac0ab421882529583efa8ff2fde6284619f5d33eeca59bcbb813ba98745b",
+    "src/main/java/io/devicetruth/api/ApiExceptionHandler.java": "cec041f502603ae283ca3cd265fa6e2eb4b4652ffb100ee929400eecca933bb3",
+    "src/main/java/io/devicetruth/api/ConversationController.java": "77c4fd52b847f65c95571f2cd2342ee83cb4ee5b2aa482ee65943a6f72b6ba14",
+    "src/main/java/io/devicetruth/app/CliOptions.java": "a49dbde5acae6e2d51cfd60714252c114e9de8dd3ed8d2edfd803ab99fe9a87d",
+    "src/main/java/io/devicetruth/app/DeviceTruthApplication.java": "d7095308f1928c01f0cea349eda696284d8060b9978b3987cb5290a41ff79a08",
+    "src/main/java/io/devicetruth/application/ApplicationExceptions.java": "8d38fac831a87efed246b4e2381386aaf4e4e0f55bdede6285786120573c094c",
+    "src/main/java/io/devicetruth/application/ConversationFlowService.java": "b921502642e5f808d2edf6fbbc8ef5f15dbb48519d974c3bff95504b84ab91d2",
+    "src/main/java/io/devicetruth/application/ConversationMessage.java": "ec1682d7d98d06852dc44f1f335486b02fa378161a3e479d2d024b34065b1618",
+    "src/main/java/io/devicetruth/application/ConversationService.java": "5801d545f5425b6f0dbf425347ca0e496bfedb6eca8765ca962ec6fe49be4627",
+    "src/main/java/io/devicetruth/application/ConversationSession.java": "2d322e00e8609677d1b5f55fb6dae30f70b9b3647d75c1082018fc82796cb807",
+    "src/main/java/io/devicetruth/application/DeterministicTaskRouter.java": "840a5e3a5f4220bd538c585982ea6f600c545d8f95a4a56deec6ec293ab8943e",
+    "src/main/java/io/devicetruth/application/DiagnosisApplicationService.java": "a4d5634c9a0a94985ad85edbc236eea54e5064eb4a863af152a26df1933e73a5",
+    "src/main/java/io/devicetruth/application/DiagnosisGoal.java": "03d45e2343e90e5483a006ff51688a4f25d6689852302dcfdd03a3326aed3bc7",
+    "src/main/java/io/devicetruth/application/DiagnosisRunService.java": "5e81cff99b316196deea068f37d42f2db2b9ebe0137c3ee8072a6924687097df",
+    "src/main/java/io/devicetruth/application/ExecutionStatus.java": "f238236081f2b208120f1d2d2689962d49e06a445458d1e01c19c5e0b6602304",
+    "src/main/java/io/devicetruth/application/LlmTaskRouter.java": "7e476e2dec1a4b9ad4f6d0a2b3d441a2aa874ae20d56ae224c8eb98d678732e3",
+    "src/main/java/io/devicetruth/application/QueryAnswer.java": "0c51b9e1e85c19540cedbb40cadfd28a519e038ffc6d3eca1eae5374ffe4bb69",
+    "src/main/java/io/devicetruth/application/QueryKind.java": "7a7f151204f401fa8b1ac6964ee0fcb6e1e74d30003948800094f588adc4b1c6",
+    "src/main/java/io/devicetruth/application/QueryService.java": "eb6fe41a9c74f573d7c545de6bc0b0a9b74817d9b9bf8f62bd523d221f835e78",
+    "src/main/java/io/devicetruth/application/ReasonerFactory.java": "70fff69aaf2c8d019b7e55124231fe3dd6c34f8ab136c8a4354dfc0d3e26a316",
+    "src/main/java/io/devicetruth/application/Route.java": "1f85de905d764ff37e292794cec5ab14890b3026c3ecd1692dd2e04819c5db49",
+    "src/main/java/io/devicetruth/application/RouteDecision.java": "b6e7a88f3260d830e376d3587c1086cff6e48772e39a66363d6a2593c7f8f8f5",
+    "src/main/java/io/devicetruth/application/RouteValidator.java": "91dc040396fb3f4e4e04d6c626fbba2470895796c385b0679d814e3e73df2dd1",
+    "src/main/java/io/devicetruth/application/RunEventViews.java": "2ac8929e871f059967b4f9e611f2ac86dd9d7625de50d74fcf7143b00899d390",
+    "src/main/java/io/devicetruth/application/SafePublicFields.java": "6b42d0212c499ca9434bb80c3965d2e2431fab580be28314e0d859d8417125b3",
+    "src/main/java/io/devicetruth/application/SupportedScenarioCatalog.java": "7dc81dd3b69df7711d7dbfa198eea43260397ab24f09241889b011917bfbe642",
+    "src/main/java/io/devicetruth/application/SymptomResolver.java": "ee1eb44543c6de3100a4988e9d50ce035d4c4acd1d342e25dcf2cc710f4d09e6",
+    "src/main/java/io/devicetruth/application/TaskRouter.java": "30e86fc20bb36493d787010d1371b03a6c41d140ce31a38c6cc3de16e99409a2",
+    "src/main/java/io/devicetruth/core/capability/CapabilityGateway.java": "5d3d2f1913e9d41a4fa00df1e83946b1258d51e7655d24514bd80699e382fffa",
+    "src/main/java/io/devicetruth/core/capability/CapabilityTypes.java": "25d7d494ec50420f59246699d1ea8114f8e6af4ee8d53a69037202d6ac129d60",
+    "src/main/java/io/devicetruth/core/capability/Repositories.java": "6dd2ff8869afb98ac75775f4031a738f09496e37da612447adc2c920438e3a52",
+    "src/main/java/io/devicetruth/core/contract/Checks.java": "8f47c0f4cc6b00c1a959b2bb82701b6442e06b52e31789d72a60d59719e11113",
+    "src/main/java/io/devicetruth/core/contract/Models.java": "f1ae3a3b69d3b268cc6e88b4453afa017f72bf40e38b675bea5593d0dee47a24",
+    "src/main/java/io/devicetruth/core/decision/DecisionGuard.java": "5b739901a3bd84d1e3eadd3c868f9dad266bb9696206ff13c517b380800c6fa8",
+    "src/main/java/io/devicetruth/core/evidence/EvidenceManager.java": "30e949cca092e9521e9f503a1bd29b594caf76382e5925a1482364b911eefa4d",
+    "src/main/java/io/devicetruth/core/reasoning/ActionProposal.java": "3727b3cb285ab5df86e438c025172192dcdcb7751b3f0a0711217f641ccf54b5",
+    "src/main/java/io/devicetruth/core/reasoning/Reasoner.java": "fc53f6e6b0befb4a61cc75ef19754fa04b69a76838dd1e3ae008ae41f4185afa",
+    "src/main/java/io/devicetruth/core/reasoning/ScriptedReasoner.java": "846513bf5e6069b86cdcef90d5cef6f9aeff30c276ee42c2474490b62dfe9f2d",
+    "src/main/java/io/devicetruth/core/runtime/TaskOrchestrator.java": "21672e66e45f4c3a7effb197866d35b91d73bb162a9bf17d42fbae9a1d8a538e",
+    "src/main/java/io/devicetruth/core/state/DiagnosisState.java": "b39cce448c4bf6f93d5951a0a25fd3c93d3bf42e9bb75d8dd6e729da7001a3a0",
+    "src/main/java/io/devicetruth/core/state/StateManager.java": "53a591321e77c42ad0e273e31642c852f3b37757fd6db720f690b010526a9a19",
+    "src/main/java/io/devicetruth/server/DeviceTruthServerApplication.java": "ed403f3390b9159e74ffe9b6d1a49f3aee042ce45cd5c6ac15abcef282478114",
+    "src/main/java/io/devicetruth/server/OnlineRouterCompletion.java": "f07aa9d3a170f6a4780e2db37d0aed9090291e7ea56e6ebe734e44239326f90c",
+    "src/main/java/io/devicetruth/server/ServerConfiguration.java": "699ec1d8fa3f444144d11c19748f254930aec656e29926276968c7943d30026d",
+    "src/main/resources/application.properties": "54a96baf21a3dfc7d3eb5d2914717e9bec2f1f9bf73c3b9523ad11bec155c910",
+    "src/main/resources/logback.xml": "67909f0ca8d1ae3a0349b0cfb22da3a5cc343858577de06ee96edd8753b7163a",
+    "src/main/resources/static/index.html": "b0d80bcdb5db04a65ef191301a62dfc607fe4db98d4e9743bb19022c6fa48891",
+    "src/test/java/io/devicetruth/adapter/AgentScopeStepTest.java": "a97f628170b15edebbeceb331a8ab7119caec27346bc37414e5e4f545b1e26ce",
+    "src/test/java/io/devicetruth/adapter/ModelConfigurationTest.java": "32930198330c9d0dee24de3b09eac0978938ebb7cc2e98985523462670c453b1",
+    "src/test/java/io/devicetruth/adapter/OpenAiReasonerTest.java": "ef9747552ebe249481cb13584a35725d787cb80e73b917b21ddc87465c913437",
+    "src/test/java/io/devicetruth/adapter/QwenReasonerTest.java": "ec42d6db058f290441269109bec1efc8af885439469ffea925581397a2274088",
+    "src/test/java/io/devicetruth/app/ApplicationTest.java": "2e85545793ba3351bd701a575f2b672139c27e4c18cc3dfe090d99a10d65ec8c",
+    "src/test/java/io/devicetruth/application/ConversationServiceTest.java": "fd06c61a0f3db4276c4a53ccb4f7edadae9e59e1ccb845f94b0acbf82a587dbb",
+    "src/test/java/io/devicetruth/application/DiagnosisApplicationServiceTest.java": "c2b6e7860325ec35040b36fcbc4178ba18b11b5b3cf53ce163814e00e67317aa",
+    "src/test/java/io/devicetruth/application/DiagnosisRunServiceTest.java": "9f97c6a292ce4dbfc9477a6b50b72dc0dc2e67e1213147b46b9281227f536397",
+    "src/test/java/io/devicetruth/application/LlmTaskRouterTest.java": "e6ebe2e0ce011389442a37fef2ed245c6000b3d743549fff93b5dd54b326b855",
+    "src/test/java/io/devicetruth/application/QueryServiceTest.java": "5999f1737c475efc35f2e0960300e0075f377a270ac219bdf4fdfbbb9d75cebb",
+    "src/test/java/io/devicetruth/application/SafePublicFieldsTest.java": "44f9b7e117a5f39bd7d2675cac94a001257a6d5c9a9e3402c398066f9f9d2329",
+    "src/test/java/io/devicetruth/application/SupportedScenarioCatalogTest.java": "a982c6d8f2a13ef7698c5158136a6e527fa25bd1ecf66d36220dee7cd503236e",
+    "src/test/java/io/devicetruth/application/SymptomResolverTest.java": "d02f333596bf65feed289f22c866b39c3a896710ca9ade1d9ecdf5b9da519373",
+    "src/test/java/io/devicetruth/application/TaskRouterTest.java": "c61d5db96696bec8dafbae622bccff5cb7596ef6603b3cacc6cae2b30a964752",
+    "src/test/java/io/devicetruth/core/AcceptanceTest.java": "ee3b046726f2c9ce84d838fea61d0d99d3f04da766211e472ad5250eb2c4b4a3",
+    "src/test/java/io/devicetruth/core/DecisionGuardTest.java": "27555e98e17a010085dee74ad76616047093bfc19307739725107fad7a95eb69",
+    "src/test/java/io/devicetruth/core/EvidenceManagerTest.java": "b9fbe74dbd6a4a657b4a4ee39f03180e010472c30a8c779983249a37ae561e50",
+    "src/test/java/io/devicetruth/core/ExtensibilityTest.java": "5f8bf2fccac817410738a26fa9619cbfaa8b212d8b4c07f906157397b6384c25",
+    "src/test/java/io/devicetruth/core/GatewayTest.java": "245a05700338f04d0cdba460a8fa2ef042801b281f467fe956c06eddd35843e0",
+    "src/test/java/io/devicetruth/core/ProtocolTest.java": "c7f12ee42b4cc623cc05348de1375b3332b749ac8b825480d409d16eb21cb5cd",
+    "src/test/java/io/devicetruth/core/RuntimeTest.java": "6942ba9e7aef3900d6ad55c0e18b40ec1682c13d6bfe6886bb3e284b46125c03",
+    "src/test/java/io/devicetruth/server/DiagnosisHttpTest.java": "91c11f48650b03837968cb5ace52b70207cc3e6fa4c66b34fb679d18d7360f52",
+    "src/test/java/io/devicetruth/server/DiagnosisSafetyMappingTest.java": "e2a4fc84ec87b0227e832fe066da251f4bf77e51cdc70abee064b31431b351cc",
+    "src/test/java/io/devicetruth/server/QueryHttpTest.java": "370834fdb60f0d77b59ebc502bd572b9da6c4ad7711e98d8bf0733d516beb136",
+    "src/test/java/io/devicetruth/server/RouterUnavailableHttpTest.java": "954c8b23a486fcfa66aafa2a07bdffed9fce371acc3be39a09f492e89458b01b",
+    "src/test/java/io/devicetruth/server/ServerAtomicityHttpTest.java": "7ddf08b7ecb44ee399ef1ebb89c612e7bf03bde8a93d79f8ba910c03f9167496",
+    "src/test/java/io/devicetruth/server/ServerCapacityHttpTest.java": "ddf0eb127c66e157dc2e7e3f008d1236c554ee4afbd485a731bbac4c3881ac27",
+    "src/test/java/io/devicetruth/server/ServerHttpTest.java": "0da51695ddff96010a99bd060af72d3664381ac5dc257f35bc2f13467404a9f0"
+  },
+  "business_changes": [],
+  "new_product_verified": false,
+  "online_verified_this_session": false
+}

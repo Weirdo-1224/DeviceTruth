@@ -1,6 +1,7 @@
 package io.devicetruth.adapter;
 
 import io.devicetruth.core.runtime.TaskOrchestrator.ReasonerFailure;
+import java.time.Duration;
 import java.util.function.Function;
 
 /**
@@ -12,24 +13,24 @@ public final class AgentModelConnections {
     private AgentModelConnections() {}
 
     public static StructuredAgentReasoner qwen() {
-        return StructuredAgentReasoner.withUsage("qwen", new QwenCompletion()::complete);
+        return StructuredAgentReasoner.withBudgetedUsage("qwen", new QwenCompletion()::complete);
     }
 
     public static StructuredAgentReasoner openai() {
-        return StructuredAgentReasoner.withUsage("openai", new OpenAiCompletion(ModelConfiguration.local())::complete);
+        return StructuredAgentReasoner.withBudgetedUsage("openai", new OpenAiCompletion(ModelConfiguration.local())::complete);
     }
 
     private static final class QwenCompletion {
         private final Function<String, String> configuration = ModelConfiguration.local();
         private AgentScopeStep step;
 
-        private StructuredAgentReasoner.CompletionResult complete(String system, String input) {
+        private StructuredAgentReasoner.CompletionResult complete(String system, String input, Duration remaining) {
             if (step == null) {
                 String key = configuration.apply("DASHSCOPE_API_KEY");
                 if (key == null || key.isBlank()) throw new ReasonerFailure("DASHSCOPE_API_KEY_MISSING");
                 step = AgentScopeStep.qwen(key);
             }
-            return step.completeWithUsage(system, input);
+            return step.completeWithUsage(system, input, remaining);
         }
     }
 
@@ -39,7 +40,7 @@ public final class AgentModelConnections {
 
         private OpenAiCompletion(Function<String, String> configuration) { this.configuration = configuration; }
 
-        private StructuredAgentReasoner.CompletionResult complete(String system, String input) {
+        private StructuredAgentReasoner.CompletionResult complete(String system, String input, Duration remaining) {
             if (step == null) {
                 String key = required("OPENAI_API_KEY");
                 String baseUrl = required("OPENAI_BASE_URL");
@@ -50,7 +51,7 @@ public final class AgentModelConnections {
                     throw new ReasonerFailure("OPENAI_CONFIGURATION_INVALID");
                 }
             }
-            return step.completeWithUsage(system, input);
+            return step.completeWithUsage(system, input, remaining);
         }
 
         private String required(String name) {

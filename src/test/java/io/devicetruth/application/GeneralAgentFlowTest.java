@@ -90,7 +90,7 @@ class GeneralAgentFlowTest {
             statement.execute("CREATE DATABASE " + databaseName);
         }
         app = new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--logging.level.org.springframework=WARN", "--logging.level.org.springframework.jdbc=INFO",
                 "--devicetruth.core.reasoner=scripted",
                 "--spring.datasource.url=" + databaseBaseUrl + databaseName,
@@ -102,7 +102,7 @@ class GeneralAgentFlowTest {
                 // 协议链路由测试直接驱动，worker 关闭以免异步运行并发登记引用
                 "--devicetruth.agent.worker-enabled=false");
         base = "http://127.0.0.1:" + ((WebServerApplicationContext) app).getWebServer().getPort();
-        rest = new TestRestTemplate();
+        rest = io.devicetruth.server.AuthenticatedProductTestSupport.client(app);
         dataSource = app.getBean(HikariDataSource.class);
         jdbc = new JdbcTemplate(dataSource);
         gateway = app.getBean("agentCapabilityGateway", CapabilityGateway.class);
@@ -191,9 +191,8 @@ class GeneralAgentFlowTest {
     @Test void registeredCatalogIsExposedToTheModelWithKnowledgeSchemas() {
         var catalog = gateway.toolCatalog(context(queuedRun("目录检查")));
         assertThat(catalog).extracting(ToolSpec::name)
-                .containsExactlyInAnyOrder("search_knowledge", "get_document_excerpt",
-                        "get_asset", "get_configuration", "get_maintenance_history", "get_observations",
-                        "generate_diagnosis_report"); // 03-02 追加通用调查报告工具
+                .contains("search_knowledge", "get_document_excerpt", "get_asset", "get_configuration",
+                        "get_maintenance_history", "get_observations", "generate_diagnosis_report");
         assertThat(catalog).allMatch(ToolSpec::readOnly);
         ToolSpec search = catalog.stream().filter(spec -> "search_knowledge".equals(spec.name())).findFirst().orElseThrow();
         assertThat(search.requiredParameters()).containsExactly("query");
@@ -441,7 +440,7 @@ class GeneralAgentFlowTest {
                 && "UNCONFIRMED_FINDING".equals(String.valueOf(event.data().get("code"))));
     }
 
-    @Test void insistingOnConfirmedFindingFailsTheRun() {
+    @Test void insistingOnConfirmedFindingDeliversLimitedResult() {
         var run = queuedRun("充电中断是否需要更换控制器？");
         var outcome = run(run, model(context -> {
             var references = context.path("references");
@@ -453,9 +452,13 @@ class GeneralAgentFlowTest {
                     + "\"limitations\":[],\"referenceIds\":[\"" + referenceId + "\"]}";
         }));
 
-        assertThat(outcome.status()).isEqualTo(AgentStatus.FAILED);
-        assertThat(outcome.stopReason()).isEqualTo("UNCONFIRMED_FINDING");
-        assertThat(outcome.answer()).isNull();
+        assertThat(outcome.status()).isEqualTo(AgentStatus.COMPLETED);
+        assertThat(outcome.limited()).isTrue();
+        assertThat(outcome.stopReason()).isEqualTo("LIMITED_UNCONFIRMED_FINDING");
+        assertThat(outcome.answer().category()).isEqualTo(io.devicetruth.core.contract.AgentResult.Category.HUMAN_REVIEW);
+        assertThat(outcome.answer().summary()).doesNotContain("已确诊");
+        assertThat(outcome.answer().claims()).isEmpty();
+        assertThat(outcome.answer().limitations()).anyMatch(item -> item.contains("UNCONFIRMED_FINDING"));
     }
 
     @Test void dangerousControlAdviceIsRefusedEvenWhenTheModelInsists() {
@@ -471,9 +474,12 @@ class GeneralAgentFlowTest {
                     + "\"uncertainties\":[],\"limitations\":[],\"referenceIds\":[\"" + referenceId + "\"]}";
         }));
 
-        assertThat(outcome.status()).isEqualTo(AgentStatus.FAILED);
-        assertThat(outcome.stopReason()).isEqualTo("UNSAFE_ANSWER");
-        assertThat(outcome.answer()).isNull();
+        assertThat(outcome.status()).isEqualTo(AgentStatus.COMPLETED);
+        assertThat(outcome.limited()).isTrue();
+        assertThat(outcome.stopReason()).isEqualTo("LIMITED_UNSAFE_ANSWER");
+        assertThat(outcome.answer().summary()).doesNotContain("短接").doesNotContain("上电");
+        assertThat(outcome.answer().claims()).isEmpty();
+        assertThat(outcome.answer().limitations()).anyMatch(item -> item.contains("UNSAFE_ANSWER"));
     }
 
     @Test void deviceDefectAssertionWithoutFieldEvidenceIsRefusedAndCorrectable() {
@@ -511,7 +517,7 @@ class GeneralAgentFlowTest {
                 && "UNCONFIRMED_FINDING".equals(String.valueOf(event.data().get("code"))));
     }
 
-    @Test void insistingOnDeviceDefectAssertionFailsTheRun() {
+    @Test void insistingOnDeviceDefectAssertionDeliversLimitedResult() {
         var run = queuedRun("这台设备的充电故障原因是什么？");
         var outcome = run(run, model(context -> {
             var references = context.path("references");
@@ -524,9 +530,12 @@ class GeneralAgentFlowTest {
                     + "\"uncertainties\":[],\"limitations\":[],\"referenceIds\":[\"" + referenceId + "\"]}";
         }));
 
-        assertThat(outcome.status()).isEqualTo(AgentStatus.FAILED);
-        assertThat(outcome.stopReason()).isEqualTo("UNCONFIRMED_FINDING");
-        assertThat(outcome.answer()).isNull();
+        assertThat(outcome.status()).isEqualTo(AgentStatus.COMPLETED);
+        assertThat(outcome.limited()).isTrue();
+        assertThat(outcome.stopReason()).isEqualTo("LIMITED_UNCONFIRMED_FINDING");
+        assertThat(outcome.answer().summary()).doesNotContain("该设备").doesNotContain("故障原因");
+        assertThat(outcome.answer().claims()).isEmpty();
+        assertThat(outcome.answer().limitations()).anyMatch(item -> item.contains("UNCONFIRMED_FINDING"));
     }
 
     @Test void concurrentRunsKeepUniqueMessageSequenceAndTerminalState() throws Exception {
@@ -763,6 +772,85 @@ class GeneralAgentFlowTest {
 
     private static AgentTaskInput input(String text) {
         return new AgentTaskInput(1, text, null, null, null, null, null);
+    }
+
+    @Test void replyAssetSelectionSurvivesWorkerRestartAndReachesToolContext() throws Exception {
+        var toolAsset = new java.util.concurrent.atomic.AtomicReference<String>();
+        gateway.registerTool(new ToolSpec("subject_probe", "读取当前排查对象", "test", true,
+                        Map.of("type", "object", "additionalProperties", false, "properties", Map.of(),
+                                "required", List.of()), "Result{}"),
+                (arguments, context) -> {
+                    toolAsset.set(context.selectedAssetId());
+                    return ToolOutcome.ok(UUID.randomUUID().toString(), "subject_probe", Map.of(), List.of(),
+                            "SIMULATED", Map.of("assetId", context.selectedAssetId()));
+                });
+        var modelAsset = new java.util.concurrent.atomic.AtomicReference<String>();
+        var completion = model(context -> {
+            if (userCount(context) > 1) modelAsset.set(context.path("selectedAssetId").asText());
+            if (userCount(context) == 1)
+                return Json.write(Map.of("type", "ASK_USER", "question", "请选择设备", "requestedFields", List.of("assetId")));
+            if (context.path("attemptedTools").isEmpty())
+                return Json.write(Map.of("type", "CALL_TOOL", "toolName", "subject_probe", "arguments", Map.of(),
+                        "purpose", "核对恢复后的设备上下文"));
+            if (context.path("attemptedTools").size() == 1) return searchCall("充电中断");
+            return answerWith(context.path("references").get(0).path("referenceId").asText());
+        });
+        var first = new GeneralAgentService(conversations, runs, transactions, IDENTITY, gateway,
+                () -> new StructuredAgentReasoner("subject-capture", completion), 1, 2, true, files);
+        UUID conversation;
+        RunView waiting;
+        try {
+            conversation = first.create().conversationId();
+            var accepted = first.submit(conversation, UUID.randomUUID(),
+                    new AgentTaskInput(1, "核对设备", "EV-DEMO-001", null, null, null, null));
+            waiting = awaitQuestion(first, accepted.runId(), 1);
+        } finally {
+            first.shutdown();
+        }
+        var resumed = new GeneralAgentService(conversations, runs, transactions, IDENTITY, gateway,
+                () -> new StructuredAgentReasoner("subject-capture", completion), 1, 2, true, files);
+        try {
+            var question = waiting.pendingQuestion();
+            var reply = new AgentTaskInput(1, "改为目标车辆", "EV-DEMO-017", null, null, null,
+                    Map.of("runId", waiting.runId().toString(), "pendingQuestionId",
+                            question.pendingQuestionId().toString(), "questionVersion", question.questionVersion()));
+            var queued = resumed.submit(conversation, UUID.randomUUID(), reply);
+            assertThat(queued.investigatedAssetId()).isEqualTo("EV-DEMO-017");
+            assertThat(queued.assetResolution()).isEqualTo("CONFIRMED");
+            assertThat(queued.changedFromAssetId()).isEqualTo("EV-DEMO-001");
+            try {
+                awaitTerminal(resumed, waiting.runId(), "COMPLETED");
+            } catch (AssertionError failure) {
+                throw new AssertionError(jdbc.queryForList(
+                        "SELECT type,safe_payload::text AS payload FROM dt_run_event WHERE run_id=? ORDER BY seq",
+                        waiting.runId()).toString(), failure);
+            }
+            assertThat(modelAsset.get()).isEqualTo("EV-DEMO-017");
+            assertThat(toolAsset.get()).isEqualTo("EV-DEMO-017");
+            assertThatThrownBy(() -> resumed.submit(conversation, UUID.randomUUID(), reply))
+                    .hasMessageContaining("STALE_OR_UNRELATED_REPLY");
+            assertThat(resumed.run(waiting.runId()).investigatedAssetId()).isEqualTo("EV-DEMO-017");
+        } finally {
+            resumed.shutdown();
+        }
+    }
+
+    @Test void answerSubjectAndAmbiguityPersistAtCompletion() {
+        for (var scenario : List.of(
+                new String[] {"EV-DEMO-017", "CONFIRMED"}, new String[] {null, "AMBIGUOUS"})) {
+            var queued = queuedRun("保存答案排查对象");
+            Instant now = Instant.now();
+            assertThat(runs.markRunning(IDENTITY, queued, "test-worker", now.plusSeconds(60), now)).isEqualTo(1);
+            var running = runs.load(IDENTITY, queued.runId(), false);
+            var answer = new io.devicetruth.core.contract.AgentResult("候选分析",
+                    io.devicetruth.core.contract.AgentResult.Category.POSSIBLE_CAUSES, List.of(), List.of(), List.of(),
+                    List.of(), List.of(), io.devicetruth.core.contract.AgentResult.RiskLevel.MEDIUM, "NORMAL",
+                    "SIMULATED", scenario[0], scenario[1]);
+            assertThat(runs.complete(IDENTITY, running, answer, 1, 0, 1, 0, now)).isEqualTo(1);
+            var saved = runs.require(IDENTITY, queued.runId());
+            assertThat(saved.investigatedAssetId()).isEqualTo(scenario[0]);
+            assertThat(saved.assetResolution()).isEqualTo(scenario[1]);
+        }
     }
 
     @Test void dangerousFollowUpQuestionIsRejectedBeforeItReachesTheUser() throws Exception {

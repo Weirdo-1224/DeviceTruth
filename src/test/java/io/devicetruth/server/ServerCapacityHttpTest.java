@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(classes = DeviceTruthServerApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"devicetruth.session.max-sessions=2",
-                "devicetruth.session.max-messages-per-session=2"})
+                "devicetruth.session.max-messages-per-session=2", "spring.profiles.active=legacy"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class ServerCapacityHttpTest {
     @Autowired TestRestTemplate rest;

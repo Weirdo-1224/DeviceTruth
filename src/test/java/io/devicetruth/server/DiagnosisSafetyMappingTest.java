@@ -51,7 +51,7 @@ class DiagnosisSafetyMappingTest {
     private UUID start(Supplier<Reasoner> creator) throws Exception {
         var repositories = JsonRepositories.fromClasspath();
         conversations = new ConversationService(10, 40);
-        service = new DiagnosisRunService(conversations, SupportedScenarioCatalog.fromClasspath(),
+        service = new DiagnosisRunService(conversations,
                 CapabilityGateway.standard(repositories, repositories, repositories),
                 ReasonerFactory.of("probe", creator), Budget.defaults(), new RunReportWriter(), outputRoot,
                 1, 1, 100);

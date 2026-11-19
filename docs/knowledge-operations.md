@@ -33,7 +33,7 @@ python3 scripts/knowledge_data.py verify --root /path/to/extracted-package
 | --- | --- |
 | `SPRING_DATASOURCE_URL` | Java JDBC 地址，例如 `jdbc:postgresql://127.0.0.1:54329/devicetruth` |
 | `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD` | 数据库账号与密码；不写入命令参数或 Git |
-| `DEVICETRUTH_OWNER_ID` / `DEVICETRUTH_PROJECT_ID` | 导入和产品服务使用同一身份，默认 `local-owner/local-project` |
+| `DEVICETRUTH_OWNER_ID` / `DEVICETRUTH_PROJECT_ID` | 目标空间的存储身份；新空间通常为 `workspace-<workspaceId>` / `default`，请由运维查询确认 |
 | `DEVICETRUTH_AGENT_REASONER=openai` | 使用 OpenAI 兼容模型，另配 `OPENAI_BASE_URL/MODEL/API_KEY` |
 | `DEVICETRUTH_EMBEDDING_*` | 默认 `openai` 协议、DashScope compatible-mode、`text-embedding-v4`、1024 维、revision=1 |
 | `DEVICETRUTH_EMBEDDING_API_KEY` | embedding 专用密钥；为空时可复用 `DASHSCOPE_API_KEY` |
@@ -47,6 +47,8 @@ python3 scripts/knowledge_data.py verify --root /path/to/extracted-package
 ```bash
 docker compose --profile standalone-db up -d postgres
 ```
+
+首次部署先启动 product 完成迁移并注册账号，创建或选择目标个人/团队空间。通过已登录的 `GET /api/workspaces` 获取 workspaceId；运维只读查询 `dt_workspace` 的 owner_id/project_id，将其作为导入进程的 `DEVICETRUTH_OWNER_ID/PROJECT_ID`，完成导入与激活后，该空间成员即可按权限检索。不要把历史 local-owner 数据自动认领给注册账号。
 
 数据库应为专用数据库。`import` 会运行 Flyway 迁移；已有环境升级前按运维规范备份。默认命令不会激活或替换现有知识版本。
 
@@ -100,7 +102,7 @@ docker compose --profile product up -d --build
 
 首次启动从仓库 `skills/` 安装 8 个默认版本，包括 6 个设备专项 Skill。安装与权限保存在 PostgreSQL，重启不会恢复已经被禁用或缩小的许可。模型可选择 Skill、读取参考资料、检索知识并引用章节；读取原文仍须属于当前运行已获取的引用。Carrier 等 Skill 未声明的工具继续受原权限限制。
 
-可设置 `DEVICETRUTH_ASSETS_SEED_FIXTURES=true`、`DEVICETRUTH_ASSETS_FIXTURES=SC-0245-B`，添加工厂演示资产。其他实际资产及业务记录通过自己的受控数据导入提供，不从知识文献推断生成。多人共享上线需配置真实认证，当前默认身份属于单用户部署模式。
+可设置 `DEVICETRUTH_ASSETS_SEED_FIXTURES=true`、`DEVICETRUTH_ASSETS_FIXTURES=SC-0245-B`，添加工厂演示资产。其他实际资产及业务记录通过自己的受控数据导入提供，不从知识文献推断生成。产品 HTTP 已使用账号会话与空间成员权限；数据库运维入口由可信运维人员执行，不把数据库凭据提供给普通成员。
 
 ## 6. 故障检查
 
@@ -111,3 +113,7 @@ docker compose --profile product up -d --build
 - 缺少 Skill：确认从项目根目录启动，或设置 `DEVICETRUTH_SKILLS_ROOT` 指向匹配版本的目录。
 
 开发计划、历史报告、评测代码、人工验收专用启动器、数据库备份、运行缓存与凭据不属于上述运行依赖。
+
+## 合并前本机知识库的数据库兼容
+
+远端 V18–V22 已用于排查对象、账号、团队与邮件功能，知识迁移调整为 V23/V24。全新数据库按 V1→V24 创建。曾使用本地旧版知识 V18/V19 的数据库，不能直接启动新版 Flyway，也不要执行 `repair` 覆盖历史校验值；先备份并制定保留原数据的迁移方案。本次代码合并未改写现有业务数据库或其 Flyway 历史。

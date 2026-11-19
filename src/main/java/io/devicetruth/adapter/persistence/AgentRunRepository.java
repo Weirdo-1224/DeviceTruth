@@ -26,7 +26,8 @@ public final class AgentRunRepository {
     /** 运行记录：主循环需要的全部持久事实，均由 PG 重建，不依赖原 Java 线程。 */
     public record RunRecord(UUID runId, UUID conversationId, UUID goalMessageId, String status, long version,
                             Instant requestedAt, Instant asOf, UUID pendingQuestionId, int questionVersion,
-                            String selectedAssetId, String goalText, int stepsUsed, int maxSteps, int attempts,
+                            String selectedAssetId, String assetResolution, String changedFromAssetId,
+                            String goalText, int stepsUsed, int maxSteps, int attempts,
                             long activeDurationMs, long maxActiveDurationMs, boolean cancelRequested) {}
     public record ToolEvent(int sequence, String toolName, boolean success, String errorCode, int referenceCount,
                             long durationMs, boolean retryable) {}
@@ -35,6 +36,11 @@ public final class AgentRunRepository {
 
     private static final String VIEW_SQL = """
             SELECT r.id, r.conversation_id, r.goal_message_id, r.status, r.version, r.requested_at, r.as_of,
+                   COALESCE(r.subject_asset_id, m.selected_asset_id) AS investigated_asset_id,
+                   CASE WHEN r.subject_asset_id IS NULL AND m.selected_asset_id IS NOT NULL
+                             AND r.subject_status = 'UNCONFIRMED'
+                        THEN 'SELECTED' ELSE r.subject_status END AS asset_resolution,
+                   r.subject_changed_from,
                    r.pending_question, r.active_duration_ms, r.budget->>'usageStatus' AS usage_status,
                    (r.budget->'used'->>'inputTokens')::bigint AS input_tokens,
                    (r.budget->'used'->>'outputTokens')::bigint AS output_tokens,
@@ -44,14 +50,16 @@ public final class AgentRunRepository {
                    (SELECT e.safe_payload->>'code' FROM dt_run_event e
                      WHERE e.run_id = r.id AND e.type = 'RUN_FAILED' ORDER BY e.seq DESC LIMIT 1) AS failure_code
             FROM dt_agent_run r
+            LEFT JOIN dt_message m ON m.id = r.goal_message_id
             WHERE r.owner_id = ? AND r.project_id = ?
             """;
 
     private static final RowMapper<RunView> VIEW_MAPPER = (r, n) -> new RunView(
             r.getObject("id", UUID.class), r.getObject("conversation_id", UUID.class),
             r.getObject("goal_message_id", UUID.class), r.getString("status"), r.getLong("version"),
-            r.getTimestamp("requested_at").toInstant(), r.getTimestamp("as_of").toInstant(), "SIMULATED",
-            pendingQuestion(r), answer(r), r.getString("failure_code"),
+            r.getTimestamp("requested_at").toInstant(), r.getTimestamp("as_of").toInstant(),
+            r.getString("investigated_asset_id"), r.getString("asset_resolution"), r.getString("subject_changed_from"),
+            "SIMULATED", pendingQuestion(r), answer(r), r.getString("failure_code"),
             r.getLong("active_duration_ms"), r.getString("usage_status"),
             r.getObject("input_tokens", Long.class), r.getObject("output_tokens", Long.class),
             r.getBigDecimal("cost"));
@@ -77,6 +85,38 @@ public final class AgentRunRepository {
     }
 
     private final JdbcTemplate jdbc;
+    public io.devicetruth.application.agent.AccessScope persistedScope(UUID runId) {
+        return jdbc.query("SELECT c.workspace_id,r.execution_actor_user_id,r.owner_id,r.project_id,COALESCE(m.role,'VIEWER') role FROM dt_agent_run r JOIN dt_conversation c ON c.id=r.conversation_id LEFT JOIN dt_workspace_member m ON m.workspace_id=c.workspace_id AND m.user_id=r.execution_actor_user_id WHERE r.id=? AND c.workspace_id IS NOT NULL AND r.execution_actor_user_id IS NOT NULL",
+                (rs,n)->new io.devicetruth.application.agent.AccessScope(rs.getObject("execution_actor_user_id",UUID.class),rs.getObject("workspace_id",UUID.class),io.devicetruth.application.agent.AccessScope.Role.valueOf(rs.getString("role")),new ServerIdentity(rs.getString("owner_id"),rs.getString("project_id"))),runId).stream().findFirst().orElse(null);
+    }
+    public boolean canWrite(io.devicetruth.application.agent.AccessScope scope) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM dt_workspace_member WHERE workspace_id=? AND user_id=? AND role IN ('ADMIN','COLLABORATOR'))",Boolean.class,scope.workspaceId(),scope.actorUserId()));
+    }
+    public boolean lockWriteAuthorization(io.devicetruth.application.agent.AccessScope scope) {
+        return !jdbc.queryForList("SELECT user_id FROM dt_workspace_member WHERE workspace_id=? AND user_id=? AND role IN ('ADMIN','COLLABORATOR') FOR SHARE",UUID.class,scope.workspaceId(),scope.actorUserId()).isEmpty();
+    }
+    public List<ServerIdentity> recoveryIdentities(ServerIdentity legacy) {
+        var values=new java.util.ArrayList<ServerIdentity>();if(legacy!=null)values.add(legacy);
+        values.addAll(jdbc.query("SELECT DISTINCT r.owner_id,r.project_id FROM dt_agent_run r JOIN dt_conversation c ON c.id=r.conversation_id WHERE c.workspace_id IS NOT NULL AND r.status IN ('QUEUED','RUNNING')",
+                (rs,n)->new ServerIdentity(rs.getString(1),rs.getString(2))));return values.stream().distinct().toList();
+    }
+    public void bindConversation(UUID id,io.devicetruth.application.agent.AccessScope scope) {
+        jdbc.update("UPDATE dt_conversation SET workspace_id=?,created_by_user_id=? WHERE id=?",scope.workspaceId(),scope.actorUserId(),id);
+    }
+    public void bindRun(UUID run,UUID message,io.devicetruth.application.agent.AccessScope scope) {
+        jdbc.update("UPDATE dt_agent_run SET initiated_by_user_id=?,execution_actor_user_id=? WHERE id=?",scope.actorUserId(),scope.actorUserId(),run);
+        jdbc.update("UPDATE dt_message SET actor_user_id=? WHERE id=?",scope.actorUserId(),message);
+        snapshot(run,scope);
+    }
+    public void bindReply(UUID run,UUID key,io.devicetruth.application.agent.AccessScope scope) {
+        jdbc.update("UPDATE dt_agent_run SET execution_actor_user_id=? WHERE id=?",scope.actorUserId(),run);
+        jdbc.update("UPDATE dt_message SET actor_user_id=? WHERE request_key=? AND run_id=?",scope.actorUserId(),key,run);
+        snapshot(run,scope);
+    }
+    private void snapshot(UUID run,io.devicetruth.application.agent.AccessScope scope) {
+        jdbc.update("UPDATE dt_agent_run r SET input_snapshot=(SELECT jsonb_build_object('messages',COALESCE(jsonb_agg(jsonb_build_object('id',m.id,'seq',m.seq,'content',m.content,'actor',m.actor_user_id) ORDER BY m.seq),'[]'::jsonb)) FROM dt_message m WHERE m.conversation_id=r.conversation_id) WHERE r.id=?",run);
+        jdbc.update("INSERT INTO dt_run_input_segment(run_id,segment_no,conversation_id,owner_id,project_id,actor_user_id,input_snapshot) SELECT id,(SELECT COALESCE(max(segment_no),0)+1 FROM dt_run_input_segment WHERE run_id=r.id),conversation_id,owner_id,project_id,execution_actor_user_id,input_snapshot FROM dt_agent_run r WHERE id=?",run);
+    }
     /** 总时限（累计执行时长上限，毫秒）：入队时写入 budget.limits.maxActiveDurationMs，恢复不清零。 */
     private final long maxActiveDurationMs;
     /** 恢复状态与事件原子提交，事件序号分配由同一事务中的 run 行锁保护。 */
@@ -105,11 +145,13 @@ public final class AgentRunRepository {
                 + "\"inputTokens\":null,\"outputTokens\":null,\"cost\":null},\"usageStatus\":\"UNKNOWN\"}";
         jdbc.update("""
                 INSERT INTO dt_agent_run(id,conversation_id,owner_id,project_id,goal_message_id,status,
-                    requested_at,as_of,budget,created_at,updated_at)
-                VALUES (?,?,?,?,?,'QUEUED',?,?,CAST(? AS jsonb),?,?)
+                    requested_at,as_of,budget,created_at,updated_at,subject_asset_id,subject_status)
+                SELECT ?,?,?,?,?,'QUEUED',?,?,CAST(? AS jsonb),?,?,m.selected_asset_id,
+                    CASE WHEN m.selected_asset_id IS NULL THEN 'UNCONFIRMED' ELSE 'SELECTED' END
+                FROM dt_message m WHERE m.id = ?
                 """, runId, conversationId, identity.ownerId(), identity.projectId(), messageId,
                 java.sql.Timestamp.from(now), java.sql.Timestamp.from(asOf), budget,
-                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now));
+                java.sql.Timestamp.from(now), java.sql.Timestamp.from(now), messageId);
         appendEvent(identity, runId, conversationId, "RUN_QUEUED", Map.of("status", "QUEUED"), now);
         return require(identity, runId);    }
 
@@ -133,6 +175,15 @@ public final class AgentRunRepository {
                 """, UUID.class, identity.ownerId(), identity.projectId());
     }
 
+    /** 周期补派扫描：同一语义的有界候选（按 created_at, id 排序，LIMIT ?），防止周期任务无限全扫。 */
+    public List<UUID> queuedPage(ServerIdentity identity, int limit) {
+        return jdbc.queryForList("""
+                SELECT id FROM dt_agent_run
+                WHERE owner_id=? AND project_id=? AND status='QUEUED'
+                ORDER BY created_at, id LIMIT ?
+                """, UUID.class, identity.ownerId(), identity.projectId(), limit);
+    }
+
     /** 读取运行记录；lock=true 时加行锁，供补答事务串行消费同一个待答问题。 */
     public RunRecord load(ServerIdentity identity, UUID runId, boolean lock) {
         var rows = jdbc.query("""
@@ -140,7 +191,11 @@ public final class AgentRunRepository {
                        r.pending_question_id, r.question_version,
                        (r.budget->'used'->>'steps')::int AS steps_used,
                        (r.budget->'limits'->>'maxSteps')::int AS max_steps,
-                       m.selected_asset_id, m.content AS goal_text,
+                       COALESCE(r.subject_asset_id, m.selected_asset_id) AS selected_asset_id,
+                       CASE WHEN r.subject_asset_id IS NULL AND m.selected_asset_id IS NOT NULL
+                                 AND r.subject_status = 'UNCONFIRMED'
+                            THEN 'SELECTED' ELSE r.subject_status END AS asset_resolution,
+                       r.subject_changed_from, m.content AS goal_text,
                        r.attempts, r.active_duration_ms,
                        COALESCE((r.budget->'limits'->>'maxActiveDurationMs')::bigint, 0) AS max_active_duration_ms,
                        r.cancel_requested_at IS NOT NULL AS cancel_requested
@@ -152,8 +207,8 @@ public final class AgentRunRepository {
                         r.getObject("goal_message_id", UUID.class), r.getString("status"), r.getLong("version"),
                         r.getTimestamp("requested_at").toInstant(), r.getTimestamp("as_of").toInstant(),
                         r.getObject("pending_question_id", UUID.class), r.getInt("question_version"),
-                        r.getString("selected_asset_id"), r.getString("goal_text"),
-                        r.getInt("steps_used"), r.getInt("max_steps"), r.getInt("attempts"),
+                        r.getString("selected_asset_id"), r.getString("asset_resolution"), r.getString("subject_changed_from"),
+                        r.getString("goal_text"), r.getInt("steps_used"), r.getInt("max_steps"), r.getInt("attempts"),
                         r.getLong("active_duration_ms"), r.getLong("max_active_duration_ms"),
                         r.getBoolean("cancel_requested")),
                 runId, identity.ownerId(), identity.projectId());
@@ -312,12 +367,17 @@ public final class AgentRunRepository {
                         long activeDurationMs, int modelAttempts, int toolCalls, Instant now) {
         int updated = update("""
                 UPDATE dt_agent_run SET status='COMPLETED', version=version+1, updated_at=?,
+                    subject_changed_from=CASE WHEN ?::varchar IS NOT NULL AND subject_asset_id IS DISTINCT FROM ?::varchar
+                        THEN subject_asset_id ELSE subject_changed_from END,
+                    subject_asset_id=COALESCE(?::varchar, subject_asset_id),
+                    subject_status=COALESCE(?::varchar, subject_status),
                     %s,
                     active_duration_ms=active_duration_ms+?, finished_at=?,
                     lease_owner=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL
                 WHERE id=? AND owner_id=? AND project_id=? AND status='RUNNING' AND version=?
-                """.formatted(USAGE_SET_SQL), java.sql.Timestamp.from(now), stepsUsed, activeDurationMs,
-                modelAttempts, toolCalls, activeDurationMs, java.sql.Timestamp.from(now),
+                """.formatted(USAGE_SET_SQL), java.sql.Timestamp.from(now),
+                answer.subjectAssetId(), answer.subjectAssetId(), answer.subjectAssetId(), answer.assetResolution(),
+                stepsUsed, activeDurationMs, modelAttempts, toolCalls, activeDurationMs, java.sql.Timestamp.from(now),
                 run.runId(), identity.ownerId(), identity.projectId(), run.version());
         if (updated == 1) appendEvent(identity, run.runId(), run.conversationId(), "RUN_ANSWER", answer, now);
         return updated;
@@ -391,6 +451,8 @@ public final class AgentRunRepository {
 
     /** 每步核验 worker 仍持原版本的执行租约，防止已回收任务继续执行后续动作。 */
     public String claimStopCode(ServerIdentity identity, UUID runId, long version) {
+        var scope=persistedScope(runId);
+        if(scope!=null && !canWrite(scope)) return "AUTHORIZATION_REVOKED";
         var rows = jdbc.query("""
                 SELECT cancel_requested_at IS NOT NULL FROM dt_agent_run
                 WHERE id=? AND owner_id=? AND project_id=?
@@ -398,6 +460,14 @@ public final class AgentRunRepository {
                 """, (r, n) -> r.getBoolean(1), runId, identity.ownerId(), identity.projectId(), version);
         if (rows.isEmpty()) return "RUN_CLAIM_LOST";
         return rows.getFirst() ? "CANCELLED" : null;
+    }
+
+    /** 补答中的结构化设备选择与待答消费同事务提交，版本仍由 queueReply 统一推进。 */
+    public void confirmSelectedSubject(ServerIdentity identity, UUID runId, String assetId, String previousAssetId) {
+        jdbc.update("""
+                UPDATE dt_agent_run SET subject_changed_from=?, subject_asset_id=?, subject_status='CONFIRMED'
+                WHERE id=? AND owner_id=? AND project_id=?
+                """, previousAssetId, assetId, runId, identity.ownerId(), identity.projectId());
     }
 
     /** WAITING_FOR_USER → QUEUED：只有问题 ID 与版本都匹配且尚未被消费时才成功，防止重复补答。 */
@@ -600,7 +670,7 @@ public final class AgentRunRepository {
                     active_duration_ms=?, active_accounted_at=clock_timestamp()
                 WHERE id=? AND owner_id=? AND project_id=?
                   AND (budget#>>'{used,steps}')::int = ?
-                  AND COALESCE((execution_checkpoint->>'step')::int, -1) < ?
+                  AND COALESCE((execution_checkpoint->>'step')::int, -1) <= ?
                 """, Json.write(checkpoint), totalActiveMs, toolAttempt ? 1 : 0, totalActiveMs, checkpoint.runId(),
                 identity.ownerId(), identity.projectId(), checkpoint.step(), checkpoint.step());
     }

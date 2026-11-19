@@ -84,6 +84,11 @@ public final class AnswerGuard {
      *                      M1 尚无资产核验能力，调用方必须传 false，03-01 才接入真实核验。
      */
     public Verdict review(AgentTaskInput input, List<Reference> collected, Answer draft, boolean fieldVerified) {
+        return review(input, collected, draft, fieldVerified, Set.of());
+    }
+
+    public Verdict review(AgentTaskInput input, List<Reference> collected, Answer draft, boolean fieldVerified,
+                          Set<String> accessedAssetIds) {
         var known = new LinkedHashMap<String, Reference>();
         for (Reference reference : collected) known.put(reference.referenceId(), reference);
         // 1) 引用必须是本 run 已取回集合的子集：伪造或跨 run 的引用直接拒绝，草稿与 claim 都查
@@ -102,30 +107,51 @@ public final class AnswerGuard {
         } catch (IllegalArgumentException e) {
             return Verdict.rejected("INVALID_ANSWER");
         }
-        // 3) 危险执行建议：逐句逐子句判断，含动作的句子只允许禁止性提示或资质边界声明
-        if (recommendsControlAction(draft.summary()) || draft.claims().stream().anyMatch(claim -> recommendsControlAction(claim.text()))
+        // 3) 分类只影响展示：未知的直接相关性降为 UNKNOWN，非安全分类组合不否决整份答案
+        List<Claim> claims = draft.claims().stream().map(claim ->
+                claim.kind() == Claim.Kind.UNKNOWN && claim.relevance() == Claim.Relevance.DIRECT
+                        ? new Claim(claim.text(), claim.referenceIds(), claim.certainty(), claim.kind(),
+                                Claim.Relevance.UNKNOWN)
+                        : claim).toList();
+        // 4) 排查对象只能来自显式选择及成功资产工具，未声明的多候选保持歧义
+        var assetCandidates = new LinkedHashSet<String>();
+        if (input.selectedAssetId() != null) assetCandidates.add(input.selectedAssetId());
+        assetCandidates.addAll(accessedAssetIds);
+        String subjectAssetId = null;
+        String assetResolution = null;
+        if (draft.subjectAssetId() != null) {
+            if (!assetCandidates.contains(draft.subjectAssetId())
+                    || input.selectedAssetId() != null && !input.selectedAssetId().equals(draft.subjectAssetId()))
+                return Verdict.rejected("SUBJECT_MISMATCH");
+            subjectAssetId = draft.subjectAssetId();
+            assetResolution = "CONFIRMED";
+        } else if (input.selectedAssetId() == null && assetCandidates.size() > 1) {
+            assetResolution = "AMBIGUOUS";
+        }
+        // 5) 危险执行建议：逐句逐子句判断，含动作的句子只允许禁止性提示或资质边界声明
+        if (recommendsControlAction(draft.summary()) || claims.stream().anyMatch(claim -> recommendsControlAction(claim.text()))
                 || draft.suggestions().stream().anyMatch(AnswerGuard::recommendsControlAction)
                 || draft.uncertainties().stream().anyMatch(AnswerGuard::recommendsControlAction)
                 || draft.limitations().stream().anyMatch(AnswerGuard::recommendsControlAction))
             return Verdict.rejected("UNSAFE_ANSWER");
-        // 4) 没有服务器判定的现场核验时，确诊路径一律关闭：CONFIRMED 枚举、完成时态确诊表述、
+        // 6) 没有服务器判定的现场核验时，确诊路径一律关闭：CONFIRMED 枚举、完成时态确诊表述、
         //    以及针对当前设备的确定性故障断言都拒绝，模型只能给出带引用的可能原因
         if (!fieldVerified && (category == AgentResult.Category.CONFIRMED_FINDING
-                || draft.claims().stream().anyMatch(claim -> claim.certainty() == AgentResult.Certainty.CONFIRMED)
+                || claims.stream().anyMatch(claim -> claim.certainty() == AgentResult.Certainty.CONFIRMED)
                 || assertsConfirmedFinding(draft.summary())
-                || draft.claims().stream().anyMatch(claim -> assertsConfirmedFinding(claim.text()))
+                || claims.stream().anyMatch(claim -> assertsConfirmedFinding(claim.text()))
                 || draft.suggestions().stream().anyMatch(AnswerGuard::assertsConfirmedFinding)
                 || draft.uncertainties().stream().anyMatch(AnswerGuard::assertsConfirmedFinding)
                 || draft.limitations().stream().anyMatch(AnswerGuard::assertsConfirmedFinding)
                 || assertsDeviceDefect(draft.summary())
-                || draft.claims().stream().anyMatch(claim -> assertsDeviceDefect(claim.text()))
+                || claims.stream().anyMatch(claim -> assertsDeviceDefect(claim.text()))
                 || draft.suggestions().stream().anyMatch(AnswerGuard::assertsDeviceDefect)
                 || draft.uncertainties().stream().anyMatch(AnswerGuard::assertsDeviceDefect)
                 || draft.limitations().stream().anyMatch(AnswerGuard::assertsDeviceDefect)))
             return Verdict.rejected("UNCONFIRMED_FINDING");
-        String text = draft.summary() + " " + draft.claims().stream().map(Claim::text).toList() + " "
+        String text = draft.summary() + " " + claims.stream().map(Claim::text).toList() + " "
                 + String.join(" ", draft.suggestions());
-        // 5) 风险由服务器判定：模型自报的“低风险”不作数
+        // 7) 风险由服务器判定：模型自报的“低风险”不作数
         AgentResult.RiskLevel risk = risk(category, text);
         String disposition = risk == AgentResult.RiskLevel.HIGH ? "REQUIRES_QUALIFIED_PERSONNEL" : "NORMAL";
         List<String> limitations = new ArrayList<>(draft.limitations());
@@ -139,12 +165,13 @@ public final class AnswerGuard {
         // 高风险处置附加服务端受控安全提示（幂等），最终展示由服务器说了算
         if (risk == AgentResult.RiskLevel.HIGH && !limitations.contains(SERVER_SAFETY_NOTICE))
             limitations.add(SERVER_SAFETY_NOTICE);
-        // 6) 引用并集：草稿声明 + 各断言声明，去重后都返回，保证 claim 引用可在答案中找到
+        // 8) 引用并集：草稿声明 + 各断言声明，去重后都返回，保证 claim 引用可在答案中找到
         List<Reference> used = referencesOf(draft, known);
         String dataNature = !used.isEmpty() && used.stream().allMatch(reference -> "AUTHORIZED".equals(reference.dataNature()))
                 ? "AUTHORIZED" : "SIMULATED";
-        return Verdict.accepted(new AgentResult(draft.summary(), category, draft.claims(), draft.suggestions(),
-                draft.uncertainties(), limitations, used, risk, disposition, dataNature));
+        return Verdict.accepted(new AgentResult(draft.summary(), category, claims, draft.suggestions(),
+                draft.uncertainties(), limitations, used, risk, disposition, dataNature,
+                subjectAssetId, assetResolution));
     }
 
     /** 引用并集：先草稿声明、后断言声明，按出现顺序去重，只保留本 run 已取回的对象。 */

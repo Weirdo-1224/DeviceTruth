@@ -23,7 +23,10 @@ export interface TimelineSnapshot {
 }
 
 export interface RunTimelineController {
-  /** 切换/开始跟踪某个 run：先关闭旧订阅，清空展示，读历史后开流。重复跟随同一 run 不重复开流。 */
+  /**
+   * 切换/开始跟踪某个 run：先关闭旧订阅，清空展示，读历史后开流。
+   * 同一 run 的流仍在订阅时不重复开流；流已收尾（终态或断线）时重新对齐历史并续接。
+   */
   follow(runId: string): Promise<void>
   /** 关闭订阅但保留已展示的时间线（terminal 触发时控制器内部也会走到等价状态）。 */
   close(): void

@@ -46,35 +46,34 @@ public class KnowledgeController {
     private final KnowledgeImportService imports;
     private final KnowledgeSearchService searches;
     private final KnowledgeTools tools;
-    private final String ownerId;
-    private final String projectId;
+    private final io.devicetruth.server.HttpAccess access;
+    private String ownerId() { return access.current().storageIdentity().ownerId(); }
+    private String projectId() { return access.current().storageIdentity().projectId(); }
 
     public KnowledgeController(KnowledgeImportService imports, KnowledgeSearchService searches, KnowledgeTools tools,
-                               @Value("${devicetruth.product.owner-id}") String ownerId,
-                               @Value("${devicetruth.product.project-id}") String projectId) {
+                               io.devicetruth.server.HttpAccess access) {
         this.imports = imports;
         this.searches = searches;
         this.tools = tools;
-        this.ownerId = ownerId;
-        this.projectId = projectId;
+        this.access = access;
     }
 
     @PostMapping("/documents")
     ResponseEntity<KnowledgeImportService.ImportResult> importDocument(
             @RequestBody KnowledgeImportService.ImportRequest request) {
-        var result = imports.importDocument(ownerId, projectId, request);
+        var result = imports.importDocument(ownerId(), projectId(), request);
         return ResponseEntity.created(URI.create("/api/knowledge/documents/" + result.document().documentId()))
                 .body(result);
     }
 
     @GetMapping("/documents/{documentId}")
     KnowledgeImportService.DocumentMetadata document(@PathVariable UUID documentId) {
-        return imports.document(ownerId, projectId, documentId);
+        return imports.document(ownerId(), projectId(), documentId);
     }
 
     @GetMapping("/documents/{documentId}/provenance")
     java.util.Map<String,Object> provenance(@PathVariable UUID documentId) {
-        return imports.corpus().provenance(documentId, ownerId, projectId);
+        return imports.corpus().provenance(documentId, ownerId(), projectId());
     }
 
     /** 暴露服务端工具合同，便于联调；本切片不宣称已接入 Runtime 工具目录。 */
@@ -115,7 +114,8 @@ public class KnowledgeController {
     }
 
     private ToolContext context(UUID runId) {
-        return new ToolContext(ownerId, projectId, null, runId, null, Instant.now(), null,
+        var storage=access.run(runId).storageIdentity();
+        return new ToolContext(storage.ownerId(), storage.projectId(), null, runId, null, Instant.now(), null,
                 Set.of(KnowledgeTools.SEARCH, KnowledgeTools.EXCERPT));
     }
 
@@ -131,6 +131,11 @@ public class KnowledgeController {
             default -> 500;
         };
         return new KnowledgeException(code, status);
+    }
+
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    ResponseEntity<?> accessFailure(org.springframework.web.server.ResponseStatusException e) {
+        return ResponseEntity.status(e.getStatusCode()).body(java.util.Map.of("code", e.getReason()==null?"NOT_FOUND_OR_DENIED":e.getReason()));
     }
 
     @ExceptionHandler(KnowledgeException.class)

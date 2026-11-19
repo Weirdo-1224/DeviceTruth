@@ -102,7 +102,14 @@ class KnowledgeOperationsIntegrationTest {
         String release = imported.get("release_id").toString();
         operation("activate", "--release-id=" + release);
         openProduct();
-        var service = app.getBean(GeneralAgentService.class);
+        var jdbc = new JdbcTemplate(app.getBean(HikariDataSource.class));
+        var account = app.getBean(io.devicetruth.server.AccountService.class)
+                .register("portable@fixture.example.com", "isolated-fixture-password-123", "Portable fixture");
+        var workspace = app.getBean(io.devicetruth.server.WorkspaceService.class).list(account.userId()).getFirst();
+        // Explicitly bind this isolated fixture's imported corpus; production never claims historical data.
+        jdbc.update("UPDATE dt_workspace SET owner_id='portable-owner',project_id='portable-project' WHERE id=?", workspace.workspaceId());
+        var scope = new io.devicetruth.application.agent.WorkspaceScopeResolver(jdbc).resolve(account.userId(), workspace.workspaceId());
+        var service = app.getBean(GeneralAgentService.class).forScope(scope);
         var conversation = service.create();
         var run = service.submit(conversation.conversationId(), UUID.randomUUID(), new GeneralAgentService.AgentTaskInput(
                 1, "automotive-diagnosis Kia EV6 SC327 ICCU 直流快充低压供电排查资料", null,
@@ -114,7 +121,6 @@ class KnowledgeOperationsIntegrationTest {
         assertThat(service.runSkill(run.runId())).isNotNull();
         assertThat(service.references(run.runId())).isNotEmpty();
         assertThat(service.toolEvents(run.runId())).anyMatch(event -> event.toolName().equals("search_knowledge"));
-        var jdbc = new JdbcTemplate(app.getBean(HikariDataSource.class));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM dt_skill_installation WHERE owner_id='portable-owner' AND project_id='portable-project'", Integer.class)).isEqualTo(8);
         var context = new io.devicetruth.core.capability.ToolContext("portable-owner", "portable-project",
                 conversation.conversationId(), run.runId(), null, Instant.now(), null, Set.of(KnowledgeTools.SEARCH));
@@ -130,13 +136,13 @@ class KnowledgeOperationsIntegrationTest {
         }
         app.close(); app = null;
         openProduct();
-        assertThat(app.getBean(GeneralAgentService.class).references(run.runId())).isNotEmpty();
+        assertThat(app.getBean(GeneralAgentService.class).forScope(scope).references(run.runId())).isNotEmpty();
         assertThat(new JdbcTemplate(app.getBean(HikariDataSource.class)).queryForObject(
                 "SELECT count(*) FROM dt_skill_installation WHERE owner_id='portable-owner' AND project_id='portable-project'", Integer.class)).isEqualTo(8);
         operation("rollback", "--release-id=" + release);
         assertThat(new JdbcTemplate(app.getBean(HikariDataSource.class)).queryForObject(
                 "SELECT active FROM dt_knowledge_release WHERE id=?", Boolean.class, UUID.fromString(release))).isFalse();
-        assertThat(app.getBean(GeneralAgentService.class).references(run.runId())).isNotEmpty();
+        assertThat(app.getBean(GeneralAgentService.class).forScope(scope).references(run.runId())).isNotEmpty();
     }
 
     @Test void importRequiresBudgetBeforeMigrationOrNetwork() {

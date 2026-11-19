@@ -6,14 +6,19 @@ import {
   createConversation,
   describeFailure,
   listAssets,
-  listConversations,
+  listConversationSummaries,
   readConversation,
+  readReferences,
+  readRun,
+  readRunEvents,
   readRunSkill,
   replyToQuestion,
+  retryFile,
   sendMessage,
   uploadMarkdown,
   waitForFile,
   waitForRun,
+  type ConversationSummary,
   type ConversationView,
   type FileView,
   type MessageView,
@@ -23,160 +28,88 @@ import {
 } from './api'
 import RunTimeline from './components/RunTimeline.vue'
 import DiagnosisReport from './components/DiagnosisReport.vue'
+import RecentInvestigations from './components/RecentInvestigations.vue'
+import ProfessionalDiagnosisPage from './components/ProfessionalDiagnosisPage.vue'
 import EvidenceComparison from './components/EvidenceComparison.vue'
+import EvidenceModal from './components/EvidenceModal.vue'
 import UiIcon from './components/UiIcon.vue'
 import { createRunTimelineController } from './timeline'
+import { buildInvestigationMessage, buildDiagnosisViewModel, toReferenceView, type ReferenceView } from './diagnosisViewModel'
+import { resolveRunTargets, runPermissions, UNSETTLED_STATUSES } from './runTargets'
+import { createScopedLoader, mergeRunList, mergeRunView } from './scope'
+import { appendConversationPage, conversationBadge } from './history'
+import { ensureConversation } from './draftSubmission'
+import { createScheduledReads, TERMINAL_EVENT_STATUSES } from './scheduler'
 
 const STORAGE_KEY = 'devicetruth.conversation-id'
 
 const conversation = ref<ConversationView | null>(null)
-const conversations = ref<ConversationView[]>([])
+const conversations = ref<ConversationSummary[]>([])
+const historyLoaded = ref(false)
+const historyError = ref('')
+const historyNextCursor = ref<string | null>(null)
+const historyQuery = ref('')
+const historyStatus = ref<'' | 'ACTIVE' | 'WAITING_FOR_USER' | 'COMPLETED' | 'FAILED'>('')
+const historyLoadingMore = ref(false)
+let historyGeneration = 0
 const assets = ref<string[]>([])
 const selectedAssetId = ref<string>('')
+// 持久消息与轮次：服务器返回的顺序即展示与默认跟随顺序。
 const messages = ref<MessageView[]>([])
-const run = ref<RunView | null>(null)
+const runs = ref<RunView[]>([])
+/** 用户主动查看的历史轮；null 表示跟随服务器排序的最新轮。 */
+const pinnedRunId = ref<string | null>(null)
+/** 用户明确选择的活动目标（多个未决轮时必须先选）；失效时自动回落到唯一未决轮。 */
+const preferredActiveRunId = ref<string | null>(null)
+
+/** 查看轮 / 活动目标 / 多未决轮：按钮、键盘与处理函数共用同一份判定。 */
+const targets = computed(() => resolveRunTargets(runs.value, pinnedRunId.value, preferredActiveRunId.value))
+const run = computed<RunView | null>(() => targets.value.viewed)
+const activeRun = computed<RunView | null>(() => targets.value.active)
+const waitingRun = computed<RunView | null>(() => targets.value.waiting)
+const activeRunCount = computed(() => targets.value.activeRuns.length)
+const viewedIndex = computed(() => runs.value.findIndex((item) => item.runId === run.value?.runId))
+const viewedIsActive = computed(() => activeRun.value?.runId === run.value?.runId)
+const unsettledActive = computed(() => targets.value.activeRuns.some((item) => UNSETTLED_STATUSES.includes(item.status)))
+/** 活动目标状态徽章：只有真实非终态轮才显示为“活动”。 */
+const viewedStatusClass = computed(() => {
+  const status = run.value?.status ?? ''
+  if (UNSETTLED_STATUSES.includes(status)) return 'active'
+  if (status === 'WAITING_FOR_USER') return 'waiting'
+  if (status === 'FAILED') return 'failed'
+  if (status === 'CANCELLED') return 'cancelled'
+  return ''
+})
+const activeLabel = computed(() => {
+  const current = activeRun.value
+  if (!current) return ''
+  return statusLabels[current.status] ?? current.status
+})
+
 const draft = ref('')
+const composeMode = ref<'free' | 'investigate' | 'observation'>('free')
+const investigationDrafts = ref<Record<string, string>>({})
+const investigationDraftKey = computed(() => run.value?.runId + ':' + selectedClaimIndex.value)
 const replyDraft = ref('')
+/** 补答草稿所属的等待目标：切换目标时清空，避免草稿串用。 */
+const replyDraftOwner = ref<string | null>(null)
 const busy = ref(false)
 const resumingRunId = ref<string | null>(null)
 const uploading = ref(false)
 const errorText = ref('')
 const uploadedFile = ref<FileView | null>(null)
-const openReferenceId = ref<string | null>(null)
 const selectedSkill = ref<SkillSelection | null>(null)
 const cancelling = ref(false)
-const navigationOpen = ref(false)
-const evidenceOpen = ref(false)
-const evidenceTab = ref<'evidence' | 'assets' | 'events'>('evidence')
-const historyTitles = ref<Record<string, string>>({})
-const isTerminal = computed(() => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(run.value?.status ?? ''))
-const taskTitle = computed(() => messages.value.find(message => message.role === 'USER')?.content || '新调查')
-const reportMessageId = computed(() => {
-  const last = messages.value.at(-1)
-  return last?.role === 'ASSISTANT' && last.content === run.value?.result?.summary ? last.messageId : null
-})
-const foldedMessages = computed(() => reportMessageId.value ? messages.value.slice(1, -1) : [])
-const shownMessages = computed(() => foldedMessages.value.length
-  ? [messages.value[0], messages.value[messages.value.length - 1]]
-  : messages.value)
-const goalMessage = computed(() => messages.value.find(message => message.messageId === run.value?.goalMessageId))
-const references = computed(() => run.value?.result?.references ?? [])
-const sources = computed(() => [...new Map(references.value.map(reference => [
-  JSON.stringify([reference.sourceType, reference.sourceId, reference.sourceVersion]), reference
-])).values()])
-const visibleEvents = computed(() => timelineEvents.value.slice(-3))
-const activeDuration = computed(() => {
-  const ms = run.value?.activeDurationMs
-  if (ms == null) return ''
-  if (ms < 1000) return ms + ' 毫秒'
-  const seconds = Math.round(ms / 1000)
-  return seconds < 60 ? seconds + ' 秒' : Math.floor(seconds / 60) + ' 分 ' + seconds % 60 + ' 秒'
-})
-const safetyNotice = computed(() => {
-  const disposition = run.value?.result?.safetyDisposition
-  if (disposition === 'REQUIRES_QUALIFIED_PERSONNEL') return '涉及高风险操作，必须由具备资质的专业人员按厂家规程处理。'
-  if (disposition === 'PROHIBITED') return '该请求涉及被禁止的设备操作，系统不提供执行指引。'
-  return ''
-})
-const shortTime = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
-const dateTime = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+const recordDrawerOpen = ref(false)
+const reportOpen = ref(false)
+let reportReturnFocus: HTMLElement | null = null
+const narrowLayout = window.matchMedia('(max-width: 1100px)')
+const smallScreen = ref(narrowLayout.matches)
+/** 深入调查载荷：由专业页按所看轮选中判断给出（选择动作零提交）。 */
+const investigationPlan = ref<{ claimText: string; category: string; contextRefs: string[]; selectedAssetId: string | null } | null>(null)
+const investigationEnabled = ref(false)
 
-watch([conversation, messages], ([current, currentMessages]) => {
-  const title = currentMessages.find(message => message.role === 'USER')?.content
-  if (current && title) historyTitles.value[current.conversationId] = title
-})
-watch(() => conversation.value?.conversationId, () => {
-  evidenceOpen.value = false
-  navigationOpen.value = false
-  evidenceTab.value = 'evidence'
-  openReferenceId.value = null
-})
-watch(() => run.value?.runId, () => { openReferenceId.value = null })
-
-function openEvidence(tab: typeof evidenceTab.value): void {
-  evidenceTab.value = tab
-  evidenceOpen.value = true
-}
-
-function showReference(id: string): void {
-  openReferenceId.value = id
-  openEvidence('evidence')
-  void nextTick(() => document.getElementById('reference-' + id)?.scrollIntoView({ block: 'nearest' }))
-}
-
-
-// 运行时间线：SSE 订阅 + 历史补齐 + maxSeq 幂等去重都在控制器里；错误只降级为轮询兜底，不覆盖页面错误提示
-const timeline = createRunTimelineController()
-const timelineEvents = ref<RunEvent[]>([])
-const timelineLive = ref(false)
-
-function syncTimelineView(): void {
-  const state = timeline.snapshot()
-  timelineEvents.value = [...state.events]
-  timelineLive.value = state.live
-}
-
-timeline.onChange(syncTimelineView)
-
-/**
- * run 或其状态变化时对齐时间线：
- * 指向另一个 run（切换会话/任务，含选中历史里的终态 run）一律重新 follow；
- * 同 run 但视图未完整收尾（流已断且从未收到 RUN_TERMINAL）时也重新 follow——
- * 典型场景：流提前断开后 run 在别的页面推进到终态，切回时必须回读补齐历史。
- * 当前会话没有任何 run 时 clear()：旧时间线不再残留，迟到事件由 generation 与 runId 双保险丢弃。
- * follow 内部先关旧订阅；迟到的旧 run 事件由控制器按 generation 丢弃，不污染当前页面。
- */
-watch(
-  () => (run.value ? run.value.runId + ':' + run.value.status : ''),
-  () => {
-    const current = run.value
-    if (!current) {
-      timeline.clear()
-      return
-    }
-    const state = timeline.snapshot()
-    const incomplete = !state.live && state.terminalStatus === null
-    if (state.runId !== current.runId || incomplete) {
-      void timeline.follow(current.runId)
-    }
-  }
-)
-
-/** 当前 run 选中的领域 Skill（无选择时为空）；随 run 切换重新读取，失败不影响主流程。 */
-watch(
-  () => run.value?.runId ?? '',
-  async (runId) => {
-    if (!runId) {
-      selectedSkill.value = null
-      return
-    }
-    try {
-      const skill = await readRunSkill(runId)
-      if (run.value?.runId === runId) selectedSkill.value = skill
-    } catch {
-      if (run.value?.runId === runId) selectedSkill.value = null
-    }
-  },
-  { immediate: true }
-)
-
-/** 取消运行：QUEUED/WAITING 立即生效，RUNNING 协作式收尾；终态再取消会得到 409。 */
-async function cancelCurrentRun(): Promise<void> {
-  const current = run.value
-  if (!current || cancelling.value) return
-  cancelling.value = true
-  errorText.value = ''
-  try {
-    const updated = await cancelRunRequest(current.runId)
-    if (run.value?.runId === current.runId) run.value = updated
-    await refresh()
-  } catch (error) {
-    errorText.value = describeError(error)
-  } finally {
-    cancelling.value = false
-  }
-}
-
+/* 展示用常量与作用域守卫：必须在任何 immediate watch 之前初始化。 */
 const statusLabels: Record<string, string> = {
   QUEUED: '排队中',
   RUNNING: '检索与回答中',
@@ -185,55 +118,443 @@ const statusLabels: Record<string, string> = {
   FAILED: '执行失败',
   CANCELLED: '已取消'
 }
+const shortTime = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+const dateTime = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+function formatTime(value: string): string {
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : dateTime.format(parsed)
+}
 
-const statusLabel = computed(() => (run.value ? statusLabels[run.value.status] ?? run.value.status : '未开始'))
-const pendingQuestion = computed(() => run.value?.pendingQuestion ?? null)
-const failureText = computed(() =>
-  run.value && run.value.status === 'FAILED' ? describeFailure(run.value.failureCode) : ''
+const sessionReads = createScopedLoader()
+const skillReads = createScopedLoader()
+const referenceReads = createScopedLoader()
+const eventReads = createScopedLoader()
+const scheduledReads = createScheduledReads()
+const pollControllers = new Map<string, AbortController>()
+let sceneGeneration = 0
+
+const sceneKey = computed(() => conversation.value?.conversationId ?? '')
+
+/** 所看轮的目标消息：只按该轮自己的 goalMessageId 匹配，不跟随输入框资产。 */
+const goalMessage = computed(() => messages.value.find(message => message.messageId === run.value?.goalMessageId) ?? null)
+/** 设备快照所用资产与业务时点：统一使用所看轮的权威对象，歧义/未确认不打开快照。 */
+const viewedAssetId = computed(() => {
+  const current = run.value
+  const resolution = current?.assetResolution ?? (goalMessage.value?.selectedAssetId ? 'SELECTED' : 'UNCONFIRMED')
+  return resolution === 'SELECTED' || resolution === 'CONFIRMED'
+    ? current?.investigatedAssetId ?? goalMessage.value?.selectedAssetId ?? null : null
+})
+const viewedAsOf = computed(() => run.value?.asOf ?? null)
+
+const registeredSources = ref<Awaited<ReturnType<typeof readReferences>>>([])
+const diagnosisModel = computed(() => buildDiagnosisViewModel({
+  run: run.value,
+  goalMessage: goalMessage.value,
+  references: registeredSources.value
+}))
+
+/** 判断选中：只切换查看焦点，零请求；换轮或结果替换时回到第一条。 */
+const selectedClaimIndex = ref<number | null>(null)
+const selectedClaimOfPage = computed(() =>
+  selectedClaimIndex.value === null ? null : diagnosisModel.value.claims[selectedClaimIndex.value] ?? null)
+const composerText = computed({
+  get: () => composeMode.value === 'investigate' ? investigationDrafts.value[investigationDraftKey.value] ?? '' : draft.value,
+  set: value => {
+    if (composeMode.value === 'investigate') investigationDrafts.value[investigationDraftKey.value] = value
+    else draft.value = value
+  }
+})
+function selectClaim(index: number): void {
+  if (index >= 0 && index < diagnosisModel.value.claims.length) selectedClaimIndex.value = index
+}
+
+/* ---------------- 所看终态轮的已登记来源 ---------------- */
+type ReferencesState = 'idle' | 'loading' | 'ready' | 'empty' | 'unavailable' | 'denied' | 'notFound' | 'error'
+const registeredReferences = computed(() => registeredSources.value.map(toReferenceView))
+const referencesState = ref<ReferencesState>('idle')
+const referencesNote = ref('')
+
+function referencesNoteOf(state: ReferencesState): string {
+  switch (state) {
+    case 'loading': return '正在读取本轮已登记来源…'
+    case 'empty': return '本轮没有已登记来源。'
+    case 'unavailable': return '所选来源不可用或已超出查看范围；其余已获准来源仍可用。'
+    case 'denied': return '无权访问本轮已登记来源。'
+    case 'notFound': return '来源不可用或无权访问（服务端不区分两者）。'
+    case 'error': return '来源读取失败，可重试；本轮诊断状态不受影响。'
+    default: return ''
+  }
+}
+
+const openedReferenceId = ref<string | null>(null)
+const openReferenceKey = ref<string | null>(null)
+let evidenceTrigger: HTMLElement | null = null
+const openedReference = computed<ReferenceView | null>(() => {
+  if (!openedReferenceId.value) return null
+  return registeredReferences.value.find((reference) => reference.referenceId === openedReferenceId.value) ?? null
+})
+
+async function loadRegisteredReferences(runId: string): Promise<void> {
+  const token = referenceReads.issue(runId)
+  referencesState.value = 'loading'
+  referencesNote.value = referencesNoteOf('loading')
+  try {
+    const loaded = await readReferences(runId)
+    if (!referenceReads.isCurrent(token, run.value?.runId)) return
+    registeredSources.value = [...new Map(loaded.map(reference => [reference.referenceId, reference])).values()]
+    referencesState.value = registeredReferences.value.length ? 'ready' : 'empty'
+  } catch (error) {
+    if (!referenceReads.isCurrent(token, run.value?.runId)) return
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) referencesState.value = 'denied'
+    else if (error instanceof ApiError && (error.status === 404 || error.code === 'NOT_FOUND_OR_DENIED')) referencesState.value = 'notFound'
+    else referencesState.value = 'error'
+  }
+  if (referencesState.value === 'denied' || referencesState.value === 'notFound') registeredSources.value = []
+  if (openedReferenceId.value && !openedReference.value) {
+    closeReference()
+    restoreFocusAfterEvidence()
+  }
+  referencesNote.value = referencesNoteOf(referencesState.value)
+}
+
+function openReference(referenceId: string): void {
+  if (!registeredReferences.value.some(reference => reference.referenceId === referenceId)) return
+  evidenceTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  openedReferenceId.value = referenceId
+  openReferenceKey.value = referenceId
+}
+function closeReference(): void {
+  const originKey = openedReferenceId.value
+  openedReferenceId.value = null
+  openReferenceKey.value = originKey
+}
+function restoreFocusAfterEvidence(restoreOrigin = true): void {
+  const trigger = evidenceTrigger
+  evidenceTrigger = null
+  void nextTick(() => {
+    const origin = restoreOrigin && trigger?.isConnected && trigger.dataset.evidenceId ? trigger : null
+    const task = document.querySelector<HTMLElement>('.pro-task-title') ?? document.querySelector<HTMLElement>('.pro-title')
+    ;(origin ?? task)?.focus?.()
+  })
+}
+
+// 切轮：旧轮来源与证据同步退出，再按所看轮读取（结果自带引用优先，否则读已登记来源）
+watch(
+  [sceneKey, () => run.value?.runId, () => run.value?.status],
+  () => {
+    referenceReads.issue('')
+    registeredSources.value = []
+    referencesState.value = 'idle'
+    referencesNote.value = ''
+    if (openedReferenceId.value) {
+      closeReference()
+      restoreFocusAfterEvidence(false)
+    }
+    const current = run.value
+    if (!current) return
+    if (!TERMINAL_EVENT_STATUSES.has(current.status)) return
+    void loadRegisteredReferences(current.runId)
+  },
+  { immediate: true }
 )
-const canSend = computed(() => !busy.value && draft.value.trim().length > 0)
+
+watch(
+  () => [run.value?.runId ?? '', diagnosisModel.value.claims.length, diagnosisModel.value.defaultClaimIndex] as const,
+  ([runId, count, defaultIndex], previous) => {
+    if (count <= 0) {
+      selectedClaimIndex.value = null
+      return
+    }
+    const current = selectedClaimIndex.value
+    if (previous?.[0] !== runId || current === null || current >= count) selectedClaimIndex.value = defaultIndex
+  },
+  { immediate: true }
+)
+
+// 深入调查载荷：只用所看轮选中判断的原文与已取得的合法引用
+watch(
+  [selectedClaimOfPage, run, registeredReferences],
+  () => {
+    const claim = selectedClaimOfPage.value
+    const current = run.value
+    if (!claim || !current || current.status !== 'COMPLETED') {
+      investigationPlan.value = null
+      investigationEnabled.value = false
+      return
+    }
+    const available = new Set(registeredReferences.value.map((reference) => reference.referenceId))
+    const seen = new Set<string>()
+    const contextRefs: string[] = []
+    for (const id of claim.referenceIds) {
+      if (!available.has(id) || seen.has(id) || contextRefs.length >= 10) continue
+      seen.add(id)
+      contextRefs.push(id)
+    }
+    investigationPlan.value = {
+      claimText: claim.text,
+      category: diagnosisModel.value.category ?? 'KNOWLEDGE',
+      contextRefs,
+      selectedAssetId: viewedAssetId.value
+    }
+    investigationEnabled.value = true
+  },
+  { immediate: true }
+)
+
+// 所看轮选中的领域 Skill：随会话/轮次变化重新读取，迟到响应按代次丢弃
+watch(
+  () => sceneKey.value + '|' + (run.value?.runId ?? ''),
+  async () => {
+    const token = skillReads.issue(sceneKey.value + '|' + (run.value?.runId ?? ''))
+    selectedSkill.value = null
+    const runId = run.value?.runId
+    if (!runId) return
+    try {
+      const skill = await readRunSkill(runId)
+      if (skillReads.isCurrent(token, sceneKey.value + '|' + (run.value?.runId ?? ''))) selectedSkill.value = skill
+    } catch {
+      if (skillReads.isCurrent(token, sceneKey.value + '|' + (run.value?.runId ?? ''))) selectedSkill.value = null
+    }
+  },
+  { immediate: true }
+)
+const skillLabel = computed(() => (selectedSkill.value ? '领域包 ' + selectedSkill.value.skillId + ' v' + selectedSkill.value.version : null))
+
+/* ---------------- SSE：一条主订阅随时间线控制器 ---------------- */
+let streamScene = 0
+const timeline = createRunTimelineController({
+  onError() {
+    const runId = timeline.snapshot().runId
+    if (runId && streamScene === sceneGeneration) {
+      errorText.value = '实时更新已断开，仍可刷新调查状态。'
+      void resyncRun(runId)
+    }
+  }
+})
+const timelineState = ref(timeline.snapshot())
+const historicalEvents = ref<RunEvent[]>([])
+const streamRunId = computed(() => activeRun.value?.runId ?? null)
+const viewingStream = computed(() => Boolean(run.value && run.value.runId === streamRunId.value
+  && run.value.runId === timelineState.value.runId))
+const timelineEvents = computed(() => viewingStream.value ? [...timelineState.value.events] : historicalEvents.value)
+const timelineLive = computed(() => viewingStream.value && timelineState.value.live)
+
+function syncTimelineView(): void {
+  timelineState.value = timeline.snapshot()
+}
+timeline.onChange(syncTimelineView)
+
+function followActive(): void {
+  streamScene = sceneGeneration
+  if (streamRunId.value) void timeline.follow(streamRunId.value)
+  else timeline.clear()
+}
+
+watch([sceneKey, streamRunId], followActive)
+watch([sceneKey, () => run.value?.runId, () => run.value?.status, streamRunId],
+  async ([conversationId, runId, , streamedRun]) => {
+    const token = eventReads.issue(conversationId + '|' + runId)
+    historicalEvents.value = []
+    if (!runId || runId === streamedRun) return
+    try {
+      const events = await readRunEvents(runId)
+      if (eventReads.isCurrent(token, sceneKey.value + '|' + run.value?.runId)) historicalEvents.value = events
+    } catch {
+      if (eventReads.isCurrent(token)) historicalEvents.value = []
+    }
+  })
+/** 已处理过的 SSE 信号（runId:seq），重放旧事件不重复回读。 */
+const handledSignals = new Set<string>()
+watch(
+  timelineState,
+  () => {
+    const current = timelineState.value.runId
+    if (!current || streamScene !== sceneGeneration || current !== streamRunId.value) return
+    for (const event of timelineState.value.events) {
+      if (event.type !== 'RUN_WAITING') continue
+      const signal = current + ':' + event.seq
+      if (handledSignals.has(signal)) continue
+      handledSignals.add(signal)
+      // 流数据只作通知：按持久 Run 回读后再改界面状态
+      void resyncRun(current)
+    }
+    const terminalSignal = current + ':terminal'
+    if (timelineState.value.terminalStatus && !handledSignals.has(terminalSignal)) {
+      handledSignals.add(terminalSignal)
+      void resyncRun(current, true)
+    }
+  },
+  { deep: false }
+)
+
+/* ---------------- 持久回读与安全轮询 ---------------- */
+function upsertRun(view: RunView): void {
+  const index = runs.value.findIndex((item) => item.runId === view.runId)
+  if (index < 0) {
+    runs.value = [...runs.value, view]
+    return
+  }
+  if (!mergeRunView(runs.value[index], view)) return
+  const next = [...runs.value]
+  next[index] = view
+  runs.value = next
+}
+
+function isCurrentScene(conversationId: string, generation: number): boolean {
+  return sceneKey.value === conversationId && sceneGeneration === generation
+}
+
+async function refresh(): Promise<void> {
+  const conversationId = conversation.value?.conversationId
+  if (!conversationId) return
+  const generation = sceneGeneration
+  const token = sessionReads.issue('detail|' + conversationId)
+  const detail = await readConversation(conversationId)
+  if (!isCurrentScene(conversationId, generation) || !sessionReads.isCurrent(token, 'detail|' + conversationId)) return
+  applyDetail(detail.runs, detail.messages, detail.conversation)
+}
+
+function applyDetail(nextRuns: RunView[], nextMessages: MessageView[], nextConversation: ConversationView): void {
+  const previous = conversation.value
+  const sameScene = previous?.conversationId === nextConversation.conversationId
+  if (!sameScene) {
+    sceneGeneration += 1
+    abortAllTracking()
+    timeline.clear()
+    handledSignals.clear()
+    pinnedRunId.value = null
+    preferredActiveRunId.value = null
+    uploadedFile.value = null
+    uploading.value = false
+    composeMode.value = 'free'
+    investigationDrafts.value = {}
+    draft.value = ''
+  }
+  if (!sameScene || nextConversation.version >= previous.version) {
+    conversation.value = nextConversation
+    messages.value = nextMessages
+  }
+  runs.value = sameScene ? mergeRunList(runs.value, nextRuns) : nextRuns
+  if (preferredActiveRunId.value && !runs.value.some((item) => item.runId === preferredActiveRunId.value
+      && !TERMINAL_EVENT_STATUSES.has(item.status))) {
+    preferredActiveRunId.value = null
+  }
+  ensureTracking()
+}
+
+/** SSE 信号触发的单轮回读：同一 Run 合并，只接受不早于已知版本的结果。 */
+async function resyncRun(runId: string, terminal = false): Promise<void> {
+  const conversationId = conversation.value?.conversationId
+  if (!conversationId) return
+  const generation = sceneGeneration
+  await scheduledReads.run(`${generation}|${runId}|${terminal}`, async () => {
+    try {
+      const view = await readRun(runId)
+      if (!isCurrentScene(conversationId, generation)) return
+      upsertRun(view)
+      await refresh()
+      void refreshHistory()
+    } catch {
+      // 回读失败不改写界面状态，等待失效时由有界轮询与手动同步兜底
+    }
+  })
+}
+
+/** 有界轮询：非终态轮一个 Run 一条跟踪通道；终态或取消后停止。 */
+function ensureTracking(): void {
+  for (const item of runs.value) {
+    if (!UNSETTLED_STATUSES.includes(item.status)) {
+      pollControllers.get(item.runId)?.abort()
+      pollControllers.delete(item.runId)
+      if (resumingRunId.value === item.runId) resumingRunId.value = null
+      continue
+    }
+    if (pollControllers.has(item.runId)) continue
+    void track(item.runId)
+  }
+}
+
+async function track(runId: string): Promise<void> {
+  if (pollControllers.has(runId)) return
+  const conversationId = conversation.value?.conversationId
+  if (!conversationId) return
+  const generation = sceneGeneration
+  const controller = new AbortController()
+  pollControllers.set(runId, controller)
+  resumingRunId.value = runId
+  try {
+    const finished = await waitForRun(runId, {
+      signal: controller.signal,
+      onUpdate: (view) => {
+        if (isCurrentScene(conversationId, generation) && !controller.signal.aborted) upsertRun(view)
+      }
+    })
+    if (!isCurrentScene(conversationId, generation) || controller.signal.aborted) return
+    upsertRun(finished)
+    await refresh()
+    void refreshHistory()
+  } catch (error) {
+    if (isCurrentScene(conversationId, generation) && !controller.signal.aborted) {
+      errorText.value = describeError(error)
+    }
+  } finally {
+    if (pollControllers.get(runId) === controller) {
+      pollControllers.delete(runId)
+      if (resumingRunId.value === runId) resumingRunId.value = null
+    }
+  }
+}
+
+const permissions = computed(() => runPermissions({
+  viewed: run.value,
+  activeRuns: targets.value.activeRuns,
+  active: activeRun.value,
+  waiting: waitingRun.value,
+  busy: busy.value,
+  hasDraft: draft.value.trim().length > 0,
+  hasReplyDraft: replyDraft.value.trim().length > 0,
+  investigationEnabled: investigationEnabled.value
+}))
+const canSend = computed(() => composeMode.value === 'investigate'
+  ? permissions.value.canInvestigate && composerText.value.trim().length > 0
+  : permissions.value.canSend && !uploading.value)
+const canInvestigate = computed(() => permissions.value.canInvestigate)
+const canCancel = computed(() => permissions.value.canCancel)
+
+const investigateTitle = computed(() => {
+  if (activeRunCount.value > 0) return '当前还有未结束的调查轮，完成后才能深入调查'
+  if (!investigationEnabled.value) return '完成一轮并选中判断后可深入调查'
+  const plan = investigationPlan.value
+  return plan && plan.contextRefs.length
+    ? `将继承 ${plan.contextRefs.length} 条关联引用开启新一轮调查`
+    : '选中判断暂无已关联引用，仍可直接深入调查'
+})
+const sendHint = computed(() => {
+  if (permissions.value.sendBlockedReason) return permissions.value.sendBlockedReason + '，输入已保留为草稿。'
+  if (unsettledActive.value) return '等待中的调查轮会继续执行，结束后再发送新的描述。'
+  if (waitingRun.value) return '请先回答上面的问题，再继续新的描述。'
+  return ''
+})
 
 function describeError(error: unknown): string {
   if (error instanceof ApiError) return `${error.code}：${error.message}`
   return error instanceof Error ? error.message : '未知错误'
 }
 
-async function refresh(): Promise<void> {
-  const conversationId = conversation.value?.conversationId
-  if (!conversationId) return
-  const detail = await readConversation(conversationId)
-  if (conversation.value?.conversationId !== conversationId) return
-  conversation.value = detail.conversation
-  messages.value = detail.messages
-  const latest = detail.runs.length > 0 ? detail.runs[detail.runs.length - 1] : null
-  run.value = latest
-  // 刷新/重开时如果最新 run 还在排队或执行，继续安全轮询；PG 是唯一权威，等待态也会随轮询恢复
-  if (latest && (latest.status === 'QUEUED' || latest.status === 'RUNNING')
-      && !busy.value && resumingRunId.value !== latest.runId) {
-    resumingRunId.value = latest.runId
-    try {
-      await track(latest.runId)
-    } catch (error) {
-      if (conversation.value?.conversationId === conversationId) errorText.value = describeError(error)
-    } finally {
-      if (resumingRunId.value === latest.runId) resumingRunId.value = null
-    }
-  }
-}
-
-/** 切换历史会话：PG 权威，消息、待答问题与结果都能找回，不依赖原线程。 */
+/* ---------------- 会话与轮次操作 ---------------- */
 async function openConversation(conversationId: string): Promise<void> {
-  if (!conversationId || conversationId === conversation.value?.conversationId) return
+  if (busy.value || cancelling.value) return
+  if (!conversationId || conversationId === conversation.value?.conversationId) {
+    recordDrawerOpen.value = false
+    return
+  }
   busy.value = true
   errorText.value = ''
   try {
     const detail = await readConversation(conversationId)
-    conversation.value = detail.conversation
-    messages.value = detail.messages
-    run.value = detail.runs.length ? detail.runs[detail.runs.length - 1] : null
+    applyDetail(detail.runs, detail.messages, detail.conversation)
     rememberConversation(detail.conversation.conversationId)
-    busy.value = false
-    await refresh()
+    recordDrawerOpen.value = false
   } catch (error) {
     errorText.value = describeError(error)
   } finally {
@@ -241,21 +562,39 @@ async function openConversation(conversationId: string): Promise<void> {
   }
 }
 
-async function startNewConversation(): Promise<void> {
-  busy.value = true
+function startNewConversation(): void {
+  if (busy.value || cancelling.value) return
+  sceneGeneration += 1
+  abortAllTracking()
+  timeline.clear()
+  handledSignals.clear()
+  conversation.value = null
+  messages.value = []
+  runs.value = []
+  pinnedRunId.value = null
+  preferredActiveRunId.value = null
+  selectedClaimIndex.value = null
+  uploadedFile.value = null
+  uploading.value = false
+  composeMode.value = 'free'
+  investigationDrafts.value = {}
+  draft.value = ''
+  replyDraft.value = ''
   errorText.value = ''
+  reportOpen.value = false
   try {
-    const created = await createConversation()
-    conversation.value = created
-    rememberConversation(created.conversationId)
-    messages.value = []
-    run.value = null
-    await refreshHistory()
-  } catch (error) {
-    errorText.value = describeError(error)
-  } finally {
-    busy.value = false
+    window.localStorage.removeItem(STORAGE_KEY)
+  } catch {
+    // 本地存储不可用时只影响下次自动找回，不影响本次草稿
   }
+  recordDrawerOpen.value = false
+}
+
+function abortAllTracking(): void {
+  for (const controller of pollControllers.values()) controller.abort()
+  pollControllers.clear()
+  resumingRunId.value = null
+  scheduledReads.cancelAll()
 }
 
 function rememberConversation(conversationId: string): void {
@@ -267,41 +606,113 @@ function rememberConversation(conversationId: string): void {
 }
 
 async function refreshHistory(): Promise<void> {
-  conversations.value = await listConversations()
+  const generation = ++historyGeneration
+  try {
+    const page = await listConversationSummaries({
+      q: historyQuery.value || undefined, status: historyStatus.value || undefined, limit: 20
+    })
+    if (generation !== historyGeneration) return
+    conversations.value = page.items
+    historyNextCursor.value = page.nextCursor
+    historyError.value = ''
+  } catch (error) {
+    if (generation === historyGeneration) historyError.value = describeError(error)
+  } finally {
+    if (generation === historyGeneration) historyLoaded.value = true
+  }
 }
 
-/** 轮询直到 WAITING_FOR_USER/COMPLETED/FAILED；运行结束后再从持久层刷新消息。 */
-async function track(runId: string): Promise<void> {
-  const conversationId = conversation.value?.conversationId
-  const isCurrent = () => conversation.value?.conversationId === conversationId && run.value?.runId === runId
-  const finished = await waitForRun(runId, {
-    onUpdate: (view) => {
-      if (isCurrent()) run.value = view
-    }
-  })
-  if (!isCurrent()) return
-  run.value = finished
-  await refresh()
+async function searchHistory(query: string): Promise<void> {
+  historyQuery.value = query.trim()
+  await refreshHistory()
 }
 
+async function filterHistory(status: string): Promise<void> {
+  historyStatus.value = status as typeof historyStatus.value
+  await refreshHistory()
+}
+
+async function loadMoreHistory(): Promise<void> {
+  if (!historyNextCursor.value || historyLoadingMore.value) return
+  historyLoadingMore.value = true
+  const generation = historyGeneration
+  try {
+    const page = await listConversationSummaries({
+      q: historyQuery.value || undefined, status: historyStatus.value || undefined,
+      cursor: historyNextCursor.value, limit: 20
+    })
+    if (generation !== historyGeneration) return
+    const merged = appendConversationPage(conversations.value, page)
+    conversations.value = merged.items
+    historyNextCursor.value = merged.nextCursor
+    historyError.value = ''
+  } catch (error) {
+    if (generation === historyGeneration) historyError.value = describeError(error)
+  } finally {
+    historyLoadingMore.value = false
+  }
+}
+
+const historyItems = computed(() => conversations.value.map(item => ({
+  conversationId: item.conversationId,
+  title: item.title,
+  assetId: item.investigatedAssetId,
+  runCount: item.runCount,
+  time: dateTime.format(new Date(item.updatedAt)),
+  badge: conversationBadge(item)
+})))
+
+function selectViewedRun(runId: string): void {
+  if (runId !== run.value?.runId) composeMode.value = 'free'
+  pinnedRunId.value = runId
+  if (targets.value.activeRuns.some(item => item.runId === runId)) preferredActiveRunId.value = runId
+  recordDrawerOpen.value = false
+}
+function goToActiveRun(): void {
+  if (activeRun.value) selectViewedRun(activeRun.value.runId)
+}
+function focusWaitingRun(): void {
+  if (waitingRun.value) selectViewedRun(waitingRun.value.runId)
+  void nextTick(() => (questionField.value ?? draftInput.value)?.focus())
+}
+
+/* ---------------- 上传 ---------------- */
 async function upload(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
+  input.value = ''
+  if (!file.name.toLowerCase().endsWith('.md') || !file.size || file.size > 1_000_000) {
+    errorText.value = '请选择不超过 1,000,000 字节的非空 Markdown（.md）文件。'
+    return
+  }
+  await importAttachment(async () => (await uploadMarkdown(file)).fileId)
+}
+
+async function importAttachment(start: () => Promise<string>): Promise<void> {
+  if (uploading.value) return
+  const conversationId = conversation.value?.conversationId ?? ''
+  const generation = sceneGeneration
   uploading.value = true
   errorText.value = ''
-  uploadedFile.value = null
   try {
-    const accepted = await uploadMarkdown(file)
-    uploadedFile.value = await waitForFile(accepted.fileId)
-    if (uploadedFile.value.parseStatus !== 'PARSED')
-      errorText.value = `文件导入失败（${uploadedFile.value.failureCode ?? uploadedFile.value.parseStatus}）`
+    const fileId = await start()
+    if (!isCurrentScene(conversationId, generation)) return
+    const imported = await waitForFile(fileId)
+    if (!isCurrentScene(conversationId, generation)) return
+    uploadedFile.value = imported
+    if (imported.parseStatus !== 'PARSED')
+      errorText.value = `文件导入失败（${imported.failureCode ?? imported.parseStatus}）`
   } catch (error) {
-    errorText.value = describeError(error)
+    if (isCurrentScene(conversationId, generation)) errorText.value = describeError(error)
   } finally {
-    uploading.value = false
-    input.value = ''
+    if (isCurrentScene(conversationId, generation)) uploading.value = false
   }
+}
+
+function retryAttachment(): void {
+  const file = uploadedFile.value
+  if (file?.parseStatus === 'FAILED') void importAttachment(async () => (await retryFile(file.fileId)).fileId)
 }
 
 function submitOnEnter(event: KeyboardEvent, action: () => Promise<void>): void {
@@ -310,23 +721,40 @@ function submitOnEnter(event: KeyboardEvent, action: () => Promise<void>): void 
   if (!event.repeat) void action()
 }
 
+/* ---------------- 提交：普通消息 / 深入调查 / 补答 ---------------- */
+function enterNewRun(accepted: RunView): void {
+  upsertRun(accepted)
+  pinnedRunId.value = null
+  preferredActiveRunId.value = accepted.runId
+  const generation = sceneGeneration
+  void refresh().catch(error => {
+    if (isCurrentScene(accepted.conversationId, generation)) errorText.value = describeError(error)
+  })
+  ensureTracking()
+  void refreshHistory()
+}
+
 async function submit(): Promise<void> {
-  if (!canSend.value || !conversation.value || pendingQuestion.value) return
+  if (!canSend.value) return
+  if (composeMode.value === 'investigate') return investigateCurrent()
   busy.value = true
   errorText.value = ''
   try {
     const attachments = uploadedFile.value?.parseStatus === 'PARSED' ? [uploadedFile.value.fileId] : []
+    const current = await ensureConversation(conversation.value, createConversation)
+    conversation.value = current
+    rememberConversation(current.conversationId)
     const accepted = await sendMessage(
-      conversation.value.conversationId,
-      draft.value,
+      current.conversationId,
+      composeMode.value === 'observation' ? '现场观察（用户报告，未经核实）：\n' + draft.value : draft.value,
       undefined,
       attachments,
       selectedAssetId.value || null
     )
     draft.value = ''
-    run.value = accepted
-    await refresh()
-    await track(accepted.runId)
+    uploadedFile.value = null
+    composeMode.value = 'free'
+    enterNewRun(accepted)
   } catch (error) {
     errorText.value = describeError(error)
   } finally {
@@ -334,36 +762,189 @@ async function submit(): Promise<void> {
   }
 }
 
-/** 补答：用当前 run 的 pendingQuestionId/questionVersion 关联，沿同一个 run 继续。 */
+async function investigateCurrent(): Promise<void> {
+  const plan = investigationPlan.value
+  if (!canInvestigate.value || !conversation.value || !plan || !composerText.value.trim()) return
+  const draftKey = investigationDraftKey.value
+  busy.value = true
+  errorText.value = ''
+  try {
+    const accepted = await sendMessage(
+      conversation.value.conversationId,
+      composerText.value,
+      undefined,
+      [],
+      plan.selectedAssetId,
+      plan.contextRefs
+    )
+    delete investigationDrafts.value[draftKey]
+    composeMode.value = 'free'
+    enterNewRun(accepted)
+  } catch (error) {
+    errorText.value = describeError(error)
+  } finally {
+    busy.value = false
+  }
+}
+
+/**
+ * 补答：始终使用等待目标自己的 runId/pendingQuestionId/questionVersion 三元组。
+ * 版本过期或目标不匹配时保留草稿、回读最新问题，绝不把草稿转成普通新消息。
+ */
 async function answerQuestion(): Promise<void> {
-  const question = pendingQuestion.value
-  if (busy.value || !conversation.value || !question || !run.value || replyDraft.value.trim().length === 0) return
+  const target = waitingRun.value
+  const question = target?.pendingQuestion
+  if (!permissions.value.canReply || !conversation.value || !target || !question) return
   busy.value = true
   errorText.value = ''
   try {
     const accepted = await replyToQuestion(
       conversation.value.conversationId,
-      {
-        runId: run.value.runId,
-        pendingQuestionId: question.pendingQuestionId,
-        questionVersion: question.questionVersion
-      },
+      { runId: target.runId, pendingQuestionId: question.pendingQuestionId, questionVersion: question.questionVersion },
       replyDraft.value
     )
     replyDraft.value = ''
-    run.value = accepted
-    await refresh()
-    await track(accepted.runId)
+    replyDraftOwner.value = null
+    preferredActiveRunId.value = accepted.runId
+    enterNewRun(accepted)
   } catch (error) {
-    errorText.value = describeError(error)
+    if (error instanceof ApiError && (error.code === 'STALE_OR_UNRELATED_REPLY' || error.code === 'REPLY_TARGET_REQUIRED')) {
+      errorText.value = `${error.code}：追问已变化，草稿已保留，请核对上方最新问题后重新提交`
+      try {
+        await refresh()
+      } catch {
+        // 回读失败时保留原提示，草稿不丢
+      }
+    } else {
+      errorText.value = describeError(error)
+    }
   } finally {
     busy.value = false
   }
 }
 
-onMounted(async () => {
+async function cancelActive(): Promise<void> {
+  const current = activeRun.value
+  if (!current || !canCancel.value || cancelling.value) return
+  cancelling.value = true
+  errorText.value = ''
   try {
-    // 先尝试从本地记录找回上次会话；找不回（或首次使用）就新建，历史列表始终可从服务器拉取
+    const updated = await cancelRunRequest(current.runId)
+    upsertRun(updated)
+    await refresh()
+  } catch (error) {
+    // 终态竞争：409 后以持久状态为准回读，不假设取消成功
+    if (error instanceof ApiError && error.status === 409) {
+      errorText.value = '该调查已结束或状态已变化，已为你回读最新状态'
+      try {
+        await refresh()
+      } catch {
+        // 回读失败保留原提示
+      }
+    } else {
+      errorText.value = describeError(error)
+    }
+  } finally {
+    cancelling.value = false
+  }
+}
+
+function retrySync(): void {
+  void manualSync()
+}
+
+async function manualSync(): Promise<void> {
+  errorText.value = ''
+  try {
+    await refresh()
+    followActive()
+    void refreshHistory()
+  } catch (error) {
+    errorText.value = describeError(error)
+  }
+}
+
+/* ---------------- 焦点 ---------------- */
+const draftInput = ref<HTMLTextAreaElement | null>(null)
+const questionField = ref<HTMLTextAreaElement | null>(null)
+function focusFieldNote(): void {
+  if (waitingRun.value) {
+    focusWaitingRun()
+    return
+  }
+  composeMode.value = 'observation'
+  void nextTick(() => draftInput.value?.focus())
+}
+
+function focusInvestigation(): void {
+  const plan = investigationPlan.value
+  if (!canInvestigate.value || !plan) return
+  const key = investigationDraftKey.value
+  investigationDrafts.value[key] ??= buildInvestigationMessage(plan.claimText, plan.category as never)
+  composeMode.value = 'investigate'
+  void nextTick(() => draftInput.value?.focus())
+}
+
+function openRecord(section?: string): void {
+  recordDrawerOpen.value = true
+  if (section) void nextTick(() => document.getElementById(section)?.focus())
+}
+
+function showReport(): void {
+  if (!run.value) {
+    openRecord('pro-history')
+    return
+  }
+  reportReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  reportOpen.value = true
+  recordDrawerOpen.value = false
+  void nextTick(() => document.getElementById('diagnosis-report-title')?.focus())
+}
+
+function closeReport(): void {
+  reportOpen.value = false
+  const target = reportReturnFocus
+  reportReturnFocus = null
+  void nextTick(() => {
+    if (target?.isConnected) target.focus()
+    else document.querySelector<HTMLElement>('.pro-task-title')?.focus()
+  })
+}
+
+function printReport(): void {
+  window.print()
+}
+
+watch([() => run.value?.runId, selectedClaimIndex], () => {
+  if (composeMode.value === 'investigate') composeMode.value = 'free'
+})
+
+// 补答草稿按等待目标隔离：目标变化时清空，避免把别的问题的草稿提交给新目标
+watch(
+  () => waitingRun.value?.runId ?? null,
+  (runId) => {
+    if (replyDraftOwner.value !== runId) {
+      replyDraft.value = ''
+      replyDraftOwner.value = runId
+    }
+  }
+)
+watch(
+  () => replyDraft.value,
+  () => {
+    if (waitingRun.value) replyDraftOwner.value = waitingRun.value.runId
+  }
+)
+
+const onKeydown = (event: KeyboardEvent): void => {
+  if (event.key === 'Escape' && recordDrawerOpen.value && !openedReferenceId.value) recordDrawerOpen.value = false
+}
+const onLayoutChange = (event: MediaQueryListEvent): void => { smallScreen.value = event.matches }
+
+onMounted(async () => {
+  narrowLayout.addEventListener('change', onLayoutChange)
+  window.addEventListener('keydown', onKeydown)
+  try {
     let remembered: string | null = null
     try {
       remembered = window.localStorage.getItem(STORAGE_KEY)
@@ -373,15 +954,11 @@ onMounted(async () => {
     if (remembered) {
       try {
         const detail = await readConversation(remembered)
-        conversation.value = detail.conversation
+        applyDetail(detail.runs, detail.messages, detail.conversation)
         await refresh()
       } catch {
-        conversation.value = await createConversation()
-        rememberConversation(conversation.value.conversationId)
+        startNewConversation()
       }
-    } else {
-      conversation.value = await createConversation()
-      rememberConversation(conversation.value.conversationId)
     }
     assets.value = await listAssets()
     await refreshHistory()
@@ -391,228 +968,281 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  sceneGeneration += 1
+  narrowLayout.removeEventListener('change', onLayoutChange)
+  window.removeEventListener('keydown', onKeydown)
   timeline.close()
+  abortAllTracking()
 })
 </script>
 
 <template>
-  <main class="workbench" @keydown.esc="navigationOpen = false; evidenceOpen = false">
-    <div v-if="navigationOpen || evidenceOpen" class="scrim"
-         @click="navigationOpen = false; evidenceOpen = false"></div>
+  <main class="pro-light">
+    <div v-if="smallScreen && recordDrawerOpen" class="pro-drawer-scrim" @click="recordDrawerOpen = false"></div>
 
-    <aside class="sidebar" :class="{ open: navigationOpen }" aria-label="会话导航">
-      <div class="brand">
+    <!-- 顶栏：品牌 / 模式 / 任务标题 / 查看轮与活动轮 / 操作 -->
+    <header class="pro-topbar">
+      <div class="pro-brand">
         <span class="brand-mark"><UiIcon name="spark" /></span>
-        <div><strong>DeviceTruth</strong><small>设备真相 · AI 检修助手</small></div>
-        <button class="icon-button mobile-close" aria-label="关闭导航" @click="navigationOpen = false">
-          <UiIcon name="close" />
-        </button>
+        <span>DeviceTruth</span>
       </div>
-      <button class="primary new-conversation" :disabled="busy" @click="startNewConversation">
-        <UiIcon name="plus" /> 新调查
-      </button>
-      <nav class="workspace-nav" aria-label="工作区">
-        <span class="nav-current" aria-current="page"><UiIcon name="home" /> 调查工作台</span>
+      <span class="pro-mode-chip">专业工作台</span>
+      <nav class="pro-topnav" aria-label="专业工作台导航">
+        <a href="#pro-workspace" aria-current="page">诊断工作台</a>
+        <button type="button" @click="openRecord('pro-assets')">设备资料</button>
+        <button type="button" @click="openRecord('pro-events')">调查过程</button>
+        <button type="button" @click="showReport">报告与历史</button>
       </nav>
-
-      <h2 class="side-label">历史会话</h2>
-      <p v-if="!conversations.length" class="hint">还没有历史会话。</p>
-      <div class="history-list">
-        <button v-for="item in conversations" :key="item.conversationId" class="conversation-link"
-                :data-conversation-id="item.conversationId"
-                :class="{ active: item.conversationId === conversation?.conversationId }"
-                :aria-current="item.conversationId === conversation?.conversationId ? 'true' : undefined"
-                :disabled="busy" @click="openConversation(item.conversationId)">
-          <UiIcon name="chat" />
-          <span class="history-text">
-            <strong>{{ historyTitles[item.conversationId] || (item.version === 0 ? '新调查' : '调查会话') }}</strong>
-            <small>{{ dateTime.format(new Date(item.updatedAt)) }}<template v-if="item.conversationId === conversation?.conversationId && run"> · {{ statusLabel }}</template></small>
-          </span>
-          <span v-if="item.conversationId === conversation?.conversationId && run?.status === 'COMPLETED'" class="history-check"><UiIcon name="check" /></span>
-        </button>
-      </div>
-      <div class="sidebar-foot">
-        <span class="avatar user">DT</span>
-        <div>DeviceTruth<small>设备检修工作台</small></div>
-      </div>
-    </aside>
-
-    <header class="topbar">
-      <button class="icon-button menu-button" aria-label="打开会话导航" @click="navigationOpen = true"><UiIcon name="menu" /></button>
-      <div class="top-title">
-        <div class="eyebrow">工作区 / 调查工作台</div>
-        <div class="title-row">
-          <h1 :title="taskTitle">{{ taskTitle }}</h1>
-          <span v-if="run" class="status-badge" :class="run.status">
-            <UiIcon v-if="run.status === 'COMPLETED'" name="check" /> {{ statusLabel }}
-          </span>
-        </div>
-        <div v-if="run" class="run-meta">
-          <span v-if="goalMessage?.selectedAssetId"><UiIcon name="layers" /> {{ goalMessage.selectedAssetId }}</span>
-          <span><UiIcon name="clock" /> {{ dateTime.format(new Date(run.requestedAt)) }}</span>
-          <span v-if="activeDuration">耗时 {{ activeDuration }}</span>
-          <span v-if="selectedSkill">领域包 {{ selectedSkill.skillId }} v{{ selectedSkill.version }}</span>
-          <span v-if="resumingRunId === run.runId">正在恢复调查…</span>
-        </div>
-      </div>
-      <div class="top-actions">
-        <button v-if="run && !isTerminal" class="secondary" :disabled="cancelling" @click="cancelCurrentRun">
+      <div class="pro-top-actions">
+      <span class="pro-status" :class="viewedStatusClass" data-testid="viewed-status">
+        <span class="dot"></span>{{ run ? statusLabels[run.status] ?? run.status : '未开始' }}
+        <template v-if="run && viewedIndex >= 0"> · 所看第 {{ viewedIndex + 1 }} 轮</template>
+      </span>
+      <span v-if="activeRun" class="pro-status active" data-testid="active-status">
+        <span class="dot"></span>
+        活动第 {{ runs.findIndex(item => item.runId === activeRun?.runId) + 1 }} 轮 · {{ activeLabel }}
+      </span>
+      <button v-if="activeRun && !viewedIsActive" type="button" class="secondary" @click="goToActiveRun">
+        <UiIcon name="target" /> 回到活动轮
+      </button>
+      <span v-if="activeRunCount > 1" class="pro-status waiting" role="alert" data-testid="multiple-active">
+        存在 {{ activeRunCount }} 个未决轮，请逐轮定位
+      </span>
+        <button v-if="activeRun" class="secondary" :disabled="!canCancel || cancelling" @click="cancelActive">
           {{ cancelling ? '正在取消…' : '取消调查' }}
         </button>
-        <button v-if="!busy && conversation" class="secondary" aria-label="刷新" title="刷新" @click="refresh">
-          <UiIcon name="refresh" /><span class="action-label">刷新</span>
+        <button v-if="!busy && conversation" class="secondary" aria-label="刷新" title="刷新" @click="manualSync">
+          <UiIcon name="refresh" />
         </button>
-        <button class="secondary evidence-toggle" :aria-expanded="evidenceOpen"
-                @click="evidenceOpen = !evidenceOpen"><UiIcon name="layers" /> 依据</button>
+        <button class="secondary" :aria-expanded="recordDrawerOpen" @click="recordDrawerOpen = !recordDrawerOpen">
+          <UiIcon name="menu" /> 查看调查记录
+        </button>
+        <button v-if="run" type="button" class="pro-outline pro-mobile-report" @click="showReport"><UiIcon name="file" /> 报告</button>
+        <a class="pro-outline pro-mobile-compose" :href="waitingRun ? '#pending-question-title' : '#pro-composer'">
+          <UiIcon name="chat" /> 继续调查
+        </a>
       </div>
     </header>
 
-    <section class="main-panel" aria-label="Agent 工作台">
-      <div class="main-scroll">
-        <p v-if="errorText" class="error" role="alert">{{ errorText }}</p>
-        <section class="messages" aria-label="会话消息">
-          <div v-if="!messages.length" class="empty">
+    <div class="pro-shell">
+      <!-- 桌面常驻「近期调查」；窄屏由顶部“查看调查记录”打开同一列表 -->
+      <RecentInvestigations v-if="!smallScreen" :items="historyItems" :current-id="sceneKey" :busy="busy || cancelling" :history-loaded="historyLoaded"
+                            :history-error="historyError" :query="historyQuery" :status="historyStatus" :next-cursor="historyNextCursor"
+                            :loading-more="historyLoadingMore"
+                            @create="startNewConversation" @retry="refreshHistory" @select="openConversation"
+                            @search="searchHistory" @filter="filterHistory" @load-more="loadMoreHistory">
+        <template #workspace>
+          <nav class="pro-side-nav" aria-label="工作空间">
+            <h2 class="side-label">工作空间</h2>
+            <a href="#pro-workspace" aria-current="page"><UiIcon name="target" /> 诊断工作台</a>
+            <button type="button" @click="openRecord('pro-assets')"><UiIcon name="layers" /> 设备事实</button>
+            <button type="button" @click="openRecord('pro-events')"><UiIcon name="activity" /> 调查过程</button>
+            <button type="button" @click="showReport"><UiIcon name="file" /> 报告与历史</button>
+          </nav>
+        </template>
+      </RecentInvestigations>
+
+      <section id="pro-workspace" class="pro-main">
+        <div class="main-scroll">
+          <p v-if="errorText" class="error" role="alert">
+            {{ errorText }}
+            <button type="button" class="text-button" @click="retrySync">重新同步</button>
+          </p>
+          <ProfessionalDiagnosisPage v-if="!reportOpen" :run="run"
+                                     :model="diagnosisModel"
+                                     :selected-claim="selectedClaimOfPage"
+                                     :selected-index="selectedClaimIndex"
+                                     :registered-references="registeredReferences"
+                                     :references-state="referencesState === 'idle' ? 'loading' : referencesState"
+                                     :references-note="referencesNote"
+                                     :skill-label="skillLabel"
+                                     :failure-text="describeFailure(run?.failureCode)"
+                                     @select="selectClaim"
+                                     @open-reference="openReference"
+                                     @history="openRecord('pro-history')"
+                                     @asset="openRecord('pro-assets')"
+                                     @retry-references="run && loadRegisteredReferences(run.runId)">
+            <template #empty>
+          <div class="empty pro-card">
             <div class="empty-icon"><UiIcon name="spark" /></div>
-            <h2>开始一次新调查</h2>
-            <p>描述设备现象，助手会查找资料并整理可核验的线索。</p>
+            <h1 class="pro-title" tabindex="-1">开始一次新调查</h1>
+            <p>在下方输入设备现象，助手会查找资料并整理可核验的线索。</p>
           </div>
-          <template v-for="(message, index) in shownMessages" :key="message.messageId">
-            <details v-if="index === 1 && foldedMessages.length" class="earlier-messages">
-              <summary>查看前序对话（{{ foldedMessages.length }} 条）</summary>
-              <article v-for="earlier in foldedMessages" :key="earlier.messageId" class="earlier-message">
-                <strong>{{ earlier.role === 'USER' ? '我' : 'DeviceTruth Agent' }}</strong>
-                <time :datetime="earlier.requestedAt">{{ shortTime.format(new Date(earlier.requestedAt)) }}</time>
-                <p>{{ earlier.content }}</p>
-              </article>
-            </details>
-            <article class="message" :class="{ 'report-message': message.messageId === reportMessageId }">
-              <span class="avatar" :class="{ user: message.role === 'USER' }">
-                <template v-if="message.role === 'USER'">我</template><UiIcon v-else name="spark" />
-              </span>
-              <div class="message-body">
-                <div v-if="message.role === 'ASSISTANT'" class="agent-name">DeviceTruth Agent <span>AI</span></div>
-                <p v-if="message.role === 'USER'" class="bubble">{{ message.content }}</p>
-                <p v-else-if="message.messageId !== reportMessageId">{{ message.content }}</p>
-              </div>
-              <time :datetime="message.requestedAt">{{ shortTime.format(new Date(message.requestedAt)) }}</time>
-            </article>
-          </template>
-        </section>
+            </template>
+            <template #composer>
 
-        <div v-if="run && (visibleEvents.length || !isTerminal)" class="investigation">
-          <RunTimeline :key="run.runId" :events="visibleEvents" :live="timelineLive"
-                       :status="statusLabel" :duration="activeDuration">
-            <button v-if="timelineEvents.length > visibleEvents.length" class="text-button full-events"
-                    @click="openEvidence('events')">完整记录 <UiIcon name="chevron" /></button>
-          </RunTimeline>
-        </div>
-
-        <section v-if="pendingQuestion" class="question">
-          <h2>需要补充信息</h2>
-          <p v-if="messages.at(-1)?.content !== pendingQuestion.question">{{ pendingQuestion.question }}</p>
-          <p v-if="pendingQuestion.requestedFields.length" class="hint">需要：{{ pendingQuestion.requestedFields.join('、') }}</p>
-          <textarea v-model="replyDraft" rows="3" aria-label="补充信息" placeholder="按问题补充信息"
+        <!-- 待答正文：始终展示持久 pendingQuestion，与消息记录/展开状态无关 -->
+        <section v-if="waitingRun?.pendingQuestion" ref="waitingNotice" class="question" data-testid="pending-question"
+                 :data-run-id="waitingRun.runId" role="region" aria-label="需要补充信息">
+          <h2 id="pending-question-title"><UiIcon name="warning" /> 需要补充信息</h2>
+          <p class="question-owner">
+             待答轮：第 {{ runs.findIndex(item => item.runId === waitingRun?.runId) + 1 }} 轮
+            <template v-if="waitingRun?.runId !== run?.runId">（当前正在查看其他轮次）</template>
+          </p>
+          <p class="question-text">{{ waitingRun.pendingQuestion.question }}</p>
+          <p v-if="waitingRun.pendingQuestion.requestedFields.length" class="hint">
+            需要：{{ waitingRun.pendingQuestion.requestedFields.join('、') }}
+          </p>
+          <textarea ref="questionField" v-model="replyDraft" rows="3" aria-label="补充信息" placeholder="按问题补充信息"
                     @keydown.enter="submitOnEnter($event, answerQuestion)"></textarea>
-          <button class="primary" :disabled="busy || !replyDraft.trim()" @click="answerQuestion">提交补充信息</button>
+          <button class="primary" :disabled="!permissions.canReply" @click="answerQuestion">提交补充信息</button>
         </section>
-        <DiagnosisReport v-if="run && isTerminal" :status="run.status" :result="run.result"
-                         :failure-code="run.failureCode" :failure-text="failureText"
-                         :references="references" @toggle-reference="showReference" />
-      </div>
 
-      <form class="composer-wrap" @submit.prevent="submit">
-        <div class="composer">
-          <textarea v-model="draft" rows="2" :disabled="busy || pendingQuestion !== null"
-                    aria-label="描述设备问题" placeholder="描述设备现象，或继续追问…"
-                    @keydown.enter="submitOnEnter($event, submit)"></textarea>
-          <div class="composer-actions">
-            <div class="composer-tools">
-              <label class="upload-label" :class="{ disabled: uploading }" title="添加 Markdown 资料">
-                <input class="visually-hidden" type="file" aria-label="添加 Markdown 资料"
-                       accept=".md,text/markdown" :disabled="uploading" @change="upload" />
-                <UiIcon name="attach" />
-              </label>
-              <button type="button" class="composer-tool" @click="openEvidence('assets')">
-                <UiIcon name="layers" /> {{ selectedAssetId || '关联设备' }} <UiIcon name="chevron" />
-              </button>
-              <span v-if="uploadedFile?.parseStatus === 'PARSED'" class="attachment-chip" role="status"
-                    :title="uploadedFile.originalName + '，将随下一条问题作为检索范围线索。'">
-                <UiIcon name="file" /> <span>{{ uploadedFile.originalName }}</span>
-              </span>
+        <!-- 底部操作栏：深入调查 / 补充现场观察 / 追加调查要求 -->
+        <footer id="pro-composer" class="pro-action-wrap pro-card">
+          <form class="pro-action-bar composer" @submit.prevent="submit">
+            <div class="pro-compose-head">
+              <h3>继续调查</h3>
+              <div class="pro-compose-modes" role="group" aria-label="输入模式">
+              <button type="button" :aria-pressed="composeMode === 'free'" @click="composeMode = 'free'">自由提问</button>
+            <button type="button" :aria-pressed="composeMode === 'investigate'" :disabled="!canInvestigate" :title="investigateTitle"
+                    @click="focusInvestigation">
+              <UiIcon name="target" /> 深入调查
+            </button>
+            <button type="button" :aria-pressed="composeMode === 'observation'" title="以未核实的用户报告开启新一轮调查"
+                    @click="focusFieldNote">
+              <UiIcon name="chat" /> 补充现场观察
+            </button>
+              </div>
             </div>
-            <button type="submit" class="primary" :disabled="!canSend || pendingQuestion !== null"><UiIcon name="send" /> 发送</button>
-          </div>
-          <p v-if="uploading" class="hint" role="status">正在上传并导入，请稍候。</p>
-          <p v-if="uploadedFile && uploadedFile.parseStatus !== 'PARSED'" class="hint" role="status">
+            <div class="pro-action-input">
+              <textarea ref="draftInput" v-model="composerText" rows="3" maxlength="7980"
+                        :disabled="busy || unsettledActive"
+                        aria-label="向 Agent 追加调查要求"
+                        :placeholder="composeMode === 'observation' ? '描述新增观察、读数和获取时间…' : '记录设备现象，或补充你希望调查的问题…'"
+                        @keydown.enter="submitOnEnter($event, submit)"></textarea>
+            </div>
+            <div class="pro-compose-actions">
+            <label class="upload-label" :class="{ disabled: uploading || composeMode === 'investigate' }" title="添加 Markdown 资料">
+              <input class="visually-hidden" type="file" aria-label="添加 Markdown 资料"
+                     accept=".md,text/markdown" :disabled="uploading || busy || composeMode === 'investigate'" @change="upload" />
+              <UiIcon name="attach" /> 添加附件
+            </label>
+            <label class="pro-asset-chip" title="关联设备（仅用于新的普通提交）">
+              <UiIcon name="layers" />
+              <select id="asset" v-model="selectedAssetId" :disabled="busy || composeMode === 'investigate'" aria-label="关联设备">
+                <option value="">不指定设备</option>
+                <option v-for="asset in assets" :key="asset" :value="asset">{{ asset }}</option>
+              </select>
+            </label>
+            <button type="submit" class="pro-send" :disabled="!canSend" aria-label="发送">
+              <UiIcon name="send" /> {{ composeMode === 'observation' ? '提交观察' : '提交调查' }}
+            </button>
+            </div>
+          </form>
+          <p v-if="composeMode === 'observation'" class="pro-action-hint">作为未核实的用户报告开启新一轮，不写入设备事实。可随附已导入资料。</p>
+          <p v-if="composeMode === 'investigate'" class="pro-action-hint">{{ investigateTitle }}。不随附此输入区中的文件。</p>
+          <p v-if="sendHint" class="pro-action-hint" role="status">
+            {{ sendHint }}
+            <template v-if="resumingRunId && resumingRunId === activeRun?.runId">正在恢复调查…</template>
+          </p>
+          <p v-if="uploading" class="pro-action-hint" role="status">正在上传并导入，请稍候。</p>
+          <p v-if="uploadedFile?.parseStatus === 'PARSED'" class="pro-action-hint" role="status">
+            <span class="attachment-chip"><UiIcon name="file" /> {{ uploadedFile.originalName }}（仅自由提问或观察时随附）</span>
+            <button type="button" class="text-button" :disabled="uploading || busy" @click="uploadedFile = null">移除附件</button>
+          </p>
+          <p v-if="uploadedFile && uploadedFile.parseStatus !== 'PARSED'" class="pro-action-hint" role="status">
             {{ uploadedFile.originalName }}：{{ uploadedFile.parseStatus }}
             <span v-if="uploadedFile.failureCode">（{{ uploadedFile.failureCode }}）</span>
+            <button v-if="uploadedFile.parseStatus === 'FAILED'" type="button" class="text-button" :disabled="uploading || busy" @click="retryAttachment">重试导入</button>
           </p>
-          <p v-if="pendingQuestion" class="hint">请先回答上面的问题，再继续新的描述。</p>
+          <p class="pro-disclaimer">回答可能包含 SIMULATED 演示数据。知识引用仅反映资料记载，设备现状需现场核验。</p>
+        </footer>
+            </template>
+            <template #timeline>
+              <details v-if="run" class="pro-process pro-card" :key="run.runId">
+                <summary><UiIcon name="clock" /> 本轮 Agent 调查过程 <span>{{ timelineEvents.length }} 条事件</span></summary>
+                <RunTimeline v-if="timelineEvents.length" :events="timelineEvents" :live="timelineLive"
+                             :status="statusLabels[run.status] ?? run.status" :duration="''" />
+                <p v-else class="hint">暂无运行事件。</p>
+              </details>
+            </template>
+          </ProfessionalDiagnosisPage>
+          <DiagnosisReport v-else-if="run" :run="run" :model="diagnosisModel" :references="registeredReferences"
+                           :references-state="referencesState === 'idle' ? 'loading' : referencesState"
+                           :references-note="referencesNote" :failure-text="describeFailure(run.failureCode)"
+                           @close="closeReport" @print="printReport" @open-reference="openReference"
+                           @retry-references="loadRegisteredReferences(run.runId)" />
         </div>
-        <p class="disclaimer">回答可能包含 SIMULATED 演示数据。知识引用仅反映资料记载，设备现状需现场核验。</p>
-      </form>
-    </section>
+      </section>
+    </div>
 
-    <aside class="evidence-panel" :class="{ open: evidenceOpen }" aria-label="调查依据">
-      <nav class="evidence-tabs" aria-label="依据视图">
-        <button :aria-current="evidenceTab === 'evidence' ? 'true' : undefined" @click="evidenceTab = 'evidence'">调查依据</button>
-        <button :aria-current="evidenceTab === 'assets' ? 'true' : undefined" @click="evidenceTab = 'assets'">相关资产</button>
-        <button :aria-current="evidenceTab === 'events' ? 'true' : undefined" @click="evidenceTab = 'events'">运行记录</button>
-        <button class="icon-button close-button" aria-label="关闭依据" @click="evidenceOpen = false"><UiIcon name="close" /></button>
-      </nav>
-      <div class="evidence-scroll">
-        <template v-if="evidenceTab === 'evidence'">
-          <section class="evidence-card">
-            <h2><UiIcon name="link" /> 本次涉及的关键资料 <small v-if="sources.length">{{ sources.length }} 项</small></h2>
-            <p v-if="!sources.length" class="hint">本次调查暂无已登记的引用资料。</p>
-            <button v-for="source in sources" :key="source.referenceId" class="source-entry" @click="showReference(source.referenceId)">
-              <span class="source-icon"><UiIcon name="file" /></span>
-              <span><strong>{{ source.title }}</strong><small>版本 {{ source.sourceVersion }} · {{ source.dataNature }}</small></span>
-              <UiIcon name="chevron" />
+    <!-- 调查记录抽屉：会话 / 轮次 / 消息 / 时间线 / 设备快照 / 已登记来源 -->
+    <aside v-if="recordDrawerOpen" class="pro-drawer open" role="complementary" aria-label="调查记录">
+      <div class="pro-drawer-head">
+        <h2><UiIcon name="menu" /> 调查记录</h2>
+        <button class="secondary" :disabled="busy" aria-label="刷新记录" @click="manualSync">
+          <UiIcon name="refresh" />
+        </button>
+        <button v-if="!smallScreen" class="secondary" :disabled="busy" @click="startNewConversation"><UiIcon name="plus" /> 新调查</button>
+        <button class="icon-button" aria-label="关闭调查记录" @click="recordDrawerOpen = false">
+          <UiIcon name="close" />
+        </button>
+      </div>
+      <div class="pro-drawer-body">
+        <RecentInvestigations v-if="smallScreen" :items="historyItems" :current-id="sceneKey" :busy="busy || cancelling" :history-loaded="historyLoaded"
+                            :history-error="historyError" :query="historyQuery" :status="historyStatus" :next-cursor="historyNextCursor"
+                            :loading-more="historyLoadingMore"
+                            @create="startNewConversation" @retry="refreshHistory" @select="openConversation"
+                            @search="searchHistory" @filter="filterHistory" @load-more="loadMoreHistory" />
+        <template v-if="run">
+          <h3 id="pro-history" tabindex="-1">调查轮次</h3>
+          <p v-if="!runs.length" class="hint">本会话还没有调查轮次。</p>
+          <nav v-else class="run-picker" aria-label="调查轮次">
+            <button v-for="(item, index) in runs" :key="item.runId" type="button" class="run-chip"
+                    :class="{ active: item.runId === run?.runId, activity: item.runId === activeRun?.runId }"
+                    :aria-pressed="item.runId === run?.runId"
+                    @click="selectViewedRun(item.runId)">
+              第 {{ index + 1 }} 轮 · {{ statusLabels[item.status] ?? item.status }}
+              <template v-if="item.runId === activeRun?.runId"> · 活动</template>
+              <template v-else-if="item.runId !== run?.runId"> · 查看</template>
             </button>
-          </section>
-          <section v-if="safetyNotice" class="evidence-card caution">
-            <h2><UiIcon name="warning" /> 注意事项</h2><p>{{ safetyNotice }}</p>
-          </section>
-          <section v-if="references.length" class="evidence-card">
-            <h2><UiIcon name="file" /> 引用摘录（{{ references.length }}）</h2>
-            <div v-for="reference in references" :id="'reference-' + reference.referenceId" :key="reference.referenceId"
-                 class="reference" :class="{ expanded: openReferenceId === reference.referenceId }">
-              <button :aria-expanded="openReferenceId === reference.referenceId"
-                      @click="openReferenceId = openReferenceId === reference.referenceId ? null : reference.referenceId">
-                <span class="quote-mark" aria-hidden="true">“</span>
-                <span class="quote-text">{{ reference.excerpt || reference.title }}</span>
-                <UiIcon name="chevron" />
-              </button>
-              <p class="quote-source">来自 <strong>{{ reference.title }}</strong><span v-if="reference.section"> · {{ reference.section }}</span></p>
-              <p v-if="openReferenceId === reference.referenceId" class="hint quote-meta">
-                {{ reference.sourceType }} · 版本 {{ reference.sourceVersion }} · {{ reference.dataNature }}
-                <span v-if="reference.page"> · 第 {{ reference.page }} 页</span>
-              </p>
-            </div>
-          </section>
-        </template>
+          </nav>
+          <p v-if="waitingRun" class="hint">
+            <button type="button" class="text-button" @click="focusWaitingRun">
+              <UiIcon name="warning" /> 定位待答轮（第 {{ runs.findIndex(item => item.runId === waitingRun?.runId) + 1 }} 轮）
+            </button>
+          </p>
+          <p class="hint">
+            所看轮目标：{{ goalMessage?.content ?? '（不可用）' }}
+            <template v-if="viewedAssetId"> · 设备 {{ viewedAssetId }}</template>
+            · {{ formatTime(run.requestedAt) }}
+            <template v-if="run.activeDurationMs != null"> · 耗时 {{ Math.round(run.activeDurationMs / 1000) }} 秒</template>
+          </p>
 
-        <template v-else-if="evidenceTab === 'assets'">
-          <section class="evidence-card asset-picker">
-            <h2><UiIcon name="layers" /> <label for="asset">关联设备（可选）</label></h2>
-            <select id="asset" v-model="selectedAssetId" :disabled="busy">
-              <option value="">不指定设备</option>
-              <option v-for="asset in assets" :key="asset" :value="asset">{{ asset }}</option>
-            </select>
-            <p v-if="!selectedAssetId" class="hint">选择设备后查看配置和维修记录。</p>
-          </section>
-          <EvidenceComparison v-if="selectedAssetId" :asset-id="selectedAssetId" :as-of="run?.asOf ?? null" />
-        </template>
+          <h3>会话消息</h3>
+          <div v-if="!messages.length" class="hint">暂无消息。</div>
+          <article v-for="message in messages" :key="message.messageId" class="message">
+            <strong>{{ message.role === 'USER' ? '我（用户报告）' : 'DeviceTruth Agent' }}</strong>
+            <time :datetime="message.requestedAt">{{ shortTime.format(new Date(message.requestedAt)) }}</time>
+            <p v-if="message.role === 'USER'" class="bubble">{{ message.content }}</p>
+            <p v-else>{{ message.content }}</p>
+          </article>
 
-        <template v-else>
+          <h3 id="pro-events" tabindex="-1">运行时间线</h3>
           <RunTimeline v-if="timelineEvents.length" :events="timelineEvents" :live="timelineLive"
-                       :status="statusLabel" :duration="activeDuration" />
-          <section v-else class="evidence-card"><h2><UiIcon name="activity" /> 运行记录</h2><p class="hint">暂无运行事件。</p></section>
+                       :status="run ? statusLabels[run.status] ?? run.status : ''" :duration="''" />
+          <p v-else class="hint">暂无运行事件。</p>
+
+          <h3 id="pro-assets" tabindex="-1">设备快照（所看轮：{{ viewedAssetId ?? '未关联' }}）</h3>
+          <p class="hint">业务时点 {{ viewedAsOf ? formatTime(viewedAsOf) : '未返回' }}；该轮按此资产与时点查询，底部选择只影响新提交。</p>
+          <EvidenceComparison v-if="viewedAssetId" :key="(run?.runId ?? '') + '|' + viewedAssetId + '|' + (viewedAsOf ?? '')"
+                              :asset-id="viewedAssetId" :as-of="viewedAsOf" />
+          <p v-else class="hint">该轮未关联设备。</p>
+
+          <h3>本轮已登记来源（{{ registeredReferences.length }}）</h3>
+          <p class="hint">{{ referencesNote }}</p>
+          <p v-if="referencesState === 'empty'" class="hint">本轮没有已登记来源。</p>
         </template>
+        <p v-else id="pro-history" tabindex="-1" class="hint">当前会话还没有调查轮次。</p>
       </div>
     </aside>
+
+    <!-- 证据模态抽屉：三种终态共用，挂载在状态分支之外 -->
+    <EvidenceModal :open="openedReferenceId !== null && !!openedReference" :reference="openedReference"
+                   :origin-key="openReferenceKey"
+                   @close="closeReference(); restoreFocusAfterEvidence()" />
   </main>
 </template>
 
-<style scoped src="./workbench.css"></style>
+<style src="./pro.css"></style>

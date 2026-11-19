@@ -29,14 +29,27 @@ public final class PreparingToolReasoner implements GeneralReasoner {
     @Override public ActionProposal propose(Context context) { return propose(context, () -> null); }
 
     @Override public ActionProposal propose(Context context, Supplier<String> abort) {
-        var action = delegate.propose(context, abort);
-        if (abort.get() == null && action instanceof ActionProposal.CallTool call) {
+        return prepare(context, abort, delegate.propose(context, abort));
+    }
+
+    @Override public ActionProposal propose(Context context, Supplier<String> abort,
+                                            java.util.function.LongSupplier remainingMillis) {
+        return prepare(context, abort, delegate.propose(context, abort, remainingMillis));
+    }
+
+    private ActionProposal prepare(Context context, Supplier<String> abort, ActionProposal action) {
+        List<ActionProposal.CallTool> calls = action instanceof ActionProposal.CallTool call ? List.of(call)
+                : action instanceof ActionProposal.CallTools batch ? batch.calls().stream()
+                    .map(call -> new ActionProposal.CallTool(call.toolName(), call.arguments(), call.purpose())).toList()
+                : List.of();
+        for (var call : calls) {
+            if (abort.get() != null) break;
             var allowed = new HashSet<String>();
             context.tools().forEach(tool -> allowed.add(tool.name()));
             allowed.retainAll(scope.allowedTools());
             if (allowed.contains(call.toolName())) {
                 var current = new ToolContext(scope.ownerId(), scope.projectId(), scope.conversationId(), scope.runId(),
-                        scope.selectedAssetId(), scope.requestedAt(), scope.asOf(), allowed);
+                        scope.selectedAssetId(), scope.requestedAt(), scope.asOf(), allowed, scope.actorUserId(), scope.workspaceId());
                 try { preparation.accept(current, call); }
                 catch (KnowledgeException | EmbeddingException | IllegalArgumentException expected) {
                     // The normal gateway reports invalid arguments/outages; hybrid can still use BM25.

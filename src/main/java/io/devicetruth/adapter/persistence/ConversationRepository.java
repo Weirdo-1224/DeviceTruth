@@ -1,5 +1,6 @@
 package io.devicetruth.adapter.persistence;
 
+import io.devicetruth.application.agent.GeneralAgentService.ConversationSummary;
 import io.devicetruth.application.agent.GeneralAgentService.ConversationView;
 import io.devicetruth.application.agent.GeneralAgentService.MessageView;
 import io.devicetruth.application.agent.GeneralAgentService.ServerIdentity;
@@ -26,6 +27,89 @@ public final class ConversationRepository {
                 (r, n) -> new ConversationView(r.getObject("id", UUID.class), r.getLong("version"),
                         r.getTimestamp("created_at").toInstant(), r.getTimestamp("updated_at").toInstant()),
                 identity.ownerId(), identity.projectId());
+    }
+
+    public record SummaryCursor(int waitingPriority, Instant updatedAt, UUID conversationId) {}
+    public record SummaryPage(List<ConversationSummary> items, SummaryCursor nextCursor) {}
+
+    public SummaryPage summaries(ServerIdentity identity, String query, String assetId, String status,
+                                 SummaryCursor cursor, int limit) {
+        var parameters = new java.util.ArrayList<>();
+        String owner = identity.ownerId();
+        String project = identity.projectId();
+        var sql = new StringBuilder("""
+                SELECT id,updated_at,content,latest_status,subject_asset_id,run_count,active_count,waiting_count,
+                    CASE WHEN waiting_count>0 THEN 1 ELSE 0 END AS waiting_priority
+                FROM (
+                    SELECT c.id,c.updated_at,
+                        first_value(m.content) OVER (PARTITION BY c.id ORDER BY r.created_at,r.id) AS content,
+                        r.status AS latest_status,r.subject_asset_id,
+                        count(r.id) OVER (PARTITION BY c.id) AS run_count,
+                        count(r.id) FILTER (WHERE r.status IN ('QUEUED','RUNNING','WAITING_FOR_USER'))
+                            OVER (PARTITION BY c.id) AS active_count,
+                        count(r.id) FILTER (WHERE r.status='WAITING_FOR_USER')
+                            OVER (PARTITION BY c.id) AS waiting_count,
+                        row_number() OVER (PARTITION BY c.id ORDER BY r.created_at DESC,r.id DESC) AS latest_rank
+                    FROM dt_conversation c
+                    JOIN dt_agent_run r ON r.conversation_id=c.id
+                        AND r.owner_id=c.owner_id AND r.project_id=c.project_id
+                    JOIN dt_message m ON m.id=r.goal_message_id
+                        AND m.owner_id=c.owner_id AND m.project_id=c.project_id
+                    WHERE c.owner_id=? AND c.project_id=?
+                ) ranked WHERE latest_rank=1
+                """);
+        parameters.add(owner);
+        parameters.add(project);
+        if (query != null && !query.isBlank()) {
+            sql.append(" AND (position(lower(?) in lower(coalesce(content,'')))>0")
+                    .append(" OR position(lower(?) in lower(coalesce(subject_asset_id,'')))>0)");
+            parameters.add(query.strip());
+            parameters.add(query.strip());
+        }
+        if (assetId != null) {
+            sql.append(" AND subject_asset_id=?");
+            parameters.add(assetId);
+        }
+        if ("WAITING_FOR_USER".equals(status)) sql.append(" AND waiting_count>0");
+        else if ("ACTIVE".equals(status) || "RUNNING".equals(status) || "QUEUED".equals(status))
+            sql.append(" AND active_count>0");
+        else if (status != null) {
+            sql.append(" AND latest_status=?");
+            parameters.add(status);
+        }
+        sql.append(" AND 1=1");
+        if (cursor != null) {
+            sql.append(" AND ((CASE WHEN waiting_count>0 THEN 1 ELSE 0 END)<?")
+                    .append(" OR ((CASE WHEN waiting_count>0 THEN 1 ELSE 0 END)=? AND updated_at<?)")
+                    .append(" OR ((CASE WHEN waiting_count>0 THEN 1 ELSE 0 END)=? AND updated_at=? AND id<?))");
+            parameters.add(cursor.waitingPriority());
+            parameters.add(cursor.waitingPriority());
+            parameters.add(java.sql.Timestamp.from(cursor.updatedAt()));
+            parameters.add(cursor.waitingPriority());
+            parameters.add(java.sql.Timestamp.from(cursor.updatedAt()));
+            parameters.add(cursor.conversationId());
+        }
+        sql.append(" ORDER BY waiting_priority DESC,updated_at DESC,id DESC LIMIT ?");
+        parameters.add(limit + 1);
+        var rows = jdbc.query(sql.toString(), (r, n) -> {
+            SummaryCursor rowCursor = new SummaryCursor(r.getInt("waiting_priority"),
+                    r.getTimestamp("updated_at").toInstant(), r.getObject("id", UUID.class));
+            var summary = new ConversationSummary(r.getObject("id", UUID.class), title(r.getString("content")),
+                    r.getString("subject_asset_id"), r.getString("latest_status"), r.getInt("active_count"),
+                    r.getInt("waiting_count"), r.getInt("run_count"), rowCursor.updatedAt());
+            return java.util.Map.entry(summary, rowCursor);
+        }, parameters.toArray());
+        boolean hasNext = rows.size() > limit;
+        var page = hasNext ? rows.subList(0, limit) : rows;
+        return new SummaryPage(page.stream().map(java.util.Map.Entry::getKey).toList(),
+                hasNext ? page.getLast().getValue() : null);
+    }
+
+    private static String title(String content) {
+        if (content == null || content.isBlank()) return "调查会话";
+        String text = content.strip();
+        int count = text.codePointCount(0, text.length());
+        return count <= 60 ? text : text.substring(0, text.offsetByCodePoints(0, 60)) + "…";
     }
 
     public ConversationView require(ServerIdentity identity, UUID id, boolean lock) {
