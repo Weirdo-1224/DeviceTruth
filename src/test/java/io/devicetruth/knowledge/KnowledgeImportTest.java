@@ -63,7 +63,7 @@ class KnowledgeImportTest {
         otherBase = base(otherApp);
         otherProjectBase = base(otherProjectApp);
         otherProfileBase = base(otherProfileApp);
-        rest = new TestRestTemplate();
+        rest = io.devicetruth.server.AuthenticatedProductTestSupport.client(app,otherApp,otherProjectApp,otherProfileApp);
         jdbc = new JdbcTemplate(app.getBean(HikariDataSource.class));
     }
 
@@ -85,7 +85,7 @@ class KnowledgeImportTest {
 
     private static ConfigurableApplicationContext open(String owner, String project, String profileRevision) {
         return new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--logging.level.org.springframework=WARN", "--devicetruth.core.reasoner=scripted",
                 "--devicetruth.agent.worker-enabled=false",
                 "--spring.datasource.url=" + databaseBaseUrl + databaseName,

@@ -47,21 +47,41 @@ public final class GeneralAgentService {
     /** 线上合同（schemaVersion=1）；身份字段不允许出现在请求体里。 */
     public record AgentTaskInput(Integer schemaVersion, String userMessage, String selectedAssetId,
                                  List<Map<String, Object>> attachments, List<Map<String, Object>> contextRefs,
-                                 Instant asOf, Map<String, Object> replyTo) {}
+                                 Instant asOf, Map<String, Object> replyTo,
+                                 List<Map<String,Object>> discussionQuotes, Long expectedConversationVersion) {
+        public AgentTaskInput(Integer schemaVersion,String userMessage,String selectedAssetId,
+                List<Map<String,Object>> attachments,List<Map<String,Object>> contextRefs,Instant asOf,Map<String,Object> replyTo) {
+            this(schemaVersion,userMessage,selectedAssetId,attachments,contextRefs,asOf,replyTo,null,null);
+        }
+    }
     public record ConversationView(UUID conversationId, long version, Instant createdAt, Instant updatedAt) {}
     public record ConversationSummary(UUID conversationId, String title, String investigatedAssetId,
                                       String latestRunStatus, int activeRunCount, int waitingRunCount,
                                       int runCount, Instant updatedAt) {}
     public record ConversationSummaryPage(List<ConversationSummary> items, String nextCursor) {}
     public record MessageView(UUID messageId, long seq, String role, String content, String selectedAssetId,
-                              Instant requestedAt, Instant asOf) {}
+                              Instant requestedAt, Instant asOf, UUID actorUserId, List<Map<String,Object>> discussionQuotes) {
+        public MessageView(UUID messageId,long seq,String role,String content,String selectedAssetId,Instant requestedAt,Instant asOf) {
+            this(messageId,seq,role,content,selectedAssetId,requestedAt,asOf,null,List.of());
+        }
+    }
     /** 运行视图：待答问题与最终答案都从持久层读回，刷新页面不会丢状态。 */
     public record RunView(UUID runId, UUID conversationId, UUID goalMessageId, String status, long version,
                           Instant requestedAt, Instant asOf, String investigatedAssetId, String assetResolution,
                           String changedFromAssetId, String dataNature,
                           PendingQuestion pendingQuestion, AgentResult result, String failureCode,
                           Long activeDurationMs, String usageStatus,
-                          Long inputTokens, Long outputTokens, BigDecimal cost) {}
+                          Long inputTokens, Long outputTokens, BigDecimal cost,
+                          Long roundNumber, UUID initiatedByUserId, UUID executionActorUserId) {
+        public RunView(UUID runId,UUID conversationId,UUID goalMessageId,String status,long version,
+                Instant requestedAt,Instant asOf,String investigatedAssetId,String assetResolution,
+                String changedFromAssetId,String dataNature,PendingQuestion pendingQuestion,AgentResult result,
+                String failureCode,Long activeDurationMs,String usageStatus,Long inputTokens,Long outputTokens,BigDecimal cost) {
+            this(runId,conversationId,goalMessageId,status,version,requestedAt,asOf,investigatedAssetId,assetResolution,
+                changedFromAssetId,dataNature,pendingQuestion,result,failureCode,activeDurationMs,usageStatus,
+                inputTokens,outputTokens,cost,null,null,null);
+        }
+    }
     public record ConversationDetail(ConversationView conversation, List<MessageView> messages, List<RunView> runs) {}
     public static final class RequestFailure extends RuntimeException {
         private final String code;
@@ -227,6 +247,22 @@ public final class GeneralAgentService {
             return created;
         });
     }
+    public ConversationRepository.Discussion addDiscussion(UUID conversationId, String content) {
+        requireWrite();
+        if(accessScope==null) throw new RequestFailure("AUTHENTICATION_REQUIRED",401);
+        if(content==null || content.isBlank() || content.codePointCount(0,content.length())>8000 || content.indexOf('\0')>=0)
+            throw new IllegalArgumentException("Invalid discussion");
+        return transactions.execute(status -> {
+            conversations.require(identity,conversationId,true);
+            if(!runs.lockWriteAuthorization(accessScope)) throw new RequestFailure("AUTHORIZATION_REVOKED",403);
+            return conversations.addDiscussion(identity,conversationId,accessScope.actorUserId(),content);
+        });
+    }
+    public ConversationRepository.DiscussionPage discussions(UUID conversationId, long after, int limit) {
+        if(after<0 || limit<1 || limit>100) throw new IllegalArgumentException("Invalid pagination");
+        return conversations.discussions(identity,conversationId,after,limit);
+    }
+
     public List<ConversationView> list() { return conversations.list(identity); }
 
     public ConversationSummaryPage summaries(String query, String assetId, String status, String cursor, Integer limit) {
@@ -302,8 +338,10 @@ public final class GeneralAgentService {
         requireWrite();
         RunView view = transactions.execute(status -> {
             runs.load(identity, runId, true);
+            if(accessScope!=null) runs.requireCancelActor(runId,accessScope);
             if (runs.requestCancel(identity, runId, Instant.now()) != 1)
                 throw new RequestFailure("RUN_ALREADY_TERMINAL", 409);
+            if(accessScope!=null) runs.recordCancellation(runId,accessScope);
             return runs.require(identity, runId);
         });
         // 事务已提交：RUN_CANCELLED 等事件落库后才允许发布内存通知（先提交后发布）。
@@ -377,22 +415,28 @@ public final class GeneralAgentService {
                 || input.userMessage().indexOf('\0') >= 0) throw new IllegalArgumentException("Invalid message");
         if (!Integer.valueOf(1).equals(input.schemaVersion())) throw new RequestFailure("SCHEMA_VERSION_UNSUPPORTED", 400);
         if (input.selectedAssetId() != null) Checks.id(input.selectedAssetId(), "selectedAssetId");
-        List<Map<String, Object>> attachments = validatedAttachments(input.attachments());
+        List<Map<String, Object>> attachments = input.attachments();
         List<Map<String, Object>> contextRefs = validatedContextRefs(input.contextRefs());
         if (input.replyTo() != null) return reply(conversationId, requestKey, input, attachments, contextRefs);
 
         Instant now = Instant.now();
         Instant asOf = input.asOf() == null ? now : input.asOf();
         RunView run = transactions.execute(status -> {
-            conversations.require(identity, conversationId, true);
+            var currentConversation = conversations.require(identity, conversationId, true);
             if (conversations.hasRequest(identity, conversationId, requestKey))
                 throw new RequestFailure("DUPLICATE_REQUEST", 409);
+            if(accessScope!=null) {
+                if(!runs.lockWriteAuthorization(accessScope)) throw new RequestFailure("AUTHORIZATION_REVOKED",403);
+                conversations.checkSubmission(identity,conversationId,currentConversation.version(),input.expectedConversationVersion());
+            }
+            var quotes=conversations.resolveQuotes(identity,conversationId,input.discussionQuotes());
             UUID messageId = conversations.appendWithReferences(identity, conversationId, requestKey,
-                    input.userMessage(), input.selectedAssetId(), now, asOf, attachments, contextRefs);
+                    input.userMessage(), input.selectedAssetId(), now, asOf, validatedAttachments(conversationId,attachments), contextRefs);
+            conversations.saveQuotes(messageId,quotes);
             RunView created = runs.enqueue(identity, conversationId, messageId, now, asOf);
             if(accessScope!=null) runs.bindRun(created.runId(), messageId, accessScope);
             importContextRefs(contextRefs, created.runId());
-            return created;
+            return runs.require(identity,created.runId());
         });
         notifyEvents(run.runId());
         dispatch(run.runId());
@@ -415,9 +459,12 @@ public final class GeneralAgentService {
                 throw new RequestFailure("STALE_OR_UNRELATED_REPLY", 409);
             if (conversations.hasRequest(identity, conversationId, requestKey))
                 throw new RequestFailure("DUPLICATE_REQUEST", 409);
-            conversations.appendReplyWithReferences(identity, conversationId, requestKey, input.userMessage(),
+            var quotes=conversations.resolveQuotes(identity,conversationId,input.discussionQuotes());
+            UUID replyMessage=conversations.appendReplyWithReferences(identity, conversationId, requestKey, input.userMessage(),
                     input.selectedAssetId(), now, asOf, record.runId(), record.pendingQuestionId(),
-                    record.questionVersion(), attachments, contextRefs);
+                    record.questionVersion(), validatedAttachments(conversationId,attachments), contextRefs);
+            conversations.saveQuotes(replyMessage,quotes);
+            if(accessScope!=null && !runs.lockWriteAuthorization(accessScope)) throw new RequestFailure("AUTHORIZATION_REVOKED",403);
             if (input.selectedAssetId() != null)
                 runs.confirmSelectedSubject(identity, record.runId(), input.selectedAssetId(),
                         input.selectedAssetId().equals(record.selectedAssetId())
@@ -433,10 +480,12 @@ public final class GeneralAgentService {
         return run;
     }
 
-    private List<Map<String, Object>> validatedAttachments(List<Map<String, Object>> attachments) {
+    private List<Map<String, Object>> validatedAttachments(UUID conversationId,List<Map<String, Object>> attachments) {
         if (attachments == null || attachments.isEmpty()) return List.of();
         if (files == null) throw new RequestFailure("REFERENCES_NOT_AVAILABLE", 400);
-        return files.readyAttachments(identity.ownerId(), identity.projectId(), attachments);
+        var resolved=files.readyAttachments(identity.ownerId(), identity.projectId(), attachments);
+        files.requireAttachmentConversation(identity.ownerId(),identity.projectId(),conversationId,attachments);
+        return resolved;
     }
 
     private static List<Map<String, Object>> validatedContextRefs(List<Map<String, Object>> contextRefs) {
@@ -564,9 +613,9 @@ public final class GeneralAgentService {
     private AgentRunOutcome doRun(RunRecord run, long segmentStartNanos) {
         UUID runId = run.runId();
         try {
-            var messages = conversations.runContextMessages(identity, runId, run.goalMessageId()).stream()
+            var messages = conversations.executionMessages(identity, runId, run.goalMessageId()).stream()
                     .map(message -> new io.devicetruth.core.contract.AgentTaskInput.Message(message.role(),
-                            message.content(), message.attachments()))
+                            message.content(), message.attachments(),message.discussionQuotes()))
                     .toList();
             var history = conversations.recentConversationHistory(identity, run.conversationId(), run.goalMessageId())
                     .stream().map(message -> new io.devicetruth.core.contract.AgentTaskInput.Message(

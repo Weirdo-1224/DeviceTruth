@@ -90,7 +90,7 @@ class GeneralAgentFlowTest {
             statement.execute("CREATE DATABASE " + databaseName);
         }
         app = new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--logging.level.org.springframework=WARN", "--logging.level.org.springframework.jdbc=INFO",
                 "--devicetruth.core.reasoner=scripted",
                 "--spring.datasource.url=" + databaseBaseUrl + databaseName,
@@ -102,7 +102,7 @@ class GeneralAgentFlowTest {
                 // 协议链路由测试直接驱动，worker 关闭以免异步运行并发登记引用
                 "--devicetruth.agent.worker-enabled=false");
         base = "http://127.0.0.1:" + ((WebServerApplicationContext) app).getWebServer().getPort();
-        rest = new TestRestTemplate();
+        rest = io.devicetruth.server.AuthenticatedProductTestSupport.client(app);
         dataSource = app.getBean(HikariDataSource.class);
         jdbc = new JdbcTemplate(dataSource);
         gateway = app.getBean("agentCapabilityGateway", CapabilityGateway.class);

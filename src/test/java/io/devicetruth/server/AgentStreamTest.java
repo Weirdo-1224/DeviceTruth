@@ -535,7 +535,7 @@ class AgentStreamTest {
         for (JsonNode event : eventNodes) {
             Set<String> topFields = new java.util.HashSet<>();
             event.fieldNames().forEachRemaining(topFields::add);
-            assertThat(topFields).containsExactlyInAnyOrder("seq", "type", "recordedAt", "data");
+            assertThat(topFields).containsExactlyInAnyOrder("seq", "type", "recordedAt", "data", "actorUserId");
             assertThat(event.path("seq").isNumber()).isTrue();
             assertThat(event.path("type").isTextual()).isTrue();
             assertThat(Instant.parse(event.path("recordedAt").asText())).isNotNull();

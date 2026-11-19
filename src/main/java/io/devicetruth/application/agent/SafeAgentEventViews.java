@@ -13,7 +13,8 @@ import java.util.Set;
  */
 public final class SafeAgentEventViews {
     /** 公开事件：seq 为 run 内单调递增序号（从 1 开始），recordedAt 为 UTC ISO-8601。 */
-    public record PublicEvent(long seq, String type, Instant recordedAt, Map<String, Object> data) {
+    public record PublicEvent(long seq, String type, Instant recordedAt, Map<String, Object> data, java.util.UUID actorUserId) {
+        public PublicEvent(long seq,String type,Instant recordedAt,Map<String,Object> data) {this(seq,type,recordedAt,data,null);}
         public PublicEvent { data = Map.copyOf(data); }
     }
 

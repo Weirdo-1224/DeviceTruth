@@ -395,7 +395,10 @@ class GeneralAgentApiTest {
             String offlineBase = base(offline);
             conversationId = conversation(offlineBase);
             for (int i = 0; i < 105; i++)
-                submit(offlineBase, conversationId, "积压任务 " + i + "：充电中断，没有故障码，需要先查资料");
+                offline.getBean(io.devicetruth.application.agent.GeneralAgentService.class).submit(
+                    UUID.fromString(conversationId),UUID.randomUUID(),
+                    new io.devicetruth.application.agent.GeneralAgentService.AgentTaskInput(1,
+                        "积压任务 " + i + "：充电中断，没有故障码，需要先查资料",null,List.of(),List.of(),null,null));
             assertThat(queuedCount("owner-e")).isEqualTo(105);
         }
         // 2) 启动扫描必须覆盖全部遗留：默认 2 并发 + 队列 10，装不下的必须明确

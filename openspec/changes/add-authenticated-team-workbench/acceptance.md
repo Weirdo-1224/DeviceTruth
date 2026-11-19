@@ -175,3 +175,142 @@ mvn -q '-Dtest=AuthMailTest' test
 脱敏报告位于被忽略的 `outputs/validation/authenticated-real-model/report-c96da39d-263f-4b35-84f8-c30fdab28ab0.json`，保留模型事件、工具事件、结果和引用，不保存凭据或原始 Prompt。测试结束已关闭临时后端并删除本次随机库；报告可继续回读。实际收件按用户要求暂缓，未测试。
 
 下一步质量问题是围绕该类无现场资产的资料问答，定向检查模型草案与 AnswerGuard 的拒绝条件，区分正确拦截和过度拦截，再确定修复；不能把 COMPLETED 或本测试断言通过当成答案已可用。第 4 组交接需保留这一问题，不改变其协作实施范围。
+
+
+## 2026-11-19 第 4 组完成：讨论、快照、串行、补答与取消
+
+本轮仅实施 4.1–4.5，已全部勾选；OpenSpec apply 回读依次达到 12/33、13/33、14/33、15/33、16/33。第 5–8 组及独立 Guard change 未实施。接口与调用顺序详见 `discussion-api.md`。
+
+### 实现与实际链路
+
+- `ConversationRepository.addDiscussion/discussions` 使用独立表和独立分页序号，作者来自认证 scope，时间由 PG 写入；不写消息表、不改变正式调查版本、不创建 Run、知识切片或证据。HTTP GET/POST 已接当前资源空间授权。
+- 消息 schemaVersion=1 保留旧构造和字段，新增 discussionQuotes/expectedConversationVersion。服务器解析同调查的 discussionId/version，拒绝跨调查、失效版本及伪造字段，保存原文/作者/时间/USER_REPORTED_UNVERIFIED。消息回读暴露引用快照；模型收到结构化 discussionQuotes，原文不拼成指令，也不突破单消息 8000 字限制。
+- `AgentRunRepository.snapshot` 固定本 Run 的目标/追问/补答、附件 documentId/version、contextRefs、讨论快照、排查对象和时点，并追加 dt_run_input_segment。`doRun` 经 `executionMessages` 真正读取这些快照，旧基础记录/旧内部路径保留原读取兼容。新增材料不会自动进入当前段；调查上传与召回资格继续由第 5 组实现，旧 `/api/files` 知识导入用途不变。
+- 认证普通提交在会话行锁内依次查幂等键、期望版本、任一未决 Run，再解析材料、写入/enqueue，提交后 dispatch。团队必须提供期望版本，个人可省略，提供则检查；冲突 409 不换键、不排队。旧内部多未决合同保留。
+- 同轮补答沿原三元组及 CAS；双成员只有一次成功，原 Run 不增加，记录补答及 execution actor，保留 initiated actor。重启读取原执行段、排查对象和时点。
+- 取消复核当前写权和当前 execution actor/空间管理员资格；普通同事不能取消他人段。新增 RUN_CANCEL_REQUESTED 记录实际取消人，系统结束事件保留 execution actor。事件新增顶层 actorUserId UUID/null，data 仍逐类型白名单。正式消息和 Run 分别追加作者字段，不补造历史作者。
+- 确认迁移上限 V22 后追加 V23；V1–V22 不变。全部历史尝试按创建时间/id 编号，新轮在会话锁内 max+1，取消不回收轮号。运行库未升级，未部署或认领真实资料。
+
+例如甲发表“怀疑控制信号，尚未检查”时只增加讨论；乙明确引用并提交后，服务器保存这条未核实讨论和附件版本，经串行裁决创建一个 Run，再走原 TaskOrchestrator。若模型追问，任一有写权成员可竞争补答，胜者恢复同一 Run 并成为新执行段 actor；其他人不能把失败补答转成新轮。历史输入、引用、旧结果和作者持续可回读。
+
+### 实际命令及失败/修复历史
+
+环境：`mvn -version` 确认为 Maven 3.9.9 / Microsoft Java 21.0.13；授权检查 Docker 后确认 `dt-workbench-migration-test` 仅绑定 127.0.0.1:54339。所有 PG 测试使用 dt_test 和随机 devicetruth_test_ 库，未访问 54329 产品库。测试密码为 trust 实例非空测试值，不读取产品密码。
+
+```text
+mvn -q -DskipTests compile
+mvn -q -DskipTests test-compile
+mvn -q '-Dtest=InvestigationDiscussionTest,ScopedAgentRuntimeTest' test
+mvn -q '-Dtest=InvestigationDiscussionTest,ScopedAgentRuntimeTest,AgentLifecycleTest,RunRecoveryTest,AgentToolFeedbackTest,SafePublicFieldsTest,GeneralAgentApiTest,AgentStreamTest' test
+mvn -q '-Dtest=InvestigationDiscussionTest' test
+mvn -q '-Dtest=InvestigationDiscussionTest,GeneralAgentApiTest,AgentStreamTest,AgentToolFeedbackTest,SafePublicFieldsTest' test
+mvn -q '-Dtest=InvestigationDiscussionTest,ScopedAgentRuntimeTest,AgentLifecycleTest,RunRecoveryTest,AgentToolFeedbackTest,SafePublicFieldsTest,GeneralAgentApiTest,AgentStreamTest,AuthenticatedResourceTest,AccountWorkspaceMigrationTest' test
+mvn -q '-Dtest=InvestigationDiscussionTest,AuthenticatedResourceTest' test
+openspec validate add-authenticated-team-workbench --strict
+git -c core.fsmonitor=false diff --check
+```
+
+测试环境变量：DEVICETRUTH_TEST_PG_BASE_URL=jdbc:postgresql://127.0.0.1:54339/、DEVICETRUTH_TEST_PG_USERNAME=dt_test、DEVICETRUTH_TEST_PG_PASSWORD 为任意非空隔离测试值。网络/引擎访问按工具权限授权，不通过其他路径绕过拒绝。
+
+1. 首次普通沙箱 7 项：通过 0、失败 0、错误 7、跳过 0，均为端口权限 Permission denied；获授权后同命令 7/7 通过。
+2. 首轮扩展回归 106 项：通过 101、失败 2、错误 0、跳过 3。事件测试旧顶层白名单未包含新增 actorUserId；旧恢复夹具通过 HTTP 在一个认证调查积压 105 轮，触发新 CONVERSATION_BUSY。
+3. 事件测试保留严格白名单，明确增加 UUID 作者字段；积压夹具改走已有内部服务入口，仍在同调查构造 105 个遗留未决轮，原恢复/数量断言不变，没有削弱新 HTTP 串行规则。修复后定向 63 项：通过 62、失败 0、错误 0、跳过 1。
+4. 新竞争测试首轮 4 项：通过 3、失败 0、错误 1、跳过 0，原因是夹具调用不存在的 questionId()；改回 pendingQuestionId() 后补答竞争通过。
+5. 最终统一回归 116 项：通过 113、失败 0、错误 0、跳过 3。再补真实 Cookie/CSRF 讨论接口、明确同事取消拒绝/QUEUED 和 WAITING 忙碌反例，定向两类 10/10 通过。最终候选按类去重有效证据如下，共 117 项，通过 114、失败 0、错误 0、跳过 3；不是全量套件。
+
+| 测试类 | 总数 | 通过 | 失败 | 错误 | 跳过 |
+|---|---:|---:|---:|---:|---:|
+| InvestigationDiscussionTest | 5 | 5 | 0 | 0 | 0 |
+| ScopedAgentRuntimeTest | 5 | 5 | 0 | 0 | 0 |
+| AgentLifecycleTest | 18 | 18 | 0 | 0 | 0 |
+| RunRecoveryTest | 22 | 20 | 0 | 0 | 2 |
+| AgentToolFeedbackTest | 35 | 34 | 0 | 0 | 1 |
+| SafePublicFieldsTest | 5 | 5 | 0 | 0 | 0 |
+| GeneralAgentApiTest | 7 | 7 | 0 | 0 | 0 |
+| AgentStreamTest | 12 | 12 | 0 | 0 | 0 |
+| AuthenticatedResourceTest | 5 | 5 | 0 | 0 | 0 |
+| AccountWorkspaceMigrationTest | 3 | 3 | 0 | 0 | 0 |
+
+新增证据覆盖真实 PG 双服务/双成员提交竞争、同三元组补答竞争、原 Run 数量不增、重启 actor/时点、取消轮号不复用、同事取消拒绝和管理员取消、讨论分页/越权/只读、引用伪造/版本/跨调查、实际模型上下文捕获不含后加讨论及附件新版本。附件新版本反例是隔离 PG 元数据夹具，不冒充第 5 组真实上传/发布验收。HTTP 补验实际登录并使用 Cookie/CSRF，核对讨论真实作者、零 Run 副作用及显式引用回读。
+
+三项跳过：RunRecoveryTest 两项及 AgentToolFeedbackTest 一项真实模型 opt-in，均不计通过。本轮推理使用显式协议/阻塞/捕获替身、真实隔离 PG16.15；未调用外部模型或真实 embedding，非现场数据。日志位于忽略的 outputs/group4-*.log。OpenSpec strict validate 和 diff --check 均退出 0。
+
+### 尚未验收与下一入口
+
+未运行全量 Maven、CLI 打包/场景、前端构建/完整浏览器、真实 SMTP/TLS、外部模型/embedding 或现场测试；本轮不改变它们原有验收状态。前端协作接线仍属第 6 组，不能据后端测试宣称浏览器工作台完成。
+
+上一轮 deepseek-flash Run c96da39d-263f-4b35-84f8-c30fdab28ab0 的 HUMAN_REVIEW / UNCONFIRMED_FINDING 及正常 KNOWLEDGE 答案质量未通过问题仍保留，未改 Guard、未自动修复或扩大本组范围。邮件验收仍暂缓。
+
+下一入口：在另行 apply 授权下完成本 change 第 5 组调查附件/发布分层；第 5 组交付后按既定排期提示 apply 独立 improve-evidence-aware-answer-guard，再进入第 6 组接线及联合浏览器验收。本次不自动推进。
+
+
+## 2026-11-19 第 5 组完成：调查附件与显式知识发布
+
+本轮仅完成 5.1–5.4；apply 回读依次为 17/33、18/33、19/33、20/33。第 6–8 组和独立 Guard change 未推进。接口与生命周期见 `material-api.md`。沿用第四组尚未提交的工作区修改，未部署、认领或写入产品库，未推送 Git。本组不新增 Flyway：实际最大版本仍为第四组 V23，复用 V20 的文件作用域/上传者/发布表及执行段字段。
+
+### 实际实现链路
+
+1. 调查附件入口由 HttpAccess 解析真实空间。FileUploadService.uploadAttachment 在既有会话锁和成员授权检查内记录 conversation_id、uploaded_by_user_id、CONVERSATION_ATTACHMENT，文件路径仍由服务器生成。事务提交后才派发有界异步解析，回滚清理新文件。MD/TXT 使用原导入/切片/向量管线，PDF 保持 OCR_REQUIRED/PDF_NOT_SUPPORTED，不伪造正文。列表和受控原文不触发模型；只读不能上传/发布/重试。
+2. 普通提交或补答沿原 GeneralAgentService 和 snapshot，在当前执行段保存当时已解析的本调查附件 documentId/version/fileId 到 materialVersions；新附件和后来解析完成的附件不会进入当前段，下一次明确确认才纳入。显式 attachments 中跨调查 fileId 被拒绝。
+3. MaterialScope 统一用于向量/关键词候选、RRF 输入、引用登记、原文工具和 contextRefs 继承。只允许同归属的显式空间知识、已发布知识及本段附件版本。旧 source_file_id 指向 SPACE_KNOWLEDGE 的历史文档继续有效，不要求旧内部夹具补写新关联表。
+4. 发布要求标题和适用范围、PARSED/READY/切片齐备。在空间锁、成员写授权和唯一约束下，两成员同时发布只得到一条 Publication，重复请求不改首次名称、范围或作者。发布保留原附件、文档版本和数据性质，不额外调用 embedding/模型；空间知识列表不把未就绪文档显示为可检索。
+5. 成员仍能主动阅读 A 调查的附件与持久来源，但 B 的 Agent 不能因此检索或继承 A 的未发布资料。报告、来源、Skill/资产继续依赖原 Run/ToolContext 和空间授权，不增加模型调用。旧未知作者保持 null。
+6. 旧 `/api/files`、`/api/knowledge/documents` 保留显式空间知识导入。相同附件文档被明确知识导入时，增加独立知识用途关联，不改原附件归属；既有知识重复导入保留幂等。旧上传、失败重试、元数据/embedding 冲突及跨身份断言继续验证。
+
+### 执行命令与失败/修复历史
+
+Maven 3.9.9、Microsoft Java 21.0.13。测试仅使用 `DEVICETRUTH_TEST_PG_BASE_URL=jdbc:postgresql://127.0.0.1:54339/`、`DEVICETRUTH_TEST_PG_USERNAME=dt_test` 和 trust 实例非空测试密码；每套件创建/清理随机 devicetruth_test_ 库。未读取产品密码或使用 54329 产品库。
+
+```text
+mvn -version
+mvn -q -DskipTests compile
+mvn -q '-Dtest=KnowledgeSearchTest,KnowledgeImportTest,GeneralAgentFlowTest,InvestigationDiscussionTest' test
+mvn -q clean '-Dtest=InvestigationMaterialTest,KnowledgeSearchTest,KnowledgeImportTest,GeneralAgentFlowTest,InvestigationDiscussionTest' test
+mvn -q '-Dtest=KnowledgeSearchTest,KnowledgeImportTest,GeneralAgentFlowTest,InvestigationMaterialTest' test
+mvn -q '-Dtest=KnowledgeSearchTest,InvestigationMaterialTest' test
+mvn -q '-Dtest=InvestigationMaterialTest,KnowledgeSearchTest,KnowledgeImportTest,GeneralAgentFlowTest,AuthenticatedResourceTest,ResourceAuthorizationTest,InvestigationDiscussionTest,ScopedAgentRuntimeTest,RunRecoveryTest,SkillRuntimeIntegrationTest' test
+mvn -q '-Dtest=InvestigationMaterialTest,AuthenticatedResourceTest,ResourceAuthorizationTest' test
+mvn -q '-Dtest=InvestigationMaterialTest' test
+mvn -q '-Dtest=InvestigationMaterialTest,AgentReportToolTest' test
+mvn -q '-Dtest=AgentReportToolTest' test
+openspec validate add-authenticated-team-workbench --strict
+git -c core.fsmonitor=false diff --check
+```
+
+- 首轮 8 项，通过 0、失败 0、错误 8、跳过 0；生成类含 Unresolved compilation problem，ProductAuthConfiguration 反射解析 AccountService 失败。执行 Maven clean 重建生成产物后不再出现该启动问题，源码和 outputs 历史记录未删除。
+- 重建后展开 31 项，通过 9、失败 21、错误 1、跳过 0。原 KnowledgeSearchTest/KnowledgeImportTest/GeneralAgentFlowTest HTTP 夹具仍匿名，收到 401/403。迁移到已有 AuthenticatedProductTestSupport，实际 Cookie/CSRF 登录，不增产品匿名开关、不放宽原业务断言。
+- 认证迁移后 32 项，通过 31、失败 0、错误 1、跳过 0；KnowledgeSearchTest 重复添加 cookie-secure=false，属性被合并为 false,false。移除重复测试参数后修复。
+- 定向 18 项，通过 17、失败 1、错误 0、跳过 0；历史 profile 标签反例的合法文档只持有旧 source_file_id，无新 document_file 关联。资格条件保留旧显式 SPACE_KNOWLEDGE source_file_id 合同，不改变 profile 过滤断言；调查附件仍不因此获得空间知识资格。
+- 统一回归 97 项，通过 94、失败 1、错误 0、跳过 2；ResourceAuthorizationTest 正向引用继承仍在认证调查第一个 QUEUED Run 未结束时开第二轮，收到第四组规定的 409。夹具改为先明确取消第一轮、保留引用再继承，所有新引用 ID/旧引用/跨身份断言保留，不修改串行规则。
+- 最后三类补验 19 项，通过 15、失败 0、错误 4、跳过 0；新增材料测试中 AssertJ 对 TransactionTemplate 泛型结果推断歧义，生成错误类。把返回值显式接为 UUID 后，受影响 InvestigationMaterialTest 四项全部通过。
+
+- 为 5.4 补充历史附件报告/版本回读、未知作者和零额外模型调用反例，并执行原 AgentReportToolTest。首次 5 项通过 4、失败 0、错误 1、跳过 0：报告测试在局部方法里另建匿名 TestRestTemplate，未覆盖到前述夹具迁移。改用同一真实认证助手后，AgentReportToolTest 四项全部通过；报告白名单及跨身份断言未改变。
+
+### 最终有效证据（按类去重，非全量套件）
+
+| 测试类 | 总数 | 通过 | 失败 | 错误 | 跳过 |
+|---|---:|---:|---:|---:|---:|
+| InvestigationMaterialTest | 4 | 4 | 0 | 0 | 0 |
+| KnowledgeImportTest | 8 | 8 | 0 | 0 | 0 |
+| KnowledgeSearchTest | 15 | 15 | 0 | 0 | 0 |
+| GeneralAgentFlowTest | 21 | 21 | 0 | 0 | 0 |
+| AuthenticatedResourceTest | 6 | 6 | 0 | 0 | 0 |
+| ResourceAuthorizationTest | 9 | 9 | 0 | 0 | 0 |
+| InvestigationDiscussionTest | 5 | 5 | 0 | 0 | 0 |
+| ScopedAgentRuntimeTest | 5 | 5 | 0 | 0 | 0 |
+| RunRecoveryTest | 22 | 20 | 0 | 0 | 2 |
+| SkillRuntimeIntegrationTest | 3 | 3 | 0 | 0 | 0 |
+| AgentReportToolTest | 4 | 4 | 0 | 0 | 0 |
+| **合计** | **102** | **100** | **0** | **0** | **2** |
+
+两项跳过是 RunRecoveryTest 真实模型 opt-in，不计通过。OpenSpec strict validate 和 diff --check 均退出 0。
+
+新增反例实际使用真实 PG：同内容跨空间文档不串、A 未发布/B 检索三通道为空、A 本段可检索、直接原文与 contextRefs 继承绕过拒绝、运行后新增附件本段不可用/下一明确段可用、发布后 B 可召回/继承、SIMULATED 不提升、原附件继续可读、双成员同时发布只一条、READY 状态失效不展示成功、空文档失败重试不冒充成功、PDF/只读/跨调查绑定拒绝。另用真实 Cookie/CSRF 完成 TXT 调查上传→状态→原文→知识列表未发布为空→显式发布→知识列表出现，全程无 Run 副作用。历史取消 Run 的报告与来源版本实际回读通过，报告读取不产生 RUN_MODEL 事件；旧空间知识上传者仍为 null，未补造作者。
+
+协议使用明确 scripted/捕获替身及 deterministic embedding；数据库为真实隔离 PG16.15，测试资料为模拟材料，不是现场数据或真实 embedding 质量验收。日志保留在忽略的 `outputs/group5-*.log`。原第四组验收与此前真实 deepseek-flash 补验记录保留，不与本轮相加冒充单次套件。
+
+### 未验证项与下一入口
+
+本轮未运行全量 Maven/CLI 打包、前端构建或完整浏览器、真实模型/embedding、SMTP/TLS、真实现场或部署认领；未重启现有 backend/frontend，运行库未升级。前端附件和发布界面仍待第 6 组接线，不能据后端验收宣称完整浏览器产品完成。
+
+此前真实模型 HUMAN_REVIEW / UNCONFIRMED_FINDING 和正常 KNOWLEDGE 答案质量未通过问题仍未修复，本组未放宽 Guard。按照已确认排期，下一步应单独授权 apply `improve-evidence-aware-answer-guard`，完成服务端/协议/组件后再进入本 change 第 6 组及联合浏览器验收。本轮不自动切换变更。

@@ -211,6 +211,8 @@ class ResourceAuthorizationTest {
                 VALUES (?,?,?,?,?,'CONFIGURATION','CFG-CTRL-01','2026.1',now(),'SIMULATED')
                 """, sourceRefId, UUID.fromString(firstRunId), UUID.fromString(conversationId), "owner-a", "project-a");
 
+        // 新认证调查串行：先明确取消未执行的第一轮，保留其引用，再提交深入调查。
+        assertThat(post(baseA,"/api/runs/"+firstRunId+"/cancel",Map.of()).getStatusCode().value()).isEqualTo(200);
         var second = submit(baseA, "/api/conversations/" + conversationId + "/messages",
                 Map.of("schemaVersion", 1, "userMessage", "请深入调查以下判断：控制器版本异常。",
                         "contextRefs", List.of(Map.of("referenceId", sourceRefId.toString()))));

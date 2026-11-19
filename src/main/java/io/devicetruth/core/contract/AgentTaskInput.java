@@ -35,7 +35,8 @@ public record AgentTaskInput(String ownerId, String projectId, UUID conversation
     }
 
     /** 会话消息保持原文；附件是服务端核验后的结构化数据，不属于用户指令文本。 */
-    public record Message(String role, String content, List<Map<String, Object>> attachments) {
+    public record Message(String role, String content, List<Map<String, Object>> attachments, List<Map<String,Object>> discussionQuotes) {
+        public Message(String role,String content,List<Map<String,Object>> attachments) {this(role,content,attachments,List.of());}
         public Message(String role, String content) { this(role, content, List.of()); }
 
         public Message {
@@ -45,6 +46,7 @@ public record AgentTaskInput(String ownerId, String projectId, UUID conversation
             if (content.codePointCount(0, content.length()) > MAX_MESSAGE_CODE_POINTS)
                 throw new IllegalArgumentException("content too long");
             attachments = Checks.list(attachments);
+            discussionQuotes = Checks.list(discussionQuotes);
         }
     }
 

@@ -12,9 +12,10 @@ import io.devicetruth.application.agent.*;
 import static org.assertj.core.api.Assertions.*;
 class AuthenticatedResourceTest {
     private final AccountWorkspaceMigrationTest fixture=new AccountWorkspaceMigrationTest();
+    @org.junit.jupiter.api.io.TempDir java.nio.file.Path filesRoot;
     private ConfigurableApplicationContext app;private String root;private HttpClient a,b;private JdbcTemplate jdbc;
     @BeforeEach void setup() throws Exception {
-        fixture.createDatabase();app=new SpringApplicationBuilder(DeviceTruthServerApplication.class).run("--spring.profiles.active=product","--server.port=0","--devicetruth.auth.cookie-secure=false","--spring.datasource.url="+fixture.base+fixture.database,"--spring.datasource.username="+fixture.user,"--spring.datasource.password="+fixture.password,"--devicetruth.agent.worker-enabled=false","--devicetruth.agent.reasoner=scripted","--devicetruth.embedding.provider=deterministic");
+        fixture.createDatabase();app=new SpringApplicationBuilder(DeviceTruthServerApplication.class).run("--spring.profiles.active=product","--server.port=0","--devicetruth.auth.cookie-secure=false","--spring.datasource.url="+fixture.base+fixture.database,"--spring.datasource.username="+fixture.user,"--spring.datasource.password="+fixture.password,"--devicetruth.agent.worker-enabled=false","--devicetruth.agent.reasoner=scripted","--devicetruth.embedding.provider=deterministic","--devicetruth.files.root="+filesRoot);
         root="http://127.0.0.1:"+((WebServerApplicationContext)app).getWebServer().getPort();jdbc=new JdbcTemplate(app.getBean(com.zaxxer.hikari.HikariDataSource.class));a=client();b=client();
         for(var entry:Map.of(a,"a@example.com",b,"b@example.com").entrySet()) assertThat(post(entry.getKey(),"/api/auth/register",Map.of("email",entry.getValue(),"password","long-password-123","displayName","工程师")).statusCode()).isEqualTo(200);
     }
@@ -76,5 +77,41 @@ class AuthenticatedResourceTest {
             var remainder=executor.submit(()->{StringBuilder text=new StringBuilder();for(String value;(value=reader.readLine())!=null;)text.append(value);return text.toString();});
             assertThat(remainder.get(5,java.util.concurrent.TimeUnit.SECONDS)).doesNotContain("REVOKED_SECRET");
         }finally{stream.body().close();}
+    }    @Test void discussionHttpUsesRealAuthorAndExplicitQuoteWithoutImplicitRun() throws Exception {
+        String id=Json.MAPPER.readTree(post(a,"/api/conversations",Map.of()).body()).path("conversationId").asText();
+        String path="/api/conversations/"+id;
+        var response=post(a,path+"/discussions",Map.of("content","怀疑信号，尚未检查"));
+        assertThat(response.statusCode()).isEqualTo(201);
+        var discussion=Json.MAPPER.readTree(response.body());
+        assertThat(discussion.path("authorUserId").asText()).isEqualTo(Json.MAPPER.readTree(get(a,"/api/auth/me").body()).path("userId").asText());
+        assertThat(Json.MAPPER.readTree(get(a,path).body()).path("runs").size()).isZero();
+        assertThat(get(b,path+"/discussions").statusCode()).isEqualTo(404);
+        assertThat(post(a,path+"/discussions",Map.of("content","伪造","authorName","其他人")).statusCode()).isEqualTo(400);
+        assertThat(get(a,path+"/discussions?limit=1").body()).contains("怀疑信号");
+        var quote=Map.of("discussionId",discussion.path("discussionId").asText(),"version",1);
+        var run=post(a,path+"/messages",Map.of("schemaVersion",1,"userMessage","请分析","contextRefs",List.of(),"discussionQuotes",List.of(quote)));
+        assertThat(run.statusCode()).isEqualTo(202);
+        assertThat(Json.MAPPER.readTree(get(a,path).body()).path("messages").get(0).path("discussionQuotes").get(0).path("dataNature").asText()).isEqualTo("USER_REPORTED_UNVERIFIED");
     }
+    @Test void investigationAttachmentHttpKeepsOriginalAndRequiresExplicitPublication() throws Exception {
+        String id=Json.MAPPER.readTree(post(a,"/api/conversations",Map.of()).body()).path("conversationId").asText();
+        String path="/api/conversations/"+id;
+        String boundary="dt-test-boundary";
+        String multipart="--"+boundary+"\r\nContent-Disposition: form-data; name=\"file\"; filename=\"note.txt\"\r\nContent-Type: text/plain\r\n\r\nABC-789 未现场核实\r\n--"+boundary+"--\r\n";
+        var request=HttpRequest.newBuilder(URI.create(root+path+"/attachments")).header("X-CSRF-TOKEN",csrf(a)).header("Content-Type","multipart/form-data; boundary="+boundary).POST(HttpRequest.BodyPublishers.ofString(multipart)).build();
+        var uploaded=a.send(request,HttpResponse.BodyHandlers.ofString());assertThat(uploaded.statusCode()).as(uploaded.body()).isEqualTo(202);
+        String file=Json.MAPPER.readTree(uploaded.body()).path("fileId").asText();
+        for(int i=0;i<100&&!Json.MAPPER.readTree(get(a,"/api/files/"+file).body()).path("parseStatus").asText().equals("PARSED");i++)Thread.sleep(30);
+        assertThat(get(a,path+"/attachments").body()).contains(file,"CONVERSATION_ATTACHMENT");
+        assertThat(get(b,"/api/files/"+file+"/content").statusCode()).isEqualTo(404);
+        assertThat(get(a,"/api/files/"+file+"/content").body()).contains("未现场核实");
+        assertThat(Json.MAPPER.readTree(get(a,"/api/knowledge/documents").body()).size()).isZero();
+        assertThat(post(a,"/api/files/"+file+"/publications",Map.of("title","检查记录","applicability","ABC-789，未现场核实")).statusCode()).isEqualTo(200);
+        assertThat(Json.MAPPER.readTree(get(a,"/api/knowledge/documents").body()).size()).isEqualTo(1);
+        assertThat(Json.MAPPER.readTree(get(a,path).body()).path("runs").size()).isZero();
+        UUID actor=UUID.fromString(Json.MAPPER.readTree(get(a,"/api/auth/me").body()).path("userId").asText());
+        jdbc.update("UPDATE dt_workspace_member SET role='VIEWER' WHERE user_id=?",actor);
+        assertThat(post(a,"/api/files/"+file+"/publications",Map.of("title","不能发布","applicability","设备")).statusCode()).isEqualTo(403);
+    }
+
 }

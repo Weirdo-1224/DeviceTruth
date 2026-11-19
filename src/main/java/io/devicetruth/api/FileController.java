@@ -56,9 +56,38 @@ public class FileController {
         return ResponseEntity.accepted().body(files.retry(ownerId(), projectId(), fileId));
     }
 
+    @PostMapping(value="/api/conversations/{id}/attachments",consumes=MediaType.MULTIPART_FORM_DATA_VALUE)
+    ResponseEntity<FileUploadService.FileView> attachment(@PathVariable UUID id,@RequestParam("file") MultipartFile file,
+            @RequestParam(required=false) String title,@RequestParam(defaultValue="general") String domain,
+            @RequestParam(required=false) String deviceModel,@RequestParam(defaultValue="1.0") String version,
+            @RequestParam(defaultValue="SIMULATED") String dataNature) {
+        return ResponseEntity.accepted().body(files.uploadAttachment(access.current(),id,file,
+            new FileUploadService.ImportMetadata(title,domain,deviceModel,version,dataNature)));
+    }
+    @GetMapping("/api/conversations/{id}/attachments")
+    java.util.List<FileUploadService.FileView> attachments(@PathVariable UUID id,@RequestParam(defaultValue="0") int offset,@RequestParam(defaultValue="20") int limit) {
+        return files.attachments(access.current(),id,offset,limit);
+    }
+    @GetMapping("/api/files/{fileId}/content")
+    FileUploadService.FileContent content(@PathVariable UUID fileId) {return files.content(ownerId(),projectId(),fileId);}
+    public record PublicationInput(String title,String applicability) {}
+    @PostMapping("/api/files/{fileId}/publications")
+    FileUploadService.Publication publish(@PathVariable UUID fileId,@org.springframework.web.bind.annotation.RequestBody PublicationInput input) {
+        return files.publish(access.current(),fileId,input.title(),input.applicability());
+    }
+    @GetMapping("/api/knowledge/documents")
+    java.util.List<FileUploadService.KnowledgeDocument> knowledge(@RequestParam(defaultValue="0") int offset,@RequestParam(defaultValue="20") int limit) {
+        return files.knowledge(access.current(),offset,limit);
+    }
+
     @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
     ResponseEntity<?> accessFailure(org.springframework.web.server.ResponseStatusException e) {
         return ResponseEntity.status(e.getStatusCode()).body(java.util.Map.of("code", e.getReason()==null?"NOT_FOUND_OR_DENIED":e.getReason()));
+    }
+
+    @ExceptionHandler(io.devicetruth.application.agent.GeneralAgentService.RequestFailure.class)
+    ResponseEntity<ErrorResponse> requestFailure(io.devicetruth.application.agent.GeneralAgentService.RequestFailure failure) {
+        return error(failure.status(),failure.code());
     }
 
     @ExceptionHandler(KnowledgeException.class)

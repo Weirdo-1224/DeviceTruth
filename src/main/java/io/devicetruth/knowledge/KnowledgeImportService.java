@@ -98,6 +98,13 @@ public final class KnowledgeImportService {
         return importBytes(ownerId, projectId, request, bytes, sourceFileId);
     }
 
+    public ImportResult importTextFile(String owner,String project,ImportRequest request,byte[] bytes,UUID file) {
+        String text;
+        try {text=java.nio.charset.StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString();}
+        catch(java.nio.charset.CharacterCodingException e) {throw KnowledgeException.invalid("Invalid UTF-8");}
+        return importBytes(owner,project,new ImportRequest(request.title(),request.domain(),request.deviceModel(),request.version(),request.filename(),"text/plain",text,request.dataNature()),bytes,file);
+    }
+
     private ImportResult importBytes(String ownerId, String projectId, ImportRequest request, byte[] bytes,
                                      UUID sourceFileId) {
         Checks.id(ownerId, "ownerId");
@@ -111,7 +118,9 @@ public final class KnowledgeImportService {
             throw new KnowledgeException("EMBEDDING_DIMENSION_MISMATCH", 409);
         var existing = reusable(ownerId, projectId, checksum, request);
         if (existing != null) {
-            if (sourceFileId == null) return new ImportResult(existing, true);
+            if (sourceFileId == null && isKnowledge(existing.documentId())) return new ImportResult(existing,true);
+            if (sourceFileId == null) return transactions.execute(status -> reuseForFile(ownerId,projectId,
+                    ensureUploadedFile(ownerId,projectId,request,checksum,bytes.length),existing));
             return transactions.execute(status -> reuseForFile(ownerId, projectId, sourceFileId, existing));
         }
         List<KnowledgeChunker.Chunk> chunks = MARKDOWN_MIME.contains(request.mimeType())
@@ -140,7 +149,9 @@ public final class KnowledgeImportService {
                                UUID sourceFileId) {
         var existing = reusable(ownerId, projectId, checksum, request);
         if (existing != null) {
-            if (sourceFileId == null) return new ImportResult(existing, true);
+            if (sourceFileId == null && isKnowledge(existing.documentId())) return new ImportResult(existing,true);
+            if (sourceFileId == null) return reuseForFile(ownerId,projectId,
+                    ensureUploadedFile(ownerId,projectId,request,checksum,byteSize),existing);
             return reuseForFile(ownerId, projectId, sourceFileId, existing);
         }
         UUID fileId = sourceFileId == null ? ensureUploadedFile(ownerId, projectId, request, checksum, byteSize)
@@ -187,6 +198,9 @@ public final class KnowledgeImportService {
         if (updated != 1) throw KnowledgeException.notFoundOrDenied();
     }
 
+    private boolean isKnowledge(UUID document) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM dt_knowledge_document_file l JOIN dt_uploaded_file f ON f.id=l.file_id WHERE l.document_id=? AND f.usage_scope='SPACE_KNOWLEDGE')",Boolean.class,document));
+    }
     private UUID ensureUploadedFile(String ownerId, String projectId, ImportRequest request,
                                     String checksum, int byteSize) {
         UUID id = UUID.randomUUID();

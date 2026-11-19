@@ -35,7 +35,7 @@ public final class AgentRunRepository {
     public record ExpiredRun(UUID runId, UUID conversationId, long version, int attempts) {}
 
     private static final String VIEW_SQL = """
-            SELECT r.id, r.conversation_id, r.goal_message_id, r.status, r.version, r.requested_at, r.as_of,
+            SELECT r.round_number,r.initiated_by_user_id,r.execution_actor_user_id,r.id, r.conversation_id, r.goal_message_id, r.status, r.version, r.requested_at, r.as_of,
                    COALESCE(r.subject_asset_id, m.selected_asset_id) AS investigated_asset_id,
                    CASE WHEN r.subject_asset_id IS NULL AND m.selected_asset_id IS NOT NULL
                              AND r.subject_status = 'UNCONFIRMED'
@@ -62,7 +62,8 @@ public final class AgentRunRepository {
             "SIMULATED", pendingQuestion(r), answer(r), r.getString("failure_code"),
             r.getLong("active_duration_ms"), r.getString("usage_status"),
             r.getObject("input_tokens", Long.class), r.getObject("output_tokens", Long.class),
-            r.getBigDecimal("cost"));
+            r.getBigDecimal("cost"),r.getObject("round_number",Long.class),
+            r.getObject("initiated_by_user_id",UUID.class),r.getObject("execution_actor_user_id",UUID.class));
 
     private static PendingQuestion pendingQuestion(ResultSet row) throws SQLException {
         String payload = row.getString("pending_question");
@@ -106,6 +107,7 @@ public final class AgentRunRepository {
     public void bindRun(UUID run,UUID message,io.devicetruth.application.agent.AccessScope scope) {
         jdbc.update("UPDATE dt_agent_run SET initiated_by_user_id=?,execution_actor_user_id=? WHERE id=?",scope.actorUserId(),scope.actorUserId(),run);
         jdbc.update("UPDATE dt_message SET actor_user_id=? WHERE id=?",scope.actorUserId(),message);
+        jdbc.update("UPDATE dt_run_event SET actor_user_id=? WHERE run_id=? AND type='RUN_QUEUED'",scope.actorUserId(),run);
         snapshot(run,scope);
     }
     public void bindReply(UUID run,UUID key,io.devicetruth.application.agent.AccessScope scope) {
@@ -114,8 +116,33 @@ public final class AgentRunRepository {
         snapshot(run,scope);
     }
     private void snapshot(UUID run,io.devicetruth.application.agent.AccessScope scope) {
-        jdbc.update("UPDATE dt_agent_run r SET input_snapshot=(SELECT jsonb_build_object('messages',COALESCE(jsonb_agg(jsonb_build_object('id',m.id,'seq',m.seq,'content',m.content,'actor',m.actor_user_id) ORDER BY m.seq),'[]'::jsonb)) FROM dt_message m WHERE m.conversation_id=r.conversation_id) WHERE r.id=?",run);
+        jdbc.update("""
+                UPDATE dt_agent_run r SET input_snapshot=(SELECT jsonb_build_object('executionMessages',
+                    COALESCE(jsonb_agg(jsonb_build_object('id',m.id,'seq',m.seq,'role',m.role,'content',m.content,
+                        'actor',m.actor_user_id,'attachments',m.attachment_refs,'contextRefs',m.context_refs,
+                        'discussionQuotes',m.discussion_quotes) ORDER BY m.seq),'[]'::jsonb),
+                    'requestedAt',r.requested_at,'asOf',r.as_of,'selectedAssetId',r.subject_asset_id,
+                    'materialVersions',(SELECT COALESCE(jsonb_agg(jsonb_build_object('documentId',md.id,'version',md.doc_version,'fileId',mf.id)),'[]'::jsonb)
+                        FROM dt_uploaded_file mf JOIN dt_knowledge_document_file ml ON ml.file_id=mf.id
+                        JOIN dt_knowledge_document md ON md.id=ml.document_id
+                        WHERE mf.conversation_id=r.conversation_id AND mf.owner_id=r.owner_id AND mf.project_id=r.project_id
+                            AND mf.parse_status='PARSED' AND md.ingest_status='READY'))
+                FROM dt_message m WHERE m.run_id=r.id OR m.id=r.goal_message_id) WHERE r.id=?
+                """,run);
         jdbc.update("INSERT INTO dt_run_input_segment(run_id,segment_no,conversation_id,owner_id,project_id,actor_user_id,input_snapshot) SELECT id,(SELECT COALESCE(max(segment_no),0)+1 FROM dt_run_input_segment WHERE run_id=r.id),conversation_id,owner_id,project_id,execution_actor_user_id,input_snapshot FROM dt_agent_run r WHERE id=?",run);
+    }
+    public void recordCancellation(UUID run,io.devicetruth.application.agent.AccessScope scope) {
+        var record=load(scope.storageIdentity(),run,false);
+        appendEvent(scope.storageIdentity(),run,record.conversationId(),"RUN_CANCEL_REQUESTED",Map.of(),java.time.Instant.now());
+        jdbc.update("UPDATE dt_run_event SET actor_user_id=? WHERE run_id=? AND seq=(SELECT max(seq) FROM dt_run_event WHERE run_id=?)",scope.actorUserId(),run,run);
+    }
+    public void requireCancelActor(UUID run,io.devicetruth.application.agent.AccessScope scope) {
+        if(!lockWriteAuthorization(scope)) throw new io.devicetruth.application.agent.GeneralAgentService.RequestFailure("AUTHORIZATION_REVOKED",403);
+        Boolean allowed=jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM dt_agent_run r JOIN dt_workspace_member m ON m.workspace_id=?
+                    AND m.user_id=? WHERE r.id=? AND (m.role='ADMIN' OR r.execution_actor_user_id=m.user_id))
+                """,Boolean.class,scope.workspaceId(),scope.actorUserId(),run);
+        if(!Boolean.TRUE.equals(allowed)) throw new io.devicetruth.application.agent.GeneralAgentService.RequestFailure("CANCEL_NOT_ALLOWED",403);
     }
     /** 总时限（累计执行时长上限，毫秒）：入队时写入 budget.limits.maxActiveDurationMs，恢复不清零。 */
     private final long maxActiveDurationMs;
@@ -145,9 +172,10 @@ public final class AgentRunRepository {
                 + "\"inputTokens\":null,\"outputTokens\":null,\"cost\":null},\"usageStatus\":\"UNKNOWN\"}";
         jdbc.update("""
                 INSERT INTO dt_agent_run(id,conversation_id,owner_id,project_id,goal_message_id,status,
-                    requested_at,as_of,budget,created_at,updated_at,subject_asset_id,subject_status)
+                    requested_at,as_of,budget,created_at,updated_at,subject_asset_id,subject_status,round_number)
                 SELECT ?,?,?,?,?,'QUEUED',?,?,CAST(? AS jsonb),?,?,m.selected_asset_id,
-                    CASE WHEN m.selected_asset_id IS NULL THEN 'UNCONFIRMED' ELSE 'SELECTED' END
+                    CASE WHEN m.selected_asset_id IS NULL THEN 'UNCONFIRMED' ELSE 'SELECTED' END,
+                    (SELECT COALESCE(max(round_number),0)+1 FROM dt_agent_run WHERE conversation_id=m.conversation_id)
                 FROM dt_message m WHERE m.id = ?
                 """, runId, conversationId, identity.ownerId(), identity.projectId(), messageId,
                 java.sql.Timestamp.from(now), java.sql.Timestamp.from(asOf), budget,
@@ -557,9 +585,9 @@ public final class AgentRunRepository {
     private static final int EVENT_HARD_LIMIT = 5000;
 
     private static final RowMapper<io.devicetruth.application.agent.SafeAgentEventViews.PublicEvent> EVENT_MAPPER =
-            (r, n) -> io.devicetruth.application.agent.SafeAgentEventViews.fromPayload(
+            (r, n) -> new io.devicetruth.application.agent.SafeAgentEventViews.PublicEvent(
                     r.getLong("seq"), r.getString("type"), r.getTimestamp("recorded_at").toInstant(),
-                    payload(r.getString("safe_payload")));
+                    io.devicetruth.application.agent.SafeAgentEventViews.fromPayload(r.getLong("seq"),r.getString("type"),r.getTimestamp("recorded_at").toInstant(),payload(r.getString("safe_payload"))).data(),r.getObject("actor_user_id",UUID.class));
 
     /** jsonb 文本解析为字段 Map；解析失败按空载荷处理（公开视图退化为空 data，不猜测内容）。 */
     private static Map<String, Object> payload(String json) {
@@ -581,7 +609,7 @@ public final class AgentRunRepository {
         while (events.size() < capped) {
             int batchSize = Math.min(EVENT_BATCH, capped - events.size());
             var batch = jdbc.query("""
-                    SELECT seq, type, recorded_at, safe_payload::text AS safe_payload FROM dt_run_event
+                    SELECT seq, type, recorded_at, actor_user_id, safe_payload::text AS safe_payload FROM dt_run_event
                     WHERE run_id=? AND owner_id=? AND project_id=? AND seq>?
                     ORDER BY seq LIMIT ?
                     """, EVENT_MAPPER, runId, identity.ownerId(), identity.projectId(), cursor, batchSize);
@@ -616,10 +644,11 @@ public final class AgentRunRepository {
                     JOIN dt_evidence_reference source ON source.owner_id=target.owner_id
                       AND source.project_id=target.project_id
                     WHERE target.id=? AND target.owner_id=? AND target.project_id=? AND source.id=?
+                      AND (source.source_type<>'KNOWLEDGE_DOCUMENT' OR %s)
                     ON CONFLICT (run_id,owner_id,project_id,chunk_id) DO UPDATE
                     SET retrieved_at=EXCLUDED.retrieved_at
                     RETURNING id
-                    """, UUID.class, UUID.randomUUID(), java.sql.Timestamp.from(Instant.now()), targetRunId,
+                    """.formatted(io.devicetruth.knowledge.MaterialScope.allowed("target.id","source.source_id::uuid")), UUID.class, UUID.randomUUID(), java.sql.Timestamp.from(Instant.now()), targetRunId,
                     identity.ownerId(), identity.projectId(), sourceReferenceId);
         } catch (org.springframework.dao.EmptyResultDataAccessException e) {
             throw io.devicetruth.application.agent.GeneralAgentService.denied();
@@ -694,10 +723,10 @@ public final class AgentRunRepository {
         jdbc.queryForObject("SELECT id FROM dt_agent_run WHERE id=? AND owner_id=? AND project_id=? FOR NO KEY UPDATE",
                 UUID.class, runId, identity.ownerId(), identity.projectId());
         jdbc.update("""
-                INSERT INTO dt_run_event(run_id,seq,conversation_id,owner_id,project_id,type,recorded_at,safe_payload,attempt)
-                SELECT ?, COALESCE(MAX(seq),0)+1, ?,?,?,?,?,CAST(? AS jsonb),? FROM dt_run_event WHERE run_id=?
+                INSERT INTO dt_run_event(run_id,seq,conversation_id,owner_id,project_id,type,recorded_at,safe_payload,attempt,actor_user_id)
+                SELECT ?, COALESCE(MAX(seq),0)+1, ?,?,?,?,?,CAST(? AS jsonb),?,(SELECT execution_actor_user_id FROM dt_agent_run WHERE id=?) FROM dt_run_event WHERE run_id=?
                 """, runId, conversationId, identity.ownerId(), identity.projectId(), type,
-                java.sql.Timestamp.from(now), Json.write(payload), attempt, runId);
+                java.sql.Timestamp.from(now), Json.write(payload), attempt, runId, runId);
     }
 
     private int update(String sql, Object... arguments) { return jdbc.update(sql, arguments); }

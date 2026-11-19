@@ -35,3 +35,7 @@ V1–V18 不改写。V19 不回填旧归属，不创建默认账号/成员，不
 UUID 资源路由先从资源元数据取得 workspace，再调用 `resolveResource`；Header 不匹配返回 404。匿名 401、无成员资格 404、只读写入 403。`requireWrite` 重新查询成员而非信任旧 scope，因此降权/移除立即影响下一次检查。组件尚未装入 HTTP/worker，接线由 2.1、3.3–3.5 完成；原 ServerIdentity 内部构造保持不变。
 
 当前真实 PG 测试覆盖个人默认、两团队隔离、Header 与资源不匹配、匿名、成员降权与移除。角色只从成员查询返回，不存在接受客户端角色字段的入口。
+
+## V23 协作尝试轮号
+
+新增 dt_agent_run.round_number，按全部历史尝试编号，调查内唯一且非空。入队沿会话锁取 max+1，取消不回收编号。执行快照和作者的第 4 组接线已完成，见 discussion-api.md 与 acceptance.md 最新记录。

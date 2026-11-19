@@ -59,6 +59,19 @@ public class AgentConversationController {
         return ResponseEntity.accepted().location(URI.create("/api/runs/" + run.runId())).body(run);
     }
 
+    public record DiscussionInput(String content) {}
+    @PostMapping("/api/conversations/{id}/discussions")
+    ResponseEntity<io.devicetruth.adapter.persistence.ConversationRepository.Discussion> discuss(
+            @PathVariable UUID id, @RequestBody DiscussionInput input) {
+        return ResponseEntity.status(201).body(service().addDiscussion(id,input.content()));
+    }
+    @GetMapping("/api/conversations/{id}/discussions")
+    io.devicetruth.adapter.persistence.ConversationRepository.DiscussionPage discussions(
+            @PathVariable UUID id, @RequestParam(defaultValue="0") long after,
+            @RequestParam(defaultValue="20") int limit) {
+        return service().discussions(id,after,limit);
+    }
+
     @GetMapping("/api/runs/{id}")
     RunView run(@PathVariable UUID id) { return service().run(id); }
 

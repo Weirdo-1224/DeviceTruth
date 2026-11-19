@@ -153,7 +153,7 @@ public final class KnowledgeSearchService {
     }
 
     private List<HitRow> vectorCandidates(ToolContext context, KnowledgeFilters filters, String literal, int limit) {
-        StringBuilder sql = new StringBuilder(selectCandidates() + scopeSql(filters)
+        StringBuilder sql = new StringBuilder(selectCandidates() + scopeSql(filters, context)
                 + " AND 1 - (c.embedding <=> CAST(? AS vector)) >= ? ORDER BY c.embedding <=> CAST(? AS vector) LIMIT ?");
         List<Object> parameters = parameters(context, filters, literal);
         parameters.add(literal);
@@ -168,7 +168,7 @@ public final class KnowledgeSearchService {
         List<String> terms = searchTerms(query);
         if (terms.isEmpty()) return List.of();
         String match = "c.content ILIKE ? ESCAPE '\\'";
-        StringBuilder sql = new StringBuilder(selectCandidates() + scopeSql(filters) + " AND ("
+        StringBuilder sql = new StringBuilder(selectCandidates() + scopeSql(filters, context) + " AND ("
                 + String.join(" OR ", java.util.Collections.nCopies(terms.size(), match)) + ") ORDER BY ("
                 + String.join(" + ", java.util.Collections.nCopies(terms.size(),
                         "CASE WHEN " + match + " THEN 1 ELSE 0 END")) + ") DESC, c.embedding <=> CAST(? AS vector) LIMIT ?");
@@ -191,7 +191,7 @@ public final class KnowledgeSearchService {
                 """;
     }
 
-    private static String scopeSql(KnowledgeFilters filters) {
+    private static String scopeSql(KnowledgeFilters filters, ToolContext context) {
         StringBuilder sql = new StringBuilder("""
                 WHERE c.owner_id = ? AND c.project_id = ?
                   AND c.embedding_profile = ? AND d.embedding_profile = ?
@@ -199,6 +199,7 @@ public final class KnowledgeSearchService {
                   AND d.embedding_model = ? AND d.embedding_dimension = ?
                   AND d.ingest_status = 'READY'
                 """);
+        sql.append(" AND ").append(MaterialScope.allowed("?::uuid","d.id"));
         if (filters.domain() != null) sql.append(" AND d.domain = ?");
         if (filters.deviceModel() != null) sql.append(" AND d.device_model = ?");
         if (filters.documentId() != null) sql.append(" AND d.id = ?");
@@ -209,6 +210,7 @@ public final class KnowledgeSearchService {
         List<Object> parameters = new ArrayList<>(List.of(literal, context.ownerId(), context.projectId(),
                 embeddings.profile().profileVersion(), embeddings.profile().profileVersion(),
                 embeddings.profile().model(), embeddings.profile().dimension()));
+        parameters.add(context.runId());
         if (filters.domain() != null) parameters.add(filters.domain());
         if (filters.deviceModel() != null) parameters.add(filters.deviceModel());
         if (filters.documentId() != null) parameters.add(filters.documentId());
@@ -250,6 +252,7 @@ public final class KnowledgeSearchService {
 
     public Excerpt excerpt(ToolContext context, UUID documentId, UUID chunkId) {
         RunScope run = requireRun(context);
+        requireMaterial(context,documentId);
         List<Excerpt> rows = jdbc.query("""
                 SELECT r.id AS reference_id, r.source_version, r.citation_page, r.citation_section, r.data_nature,
                        r.chunk_id, c.chunk_no, c.content, c.document_id, d.title
@@ -279,6 +282,8 @@ public final class KnowledgeSearchService {
 
     public Excerpt excerptByReference(ToolContext context, UUID referenceId) {
         requireRun(context);
+        var documents=jdbc.queryForList("SELECT source_id::uuid FROM dt_evidence_reference WHERE id=? AND run_id=? AND owner_id=? AND project_id=? AND source_type='KNOWLEDGE_DOCUMENT'",UUID.class,referenceId,context.runId(),context.ownerId(),context.projectId());
+        if(!documents.isEmpty()) requireMaterial(context,documents.getFirst());
         List<Excerpt> rows = jdbc.query("""
                 SELECT r.id AS reference_id, r.source_version, r.citation_page, r.citation_section, r.data_nature,
                        r.chunk_id, c.chunk_no, c.content, c.document_id, d.title
@@ -300,6 +305,7 @@ public final class KnowledgeSearchService {
 
     private KnowledgeHit register(ToolContext context, RunScope run, Candidate candidate) {
         HitRow row = candidate.row();
+        requireMaterial(context,row.documentId());
         UUID referenceId = jdbc.queryForObject("""
                 INSERT INTO dt_evidence_reference(id,run_id,conversation_id,owner_id,project_id,source_type,
                     source_id,source_version,chunk_id,asset_id,as_of,citation_page,citation_section,
@@ -315,6 +321,11 @@ public final class KnowledgeSearchService {
                 row.page(), row.section(), row.title(), row.content(), row.similarity(), row.dataNature(),
                 candidate.vectorRank() == 0 ? null : candidate.vectorRank(),
                 candidate.keywordRank() == 0 ? null : candidate.keywordRank(), candidate.fusionScore());
+    }
+
+    private void requireMaterial(ToolContext context,UUID document) {
+        if(!Boolean.TRUE.equals(jdbc.queryForObject("SELECT "+MaterialScope.allowed("?::uuid","?::uuid"),Boolean.class,
+            context.runId(),document,document,document,document))) throw KnowledgeException.notFoundOrDenied();
     }
 
     private RunScope requireRun(ToolContext context) {

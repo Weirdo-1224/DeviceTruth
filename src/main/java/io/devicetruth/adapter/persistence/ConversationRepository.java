@@ -29,6 +29,87 @@ public final class ConversationRepository {
                 identity.ownerId(), identity.projectId());
     }
 
+    public record Discussion(UUID discussionId, int version, long seq, UUID authorUserId,
+                             String authorName, String content, Instant createdAt) {}
+    public record DiscussionPage(List<Discussion> items, Long nextCursor) {}
+
+    public Discussion addDiscussion(ServerIdentity identity, UUID conversation, UUID actor, String content) {
+        require(identity, conversation, true);
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO dt_investigation_discussion(id,conversation_id,owner_id,project_id,author_user_id,seq,content)
+                SELECT ?,?,?,?,?,COALESCE(max(seq),0)+1,? FROM dt_investigation_discussion WHERE conversation_id=?
+                """, id, conversation, identity.ownerId(), identity.projectId(), actor, content, conversation);
+        return discussion(identity, conversation, id);
+    }
+
+    private Discussion discussion(ServerIdentity identity, UUID conversation, UUID id) {
+        return jdbc.query("""
+                SELECT d.*,a.display_name FROM dt_investigation_discussion d JOIN dt_account a ON a.id=d.author_user_id
+                WHERE d.conversation_id=? AND d.owner_id=? AND d.project_id=? AND d.id=?
+                """, (r,n) -> new Discussion(r.getObject("id",UUID.class),r.getInt("version"),r.getLong("seq"),
+                    r.getObject("author_user_id",UUID.class),r.getString("display_name"),r.getString("content"),r.getTimestamp("created_at").toInstant()),
+                conversation,identity.ownerId(),identity.projectId(),id).stream().findFirst()
+                .orElseThrow(io.devicetruth.application.agent.GeneralAgentService::denied);
+    }
+
+    public DiscussionPage discussions(ServerIdentity identity, UUID conversation, long after, int limit) {
+        require(identity, conversation, false);
+        var rows=jdbc.query("""
+                SELECT d.*,a.display_name FROM dt_investigation_discussion d JOIN dt_account a ON a.id=d.author_user_id
+                WHERE d.conversation_id=? AND d.owner_id=? AND d.project_id=? AND d.seq>? ORDER BY d.seq LIMIT ?
+                """, (r,n) -> new Discussion(r.getObject("id",UUID.class),r.getInt("version"),r.getLong("seq"),
+                    r.getObject("author_user_id",UUID.class),r.getString("display_name"),r.getString("content"),r.getTimestamp("created_at").toInstant()),
+                conversation,identity.ownerId(),identity.projectId(),after,limit+1);
+        boolean more=rows.size()>limit;
+        var page=more?rows.subList(0,limit):rows;
+        return new DiscussionPage(List.copyOf(page),more?page.getLast().seq():null);
+    }
+
+    public void checkSubmission(ServerIdentity identity, UUID conversation, long current, Long expected) {
+        String kind=jdbc.queryForObject("SELECT w.kind FROM dt_conversation c JOIN dt_workspace w ON w.id=c.workspace_id WHERE c.id=?",String.class,conversation);
+        if(("TEAM".equals(kind) && expected==null) || (expected!=null && expected!=current))
+            throw new io.devicetruth.application.agent.GeneralAgentService.RequestFailure("CONVERSATION_VERSION_CONFLICT",409);
+        if(Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM dt_agent_run WHERE conversation_id=? AND status IN ('QUEUED','RUNNING','WAITING_FOR_USER'))",Boolean.class,conversation)))
+            throw new io.devicetruth.application.agent.GeneralAgentService.RequestFailure("CONVERSATION_BUSY",409);
+    }
+
+    public List<java.util.Map<String,Object>> resolveQuotes(ServerIdentity identity, UUID conversation,
+            List<java.util.Map<String,Object>> references) {
+        if(references==null) return List.of();
+        if(references.size()>10) throw new IllegalArgumentException("Too many quotes");
+        var result=new java.util.ArrayList<java.util.Map<String,Object>>();
+        for(var reference:references) {
+            if(reference==null || !reference.keySet().equals(java.util.Set.of("discussionId","version")))
+                throw new IllegalArgumentException("Invalid discussion quote");
+            var d=discussion(identity,conversation,UUID.fromString(String.valueOf(reference.get("discussionId"))));
+            if(!(reference.get("version") instanceof Number version) || version.doubleValue()!=d.version())
+                throw new io.devicetruth.application.agent.GeneralAgentService.RequestFailure("DISCUSSION_VERSION_CONFLICT",409);
+            result.add(java.util.Map.of("discussionId",d.discussionId().toString(),"version",d.version(),
+                "authorUserId",d.authorUserId().toString(),"authorName",d.authorName(),"createdAt",d.createdAt().toString(),
+                "content",d.content(),"dataNature","USER_REPORTED_UNVERIFIED"));
+        }
+        return List.copyOf(result);
+    }
+    public void saveQuotes(UUID message,List<java.util.Map<String,Object>> quotes) {
+        jdbc.update("UPDATE dt_message SET discussion_quotes=CAST(? AS jsonb) WHERE id=?",io.devicetruth.adapter.Json.write(quotes),message);
+    }
+
+    public List<ContextMessage> executionMessages(ServerIdentity identity, UUID run, UUID goal) {
+        String snapshot=jdbc.queryForObject("SELECT input_snapshot::text FROM dt_agent_run WHERE id=? AND owner_id=? AND project_id=?",String.class,run,identity.ownerId(),identity.projectId());
+        if(snapshot==null) return runContextMessages(identity,run,goal);
+        try {
+            var tree=io.devicetruth.adapter.Json.MAPPER.readTree(snapshot);
+            if(!tree.has("executionMessages")) return runContextMessages(identity,run,goal);
+            var result=new java.util.ArrayList<ContextMessage>();
+            for(var m:tree.get("executionMessages")) {
+                String content=m.path("content").asText();
+                result.add(new ContextMessage(m.path("role").asText(),content,attachments(m.path("attachments").toString()),attachments(m.path("discussionQuotes").toString())));
+            }
+            return List.copyOf(result);
+        } catch(Exception e) {throw new IllegalStateException("Invalid execution snapshot",e);}
+    }
+
     public record SummaryCursor(int waitingPriority, Instant updatedAt, UUID conversationId) {}
     public record SummaryPage(List<ConversationSummary> items, SummaryCursor nextCursor) {}
 
@@ -190,7 +271,10 @@ public final class ConversationRepository {
         return messageId;
     }
 
-    public record ContextMessage(String role, String content, List<java.util.Map<String, Object>> attachments) {}
+    public record ContextMessage(String role, String content, List<java.util.Map<String, Object>> attachments,
+            List<java.util.Map<String,Object>> discussionQuotes) {
+        public ContextMessage(String role,String content,List<java.util.Map<String,Object>> attachments) {this(role,content,attachments,List.of());}
+    }
 
     /** 目标消息、助手追问和用户补答共用同一条排序查询，附件留在各自消息上。 */
     public List<ContextMessage> runContextMessages(ServerIdentity identity, UUID runId, UUID goalMessageId) {
@@ -255,20 +339,20 @@ public final class ConversationRepository {
     /** 本 run 的消息序列：目标消息 + 挂在该 run 上的助手消息与用户补答，按 seq 排序。 */
     public List<MessageView> runMessages(ServerIdentity identity, UUID runId, UUID goalMessageId) {
         return jdbc.query("""
-                SELECT id,seq,role,content,selected_asset_id,requested_at,as_of FROM dt_message
+                SELECT id,seq,role,content,selected_asset_id,requested_at,as_of,actor_user_id,discussion_quotes FROM dt_message
                 WHERE owner_id=? AND project_id=? AND (run_id=? OR id=?)
                 ORDER BY seq
                 """,
                 (r, n) -> new MessageView(r.getObject("id", UUID.class), r.getLong("seq"), r.getString("role"),
                         r.getString("content"), r.getString("selected_asset_id"), r.getTimestamp("requested_at").toInstant(),
-                        r.getTimestamp("as_of").toInstant()),
+                        r.getTimestamp("as_of").toInstant(),r.getObject("actor_user_id",UUID.class),attachments(r.getString("discussion_quotes"))),
                 identity.ownerId(), identity.projectId(), runId, goalMessageId);
     }
 
     public List<MessageView> messages(ServerIdentity identity, UUID id) {
-        return jdbc.query("SELECT id,seq,role,content,selected_asset_id,requested_at,as_of FROM dt_message WHERE conversation_id=? AND owner_id=? AND project_id=? ORDER BY seq",
+        return jdbc.query("SELECT id,seq,role,content,selected_asset_id,requested_at,as_of,actor_user_id,discussion_quotes FROM dt_message WHERE conversation_id=? AND owner_id=? AND project_id=? ORDER BY seq",
                 (r, n) -> new MessageView(r.getObject("id", UUID.class), r.getLong("seq"), r.getString("role"),
                         r.getString("content"), r.getString("selected_asset_id"), r.getTimestamp("requested_at").toInstant(),
-                        r.getTimestamp("as_of").toInstant()), id, identity.ownerId(), identity.projectId());
+                        r.getTimestamp("as_of").toInstant(),r.getObject("actor_user_id",UUID.class),attachments(r.getString("discussion_quotes"))), id, identity.ownerId(), identity.projectId());
     }
 }

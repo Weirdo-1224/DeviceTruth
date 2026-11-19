@@ -35,10 +35,10 @@ public final class FileUploadService implements AutoCloseable {
             r.getString("checksum"), r.getInt("byte_size"), r.getString("parse_status"),
             r.getString("parse_error"), r.getObject("document_id", UUID.class),
             r.getString("title"), r.getString("doc_version"), r.getString("domain"),
-            r.getTimestamp("created_at").toInstant());
+            r.getTimestamp("created_at").toInstant(),r.getObject("uploaded_by_user_id",UUID.class),r.getObject("conversation_id",UUID.class),r.getString("usage_scope"),r.getString("import_data_nature"));
     private static final String VIEW_SQL = """
             SELECT f.id,f.original_name,f.mime,f.checksum,f.byte_size,f.parse_status,f.parse_error,
-                   d.id AS document_id,d.title,d.doc_version,d.domain,f.created_at
+                   d.id AS document_id,d.title,d.doc_version,d.domain,f.created_at,f.uploaded_by_user_id,f.conversation_id,f.usage_scope,f.import_data_nature
             FROM dt_uploaded_file f
             LEFT JOIN dt_knowledge_document_file df ON df.file_id=f.id AND df.owner_id=f.owner_id
               AND df.project_id=f.project_id
@@ -50,7 +50,7 @@ public final class FileUploadService implements AutoCloseable {
     public record ImportMetadata(String title, String domain, String deviceModel, String version, String dataNature) {}
     public record FileView(UUID fileId, String originalName, String mime, String checksum, int byteSize,
                            String parseStatus, String failureCode, UUID documentId, String title,
-                           String documentVersion, String domain, Instant createdAt) {}
+                           String documentVersion, String domain, Instant createdAt,UUID uploadedByUserId,UUID conversationId,String usageScope,String dataNature) {}
 
     private final JdbcTemplate jdbc;
     private final KnowledgeImportService imports;
@@ -77,11 +77,25 @@ public final class FileUploadService implements AutoCloseable {
     }
 
     public FileView upload(String ownerId, String projectId, MultipartFile file, ImportMetadata metadata) {
+        return upload(ownerId,projectId,file,metadata,null,null);
+    }
+    public FileView uploadAttachment(io.devicetruth.application.agent.AccessScope scope,UUID conversation,
+            MultipartFile file,ImportMetadata metadata) {
+        return transactions().execute(status->{
+            new io.devicetruth.adapter.persistence.ConversationRepository(jdbc).require(scope.storageIdentity(),conversation,true);
+            new io.devicetruth.application.agent.WorkspaceScopeResolver(jdbc).requireWrite(scope);
+            if(!new io.devicetruth.adapter.persistence.AgentRunRepository(jdbc).lockWriteAuthorization(scope))
+                throw new GeneralAgentService.RequestFailure("AUTHORIZATION_REVOKED",403);
+            return upload(scope.storageIdentity().ownerId(),scope.storageIdentity().projectId(),file,metadata,conversation,scope.actorUserId());
+        });
+    }
+    private FileView upload(String ownerId,String projectId,MultipartFile file,ImportMetadata metadata,UUID conversation,UUID actor) {
         if (file == null || file.isEmpty()) throw KnowledgeException.invalid("file is required");
         String filename = file.getOriginalFilename();
         String mime = file.getContentType() == null ? "" : file.getContentType().toLowerCase(Locale.ROOT);
+        boolean txt=filename!=null && filename.toLowerCase(Locale.ROOT).endsWith(".txt") && mime.equals("text/plain");
         boolean pdf = filename != null && filename.toLowerCase(Locale.ROOT).endsWith(".pdf");
-        if (filename == null || (!pdf && (!filename.toLowerCase(Locale.ROOT).endsWith(".md")
+        if (filename == null || (!pdf && !txt && (!filename.toLowerCase(Locale.ROOT).endsWith(".md")
                 || !MARKDOWN_MIME.contains(mime))))
             throw new KnowledgeException("UNSUPPORTED_FILE_TYPE", 415);
         if (file.getSize() > KnowledgeImportService.MAX_DOCUMENT_BYTES)
@@ -110,11 +124,11 @@ public final class FileUploadService implements AutoCloseable {
             jdbc.update("""
                     INSERT INTO dt_uploaded_file(id,owner_id,project_id,path_key,original_name,mime,checksum,byte_size,
                         parse_status,created_at,import_title,import_domain,import_device_model,import_version,
-                        import_data_nature)
-                    VALUES (?,?,?,?,?,?,?,?,'UPLOADED',?,?,?,?,?,?)
+                        import_data_nature,conversation_id,uploaded_by_user_id,usage_scope)
+                    VALUES (?,?,?,?,?,?,?,?,'UPLOADED',?,?,?,?,?,?,?,?,?)
                     """, id, ownerId, projectId, "knowledge/" + id, request.filename(), request.mimeType(), checksum,
                     bytes.length, Timestamp.from(Instant.now()), request.title(), request.domain(),
-                    request.deviceModel(), request.version(), request.dataNature());
+                    request.deviceModel(), request.version(), request.dataNature(),conversation,actor,conversation==null?"SPACE_KNOWLEDGE":"CONVERSATION_ATTACHMENT");
         } catch (RuntimeException e) {
             try { Files.deleteIfExists(target); } catch (IOException ignored) { }
             throw e;
@@ -126,7 +140,12 @@ public final class FileUploadService implements AutoCloseable {
                     + "mime='application/pdf' WHERE id=? AND owner_id=? AND project_id=?", id, ownerId, projectId);
             return require(ownerId, projectId, id);
         }
-        dispatch(ownerId, projectId, id);
+        if(org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization(){
+                @Override public void afterCommit(){dispatch(ownerId,projectId,id);}
+                @Override public void afterCompletion(int status){if(status!=STATUS_COMMITTED)try{Files.deleteIfExists(target);}catch(IOException ignored){}}
+            });
+        } else dispatch(ownerId, projectId, id);
         return require(ownerId, projectId, id);
     }
 
@@ -167,6 +186,72 @@ public final class FileUploadService implements AutoCloseable {
         return List.copyOf(validated);
     }
 
+    public List<FileView> attachments(io.devicetruth.application.agent.AccessScope scope,UUID conversation,int offset,int limit) {
+        new io.devicetruth.adapter.persistence.ConversationRepository(jdbc).require(scope.storageIdentity(),conversation,false);
+        if(offset<0 || limit<1 || limit>100) throw new IllegalArgumentException("Invalid pagination");
+        return jdbc.query(VIEW_SQL+" AND f.conversation_id=? ORDER BY f.created_at,f.id LIMIT ? OFFSET ?",MAPPER,
+            scope.storageIdentity().ownerId(),scope.storageIdentity().projectId(),conversation,limit,offset);
+    }
+    public record FileContent(UUID fileId,UUID uploadedByUserId,UUID conversationId,String usageScope,String dataNature,String content) {}
+    public FileContent content(String owner,String project,UUID file) {
+        var view=require(owner,project,file);
+        if(view.mime().equals("application/pdf")) throw new KnowledgeException("PDF_NOT_SUPPORTED",415);
+        var row=jdbc.queryForMap("SELECT path_key,uploaded_by_user_id,conversation_id,usage_scope,import_data_nature FROM dt_uploaded_file WHERE id=? AND owner_id=? AND project_id=?",file,owner,project);
+        try {
+            String content=java.nio.charset.StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(Files.readAllBytes(resolve((String)row.get("path_key"))))).toString();
+            return new FileContent(file,(UUID)row.get("uploaded_by_user_id"),(UUID)row.get("conversation_id"),(String)row.get("usage_scope"),(String)row.get("import_data_nature"),content);
+        } catch(IOException e) {throw new KnowledgeException("FILE_CONTENT_UNAVAILABLE",503);}
+    }
+
+    public void requireAttachmentConversation(String owner,String project,UUID conversation,List<Map<String,Object>> attachments) {
+        if(attachments==null) return;
+        for(var attachment:attachments) {
+            var rows=jdbc.queryForList("SELECT conversation_id FROM dt_uploaded_file WHERE id=? AND owner_id=? AND project_id=?",UUID.class,UUID.fromString(String.valueOf(attachment.get("fileId"))),owner,project);
+            if(rows.isEmpty() || (rows.getFirst()!=null && !rows.getFirst().equals(conversation))) throw KnowledgeException.notFoundOrDenied();
+        }
+    }
+    public record Publication(UUID publicationId,UUID documentId,String title,String applicability,
+            UUID publishedByUserId,UUID originalAuthorUserId,String documentVersion,String dataNature,Instant createdAt) {}
+    private org.springframework.transaction.support.TransactionTemplate transactions() {
+        return new org.springframework.transaction.support.TransactionTemplate(new org.springframework.jdbc.datasource.DataSourceTransactionManager(jdbc.getDataSource()));
+    }
+    public Publication publish(io.devicetruth.application.agent.AccessScope scope,UUID file,String title,String applicability) {
+        if(title==null || title.isBlank() || title.length()>500 || applicability==null || applicability.isBlank() || applicability.length()>2000)
+            throw new IllegalArgumentException("Title and applicability required");
+        return transactions().execute(status->{
+            var resolver=new io.devicetruth.application.agent.WorkspaceScopeResolver(jdbc);resolver.requireWrite(scope);
+            jdbc.queryForObject("SELECT id FROM dt_workspace WHERE id=? FOR UPDATE",UUID.class,scope.workspaceId());
+            resolver.requireWrite(scope);
+            if(!new io.devicetruth.adapter.persistence.AgentRunRepository(jdbc).lockWriteAuthorization(scope))
+                throw new GeneralAgentService.RequestFailure("AUTHORIZATION_REVOKED",403);
+            var f=require(scope.storageIdentity().ownerId(),scope.storageIdentity().projectId(),file);
+            if(!"CONVERSATION_ATTACHMENT".equals(f.usageScope())) throw new KnowledgeException("ATTACHMENT_REQUIRED",409);
+            if(!"PARSED".equals(f.parseStatus()) || f.documentId()==null) throw new KnowledgeException("ATTACHMENT_NOT_READY",409);
+            var doc=imports.document(scope.storageIdentity().ownerId(),scope.storageIdentity().projectId(),f.documentId());
+            if(!"READY".equals(doc.ingestStatus()) || doc.chunkCount()<1) throw new KnowledgeException("DOCUMENT_NOT_READY",409);
+            jdbc.update("""
+                INSERT INTO dt_knowledge_publication(id,workspace_id,owner_id,project_id,document_id,published_by_user_id,original_author_user_id,title,applicability)
+                VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(workspace_id,document_id) DO NOTHING
+                """,UUID.randomUUID(),scope.workspaceId(),scope.storageIdentity().ownerId(),scope.storageIdentity().projectId(),f.documentId(),scope.actorUserId(),f.uploadedByUserId(),title.strip(),applicability.strip());
+            return jdbc.queryForObject("SELECT * FROM dt_knowledge_publication WHERE workspace_id=? AND document_id=?",
+                (r,n)->new Publication(r.getObject("id",UUID.class),f.documentId(),r.getString("title"),r.getString("applicability"),r.getObject("published_by_user_id",UUID.class),r.getObject("original_author_user_id",UUID.class),doc.docVersion(),doc.dataNature(),r.getTimestamp("created_at").toInstant()),scope.workspaceId(),f.documentId());
+        });
+    }
+    public record KnowledgeDocument(UUID documentId,String title,String documentVersion,String dataNature,String ingestStatus,
+            String applicability,UUID publishedByUserId,UUID originalAuthorUserId,Instant publishedAt) {}
+    public List<KnowledgeDocument> knowledge(io.devicetruth.application.agent.AccessScope scope,int offset,int limit) {
+        if(offset<0 || limit<1 || limit>100) throw new IllegalArgumentException("Invalid pagination");
+        return jdbc.query("""
+            SELECT d.id AS document_id,COALESCE(p.title,d.title) AS title,d.doc_version,d.data_nature,d.ingest_status,
+                p.applicability,p.published_by_user_id,p.original_author_user_id,p.created_at AS published_at
+            FROM dt_knowledge_document d LEFT JOIN dt_knowledge_publication p ON p.document_id=d.id
+            WHERE d.owner_id=? AND d.project_id=? AND d.ingest_status='READY' AND
+                (p.id IS NOT NULL OR EXISTS(SELECT 1 FROM dt_knowledge_document_file l JOIN dt_uploaded_file f ON f.id=l.file_id
+                    WHERE l.document_id=d.id AND f.usage_scope='SPACE_KNOWLEDGE'))
+            ORDER BY d.created_at,d.id LIMIT ? OFFSET ?
+            """,(r,n)->new KnowledgeDocument(r.getObject("document_id",UUID.class),r.getString("title"),r.getString("doc_version"),r.getString("data_nature"),r.getString("ingest_status"),r.getString("applicability"),r.getObject("published_by_user_id",UUID.class),r.getObject("original_author_user_id",UUID.class),r.getTimestamp("published_at")==null?null:r.getTimestamp("published_at").toInstant()),scope.storageIdentity().ownerId(),scope.storageIdentity().projectId(),limit,offset);
+    }
+
     private void dispatch(String ownerId, String projectId, UUID fileId) {
         try {
             executor.execute(() -> process(ownerId, projectId, fileId));
@@ -186,7 +271,7 @@ public final class FileUploadService implements AutoCloseable {
             jdbc.update("UPDATE dt_uploaded_file SET parse_status='PROCESSING',parse_error=NULL "
                     + "WHERE id=? AND owner_id=? AND project_id=?", fileId, ownerId, projectId);
             String originalName = String.valueOf(row.get("original_name"));
-            if (!originalName.toLowerCase(Locale.ROOT).endsWith(".md")) {
+            if (!originalName.toLowerCase(Locale.ROOT).endsWith(".md") && !originalName.toLowerCase(Locale.ROOT).endsWith(".txt")) {
                 // 防御：PDF 等未支持格式不得进入 Markdown 解析，绝不生成伪造正文或页码
                 fail(ownerId, projectId, fileId, "PDF_NOT_SUPPORTED");
                 return;
@@ -196,7 +281,8 @@ public final class FileUploadService implements AutoCloseable {
                     (String) row.get("import_domain"), (String) row.get("import_device_model"),
                     (String) row.get("import_version"), (String) row.get("original_name"), "text/markdown",
                     "uploaded markdown", (String) row.get("import_data_nature"));
-            imports.importMarkdown(ownerId, projectId, request, bytes, fileId);
+            if(originalName.toLowerCase(Locale.ROOT).endsWith(".txt")) imports.importTextFile(ownerId,projectId,request,bytes,fileId);
+            else imports.importMarkdown(ownerId, projectId, request, bytes, fileId);
         } catch (KnowledgeException e) {
             fail(ownerId, projectId, fileId, e.code());
         } catch (IOException | RuntimeException e) {
