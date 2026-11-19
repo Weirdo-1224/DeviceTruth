@@ -67,7 +67,7 @@ public final class ScriptedAgentReasoner implements GeneralReasoner {
                 : "当前装机配置仍待现场核验，出厂、改造与模板记录应分别对照来源和有效期。";
         if ("CONFLICT".equals(status.get("conflict"))) confidence = "配置记录存在冲突。" + confidence;
         List<Claim> claims = records.stream().map(ref -> new Claim(sourceLabel(ref.excerpt()) + ref.excerpt(), List.of(ref.referenceId()),
-                Certainty.SUPPORTED)).toList();
+                Certainty.SUPPORTED, Claim.Kind.OBSERVATION, Claim.Relevance.CONTEXT)).toList();
         return new ActionProposal.Answer("HUMAN_REVIEW", "按任务时点读取设备配置。" + confidence,
                 claims, List.of("请由现场设备负责人核对版本与记录适用范围"), List.of(confidence),
                 observationLimits(context), records.stream().map(Reference::referenceId).toList());
@@ -117,7 +117,7 @@ public final class ScriptedAgentReasoner implements GeneralReasoner {
         List<Claim> claims = new ArrayList<>();
         for (Reference reference : used)
             claims.add(new Claim(locate(reference) + "：" + excerpt(reference.excerpt()), List.of(reference.referenceId()),
-                    Certainty.SUPPORTED));
+                    Certainty.SUPPORTED, Claim.Kind.CAUSE, Claim.Relevance.DIRECT));
         List<String> suggestions = new ArrayList<>();
         suggestions.add("按资料记录的排查顺序收集现场日志与设备记录");
         suggestions.add("需要确认具体配置或更换记录时，补充资产编号后再做设备事实核查");

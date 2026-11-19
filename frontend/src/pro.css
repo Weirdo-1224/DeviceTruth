@@ -81,7 +81,7 @@ body { background: #edf0f6; }
   padding: 6px 10px; color: var(--text-2); background: var(--panel); border: 1px solid var(--line);
   border-radius: 9px; font-size: 12px; font-weight: 650; }
 .pro-outline:hover { border-color: var(--primary); color: var(--accent-2); }
-.pro-mobile-compose { display: none; text-decoration: none; }
+.pro-mobile-compose, .pro-mobile-report { display: none; text-decoration: none; }
 
 .pro-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 650;
   color: var(--text-2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px;
@@ -262,7 +262,7 @@ body { background: #edf0f6; }
   .pro-drawer .pro-sidebar { display: flex; padding: 0 0 12px; border: 0; background: transparent; }
   .pro-title { font-size: 13px; }
   .pro-topnav { display: none; }
-  .pro-mobile-compose { display: inline-flex; }
+  .pro-mobile-compose, .pro-mobile-report { display: inline-flex; }
 }
 
 @media (max-width: 680px) {
@@ -271,4 +271,15 @@ body { background: #edf0f6; }
   .pro-top-actions { flex-basis: 100%; }
   .pro-main .main-scroll { padding: 12px; }
   .pro-action-wrap { padding: 8px 12px 12px; }
+}
+
+@media print {
+  body { background: #fff; }
+  .pro-light { width: 100%; min-height: 0; margin: 0; border: 0; border-radius: 0; box-shadow: none; background: #fff; }
+  .pro-topbar, .pro-sidebar, .pro-drawer, .pro-drawer-scrim, .evidence-modal, .pro-report-actions { display: none !important; }
+  .pro-shell, .pro-main, .pro-main .main-scroll { display: block; padding: 0; }
+  .diagnosis-report { max-width: none; border: 0; box-shadow: none; padding: 0; }
+  .diagnosis-report section, .diagnosis-report .report-source { break-inside: avoid; }
+  .diagnosis-report h1, .diagnosis-report h2, .diagnosis-report h3 { break-after: avoid; }
+  .diagnosis-report a { color: inherit; text-decoration: none; }
 }

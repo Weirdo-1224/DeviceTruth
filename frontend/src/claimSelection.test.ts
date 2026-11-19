@@ -55,6 +55,15 @@ describe('claimSelection 判断选中', () => {
     expect(selection.selectedIndex.value).toBeNull()
   })
 
+  it('默认焦点使用直接候选下标，没有直接候选时保持未选中', () => {
+    const selection = createClaimSelection()
+    selection.sync(3, 1)
+    expect(selection.selectedIndex.value).toBe(1)
+    selection.reset()
+    selection.sync(3, null)
+    expect(selection.selectedIndex.value).toBeNull()
+  })
+
   it('选择只改变下标：切换两条判断不触发任何请求（纯状态，无 fetch/模型调用面）', () => {
     const selection = createClaimSelection()
     selection.sync(2)

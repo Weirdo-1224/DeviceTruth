@@ -89,6 +89,44 @@ describe('diagnosisViewModel 映射', () => {
     expect(model.references).toHaveLength(2)
   })
 
+  it('按业务类型分组并生成短结论和前三项下一步，不按 certainty 猜测相关性', () => {
+    const model = buildDiagnosisViewModel({
+      run: run({
+        result: result({
+          claims: [
+            { text: '胎压背景观测', certainty: 'SUPPORTED', referenceIds: [], kind: 'OBSERVATION', relevance: 'CONTEXT' },
+            { text: '鼓风机供电中断', certainty: 'POSSIBLE', referenceIds: [], kind: 'CAUSE', relevance: 'DIRECT' },
+            { text: '历史未知判断', certainty: 'SUPPORTED', referenceIds: [] }
+          ],
+          suggestions: ['建议一', '建议二', '建议三', '建议四', '建议五']
+        })
+      })
+    })
+    expect(model.directCauses.map(claim => claim.index)).toEqual([1])
+    expect(model.contextClaims.map(claim => claim.index)).toEqual([0])
+    expect(model.otherClaims.map(claim => claim.index)).toEqual([2])
+    expect(model.defaultClaimIndex).toBe(1)
+    expect(model.shortConclusion).toBe('本次形成 1 项直接相关候选原因，尚不能确诊。')
+    expect(model.nextActions).toEqual(['建议一', '建议二', '建议三'])
+    expect(model.remainingSuggestionCount).toBe(2)
+    expect(model.suggestions).toHaveLength(5)
+    expect(model.claims.map(claim => claim.index)).toEqual([0, 1, 2])
+    expect(model.summary).toContain('充电中断')
+    expect(model).not.toHaveProperty('priorityScore')
+  })
+
+  it('历史 UNKNOWN 判断进入其他分组且不成为默认候选', () => {
+    const model = buildDiagnosisViewModel({
+      run: run({ result: result({ claims: [{ text: '旧判断', certainty: 'SUPPORTED', referenceIds: [] }] }) })
+    })
+    expect(model.claims[0].kind).toBe('UNKNOWN')
+    expect(model.claims[0].relevance).toBe('UNKNOWN')
+    expect(model.directCauses).toEqual([])
+    expect(model.otherClaims).toHaveLength(1)
+    expect(model.defaultClaimIndex).toBeNull()
+    expect(model.shortConclusion).toContain('未形成')
+  })
+
   it('KNOWLEDGE 类别的判断显示为资料断言，不写成候选故障原因', () => {
     const model = buildDiagnosisViewModel({
       run: run({
@@ -174,8 +212,32 @@ describe('diagnosisViewModel 映射', () => {
     const model = buildDiagnosisViewModel({ run: run(), goalMessage })
     expect(model.taskQuestion).toBe('车辆充电中断，请调查原因。')
     expect(model.selectedAssetId).toBe('CAR-B')
+    expect(model.assetResolution).toBe('SELECTED')
     const unlinked = buildDiagnosisViewModel({ run: run(), goalMessage: { ...goalMessage, selectedAssetId: null } })
     expect(unlinked.selectedAssetId).toBeNull()
+    expect(unlinked.assetResolution).toBe('UNCONFIRMED')
+  })
+
+  it('统一排查对象覆盖初始选择，歧义和未确认对象不可用于快照或深入调查', () => {
+    const goalMessage = {
+      messageId: '44444444-4444-4444-8444-444444444444', seq: 1, role: 'USER' as const,
+      content: '办公室空调不转', selectedAssetId: 'OFFICE-1',
+      requestedAt: '2026-11-17T00:00:00Z', asOf: '2026-11-17T00:00:00Z'
+    }
+    const confirmed = buildDiagnosisViewModel({
+      run: run({ investigatedAssetId: 'EV-DEMO-017', assetResolution: 'CONFIRMED', changedFromAssetId: 'OFFICE-1' }),
+      goalMessage
+    })
+    expect(confirmed.selectedAssetId).toBe('EV-DEMO-017')
+    expect(confirmed.changedFromAssetId).toBe('OFFICE-1')
+    expect(confirmed.assetResolutionLabel).toBe('设备已确认')
+
+    const ambiguous = buildDiagnosisViewModel({
+      run: run({ investigatedAssetId: 'EV-DEMO-017', assetResolution: 'AMBIGUOUS' }), goalMessage
+    })
+    expect(ambiguous.investigatedAssetId).toBe('EV-DEMO-017')
+    expect(ambiguous.selectedAssetId).toBeNull()
+    expect(ambiguous.assetResolutionLabel).toContain('歧义')
   })
 
   it('引用视图原样映射字段，缺页码不伪造、未知来源类型给安全通用标签', () => {

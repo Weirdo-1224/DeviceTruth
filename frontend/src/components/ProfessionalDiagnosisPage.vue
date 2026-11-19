@@ -74,10 +74,14 @@ const referenceCounts = computed(() => {
 })
 
 const roundFields = computed(() => [
-  { title: '建议核验', icon: 'bolt', items: props.model.suggestions },
   { title: '不确定点', icon: 'activity', items: props.model.uncertainties },
   { title: '限制', icon: 'warning', items: props.model.limitations }
 ])
+const claimGroups = computed(() => [
+  { key: 'direct', title: '直接相关候选原因', claims: props.model.directCauses },
+  { key: 'context', title: '背景观测与上下文', claims: props.model.contextClaims },
+  { key: 'other', title: '其他与未知判断', claims: props.model.otherClaims }
+].filter(group => group.claims.length))
 </script>
 
 <template>
@@ -89,7 +93,9 @@ const roundFields = computed(() => [
         <p class="pro-task-eyebrow">INVESTIGATION / 诊断工作台</p>
         <h1 class="pro-task-title" tabindex="-1">{{ model.taskQuestion || '（本轮目标消息不可用）' }}</h1>
         <p class="pro-task-meta">
-          设备 <strong data-testid="viewed-asset">{{ model.selectedAssetId || '未关联' }}</strong>
+          设备 <strong data-testid="viewed-asset">{{ model.selectedAssetId || model.assetResolutionLabel }}</strong>
+          <template v-if="model.selectedAssetId"> · {{ model.assetResolutionLabel }}</template>
+          <template v-if="model.changedFromAssetId"> · 原对象 {{ model.changedFromAssetId }}</template>
           · 业务时点 <time :datetime="run.asOf">{{ new Date(run.asOf).toLocaleString('zh-CN', { hour12: false }) }}</time>
           <template v-if="model.dataNature"> · 数据性质 {{ model.dataNature }}</template>
           <template v-if="skillLabel"> · {{ skillLabel }}</template>
@@ -107,10 +113,10 @@ const roundFields = computed(() => [
       <nav v-if="run" class="pro-nav pro-card" aria-label="调查方向">
         <h3>调查方向 <span>{{ model.claims.length }} 项</span></h3>
         <p class="hint">按线索查看判断、证据与待核验项。</p>
-        <ClaimList v-if="model.claims.length" :title="model.claimsTitle" :claims="model.claims"
+        <ClaimList v-for="group in claimGroups" :key="group.key" :title="group.title" :claims="group.claims"
                    :selected-index="selectedIndex" :reference-counts="referenceCounts"
                    @select="emit('select', $event)" />
-        <p v-else class="hint">本轮暂无结构化判断。</p>
+        <p v-if="!model.claims.length" class="hint">本轮暂无结构化判断。</p>
         <button type="button" class="pro-outline pro-nav-history" @click="emit('history')"><UiIcon name="clock" /> 查看 Run 历史</button>
       </nav>
       <div class="pro-center">
@@ -131,12 +137,26 @@ const roundFields = computed(() => [
             <p>{{ run.status === 'WAITING_FOR_USER' ? '请按待答问题补充信息，补答将继续原 Run。' : '正在排队或调查；连接中断后可重新同步持久状态。' }}</p>
           </section>
       <div v-else class="pro-focus pro-card">
+        <section class="pro-headline" aria-labelledby="pro-short-conclusion">
+          <p class="pro-focus-eyebrow">CURRENT RESULT / 当前结果</p>
+          <h2 id="pro-short-conclusion">当前结论</h2>
+          <p class="pro-short-conclusion">{{ model.shortConclusion || '本轮未返回结构化结论' }}</p>
+          <div v-if="model.nextActions.length" class="pro-next-actions">
+            <h3>建议下一步</h3>
+            <ol>
+              <li v-for="(item, index) in model.nextActions" :key="index">{{ item }}</li>
+            </ol>
+            <p v-if="model.remainingSuggestionCount" class="hint">
+              另有 {{ model.remainingSuggestionCount }} 项建议，可在完整结果中查看。
+            </p>
+          </div>
+        </section>
         <div class="pro-focus-heading">
           <span>CURRENT FOCUS / 当前调查焦点</span>
           <span v-if="selectedIndex !== null">{{ String(selectedIndex + 1).padStart(2, '0') }} / {{ String(model.claims.length).padStart(2, '0') }}</span>
         </div>
         <ClaimDetail :claim="selectedClaim" @toggle-reference="emit('openReference', $event)" />
-        <div class="conclusion">
+        <div v-if="selectedIndex === null" class="conclusion">
           <div>
             <h3>本轮摘要</h3>
             <p class="summary">{{ model.summary || '未返回摘要' }}</p>
@@ -178,6 +198,11 @@ const roundFields = computed(() => [
               <small v-if="claim.referenceIds.length">（{{ claim.referenceIds.length }} 条引用）</small>
             </li>
           </ol>
+          <h5>建议行动（全部）</h5>
+          <ul>
+            <li v-for="(item, index) in model.suggestions" :key="index">{{ item }}</li>
+            <li v-if="!model.suggestions.length" class="hint">无</li>
+          </ul>
           <h5>限制与不确定点</h5>
           <ul>
             <li v-for="(item, index) in [...model.limitations, ...model.uncertainties]" :key="index">{{ item }}</li>
@@ -207,22 +232,22 @@ const roundFields = computed(() => [
           <small>{{ describeReference(reference) }}</small>
         </button>
       </template>
-      <template v-if="otherRegistered.length">
-        <h5>本轮其他已登记来源（{{ otherRegistered.length }}）</h5>
+      <details v-if="otherRegistered.length" class="other-sources">
+        <summary>本轮其他已登记来源（{{ otherRegistered.length }}）</summary>
         <button v-for="reference in otherRegistered" :key="reference.referenceId" type="button"
                 class="citation-ref" :data-evidence-id="reference.referenceId"
                 @click="emit('openReference', reference.referenceId)">
           《{{ reference.title }}》
           <small>{{ describeReference(reference) }}</small>
         </button>
-      </template>
+      </details>
       <p v-if="citedMissing.length" class="hint">有 {{ citedMissing.length }} 条引用未在本轮已登记来源中返回，暂不可用。</p>
       </section>
       <div class="pro-context-status">
         <h4>Run 状态</h4>
         <p class="hint">执行：{{ statusLabel }}</p>
         <button v-if="model.selectedAssetId" type="button" class="pro-outline" @click="emit('asset')">查看设备快照</button>
-        <p v-else class="hint">本轮未关联设备</p>
+        <p v-else class="hint">{{ model.assetResolutionLabel }}，不显示未经确认的设备快照</p>
         <p class="pro-context-note">资料记载、用户报告与模拟观察不能直接确认现场配置。</p>
       </div>
     </aside>
@@ -268,6 +293,14 @@ const roundFields = computed(() => [
 }
 .pro-nav-history { margin-top: 14px; width: 100%; }
 .pro-focus { min-width: 0; display: grid; gap: 10px; padding: 20px 22px; }
+.pro-headline { border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+.pro-focus-eyebrow { margin: 0 0 4px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: 0.07em; }
+.pro-headline h2 { margin: 0 0 5px; font-size: 14px; color: var(--text); }
+.pro-short-conclusion { margin: 0; font-size: 18px; line-height: 1.55; font-weight: 730; color: var(--text); }
+.pro-next-actions { margin-top: 10px; border-radius: 10px; background: var(--soft); padding: 10px 12px; }
+.pro-next-actions h3 { margin: 0 0 5px; font-size: 13px; color: var(--accent-2); }
+.pro-next-actions ol { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.6; color: var(--text-2); }
+.pro-next-actions .hint { margin: 6px 0 0; }
 .pro-focus > .hint { margin: 0; }
 .pro-focus-heading { display: flex; justify-content: space-between; align-items: center; gap: 6px; color: var(--accent);
   font-size: 11px; font-weight: 800; letter-spacing: 0.07em; }
@@ -304,6 +337,8 @@ const roundFields = computed(() => [
   font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .citation-ref small { display: block; font-weight: 400; color: var(--text-3); font-size: 11px; margin-top: 2px; }
 .citation-ref:hover { border-color: var(--primary); }
+.other-sources { margin-top: 10px; }
+.other-sources summary { cursor: pointer; color: var(--text-2); font-size: 12px; font-weight: 650; margin-bottom: 8px; }
 
 @media (max-width: 1360px) {
   .pro-workspace:not(.pro-workspace-empty) { grid-template-columns: 205px minmax(0, 1fr); }
@@ -311,6 +346,9 @@ const roundFields = computed(() => [
 }
 @media (max-width: 1000px) {
   .pro-workspace:not(.pro-workspace-empty) { grid-template-columns: minmax(0, 1fr); }
+  .pro-center { grid-row: 1; }
+  .pro-nav { grid-row: 2; }
+  .pro-sources { grid-row: 3; }
 }
 @media (max-width: 680px) {
   .pro-focus { padding: 14px; }

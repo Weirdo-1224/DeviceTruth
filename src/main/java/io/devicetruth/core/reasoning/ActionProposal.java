@@ -99,8 +99,12 @@ public sealed interface ActionProposal {
     }
     /** 提交答案草稿：引用必须指向本 run 已取回集合，风险等级由服务器重新判定。 */
     record Answer(String category, String summary, List<AgentResult.Claim> claims, List<String> suggestions,
-                  List<String> uncertainties, List<String> limitations, List<String> referenceIds)
-            implements ActionProposal {
+                  List<String> uncertainties, List<String> limitations, List<String> referenceIds,
+                  String subjectAssetId) implements ActionProposal {
+        public Answer(String category, String summary, List<AgentResult.Claim> claims, List<String> suggestions,
+                      List<String> uncertainties, List<String> limitations, List<String> referenceIds) {
+            this(category, summary, claims, suggestions, uncertainties, limitations, referenceIds, null);
+        }
         public Answer {
             Checks.text(category, "category");
             Checks.text(summary, "summary");
@@ -109,6 +113,7 @@ public sealed interface ActionProposal {
             uncertainties = Checks.list(uncertainties);
             limitations = Checks.list(limitations);
             referenceIds = Checks.list(referenceIds);
+            if (subjectAssetId != null) Checks.id(subjectAssetId, "subjectAssetId");
         }
     }
 }

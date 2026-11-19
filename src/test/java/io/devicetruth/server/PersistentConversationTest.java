@@ -105,6 +105,8 @@ class PersistentConversationTest {
         String runId = run.path("runId").asText();
         assertThat(run.path("status").asText()).isEqualTo("QUEUED");
         assertThat(run.path("dataNature").asText()).isEqualTo("SIMULATED");
+        assertThat(run.path("investigatedAssetId").isNull()).isTrue();
+        assertThat(run.path("assetResolution").asText()).isEqualTo("UNCONFIRMED");
         assertThat(accepted.getHeaders().getLocation().toString()).isEqualTo("/api/runs/" + runId);
         var before = detail(id);
         assertThat(before.path("messages").size()).isEqualTo(1);
@@ -117,7 +119,7 @@ class PersistentConversationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM dt_run_event WHERE run_id=? AND type='RUN_QUEUED'", Integer.class, UUID.fromString(runId))).isEqualTo(1);
         var migrations = jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
-        assertThat(migrations).contains("1", "13", "16");
+        assertThat(migrations).contains("1", "13", "16", "18");
         app.close();
         app = open("owner-a", "project-a");
         base = base(app);
@@ -129,6 +131,95 @@ class PersistentConversationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE NOT success", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT extversion FROM pg_extension WHERE extname='vector'", String.class)).isEqualTo("0.8.7");
         assertThat(jdbc.queryForObject("SHOW server_version", String.class)).startsWith("16.15");
+    }
+
+    @Test void selectedAssetSurvivesAndLegacyRowsUseConservativeFallback() throws Exception {
+        String id = conversation();
+        var accepted = post(base + "/api/conversations/" + id + "/messages",
+                Map.of("schemaVersion", 1, "userMessage", "核查选定设备", "selectedAssetId", "EV-DEMO-017"), UUID.randomUUID());
+        assertThat(accepted.getStatusCode().value()).isEqualTo(202);
+        String runId = Json.MAPPER.readTree(accepted.getBody()).path("runId").asText();
+        var selected = Json.MAPPER.readTree(rest.getForObject(base + "/api/runs/" + runId, String.class));
+        assertThat(selected.path("investigatedAssetId").asText()).isEqualTo("EV-DEMO-017");
+        assertThat(selected.path("assetResolution").asText()).isEqualTo("SELECTED");
+
+        jdbc.update("UPDATE dt_agent_run SET subject_asset_id=NULL,subject_status='UNCONFIRMED' WHERE id=?",
+                UUID.fromString(runId));
+        var legacy = Json.MAPPER.readTree(rest.getForObject(base + "/api/runs/" + runId, String.class));
+        assertThat(legacy.path("investigatedAssetId").asText()).isEqualTo("EV-DEMO-017");
+        assertThat(legacy.path("assetResolution").asText()).isEqualTo("SELECTED");
+        assertThat(legacy.path("changedFromAssetId").isNull()).isTrue();
+    }
+
+    @Test void conversationSummariesSupportStablePaginationFiltersAndOwnership() throws Exception {
+        String empty = conversation();
+        var ids = new java.util.ArrayList<String>();
+        String waitingRun = null;
+        for (int i = 0; i < 22; i++) {
+            String id = conversation();
+            ids.add(id);
+            var accepted = post(base + "/api/conversations/" + id + "/messages",
+                    Map.of("schemaVersion", 1, "userMessage", "分页目标 " + i + " TARGET-" + i + " 🔋", "selectedAssetId", "EV-DEMO-017"),
+                    UUID.randomUUID());
+            assertThat(accepted.getStatusCode().value()).isEqualTo(202);
+            if (i == 0) waitingRun = Json.MAPPER.readTree(accepted.getBody()).path("runId").asText();
+        }
+        var direct = new io.devicetruth.adapter.persistence.ConversationRepository(jdbc).summaries(
+                new io.devicetruth.application.agent.GeneralAgentService.ServerIdentity("owner-a", "project-a"),
+                null, null, null, null, 20);
+        assertThat(direct.items()).hasSize(20);
+        var firstResponse = rest.getForEntity(base + "/api/conversations/summaries?limit=20&q=TARGET-", String.class);
+        assertThat(firstResponse.getStatusCode()).as(firstResponse.getBody()).isEqualTo(HttpStatus.OK);
+        var first = Json.MAPPER.readTree(firstResponse.getBody());
+        assertThat(first.path("items").size()).isEqualTo(20);
+        assertThat(first.path("nextCursor").asText()).isNotBlank();
+        assertThat(first.path("items").get(0).path("title").asText()).contains("分页目标");
+        assertThat(first.path("items").get(0).path("investigatedAssetId").asText()).isEqualTo("EV-DEMO-017");
+        assertThat(first.path("items").get(0).path("activeRunCount").asInt()).isEqualTo(1);
+        assertThat(first.path("items").get(0).path("runCount").asInt()).isEqualTo(1);
+        assertThat(first.path("items").toString()).doesNotContain(empty);
+
+        String cursor = first.path("nextCursor").asText();
+        String decodedCursor = new String(java.util.Base64.getUrlDecoder().decode(cursor), java.nio.charset.StandardCharsets.UTF_8);
+        String[] cursorParts = decodedCursor.split(":", 3);
+        var directSecond = new io.devicetruth.adapter.persistence.ConversationRepository(jdbc).summaries(
+                new io.devicetruth.application.agent.GeneralAgentService.ServerIdentity("owner-a", "project-a"), "TARGET-", null, null,
+                new io.devicetruth.adapter.persistence.ConversationRepository.SummaryCursor(Integer.parseInt(cursorParts[0]),
+                        java.time.Instant.ofEpochMilli(Long.parseLong(cursorParts[1])), UUID.fromString(cursorParts[2])), 20);
+        assertThat(directSecond.items()).hasSize(2);
+        var second = Json.MAPPER.readTree(rest.getForObject(
+                base + "/api/conversations/summaries?limit=20&q=TARGET-&cursor=" + cursor, String.class));
+        assertThat(second.path("items").size()).isEqualTo(2);
+        assertThat(second.path("nextCursor").isNull()).isTrue();
+        var allIds = new java.util.HashSet<String>();
+        for (var page : List.of(first, second)) for (var item : page.path("items"))
+            assertThat(allIds.add(item.path("conversationId").asText())).isTrue();
+        assertThat(allIds).hasSize(22);
+
+        var searched = Json.MAPPER.readTree(rest.getForObject(
+                base + "/api/conversations/summaries?q=TARGET-21&assetId=EV-DEMO-017", String.class));
+        assertThat(searched.path("items").size()).isEqualTo(1);
+        assertThat(searched.path("items").get(0).path("title").asText()).contains("分页目标 21");
+
+        UUID questionId = UUID.randomUUID();
+        jdbc.update("UPDATE dt_agent_run SET status='WAITING_FOR_USER',pending_question_id=?,question_version=1,"
+                        + "pending_question=CAST(? AS jsonb) WHERE id=?", questionId,
+                "{\"pendingQuestionId\":\"" + questionId + "\",\"questionVersion\":1,\"question\":\"请选择设备\","
+                        + "\"requestedFields\":[\"assetId\"],\"askedAt\":\"2026-11-18T00:00:00Z\"}", UUID.fromString(waitingRun));
+        var waiting = Json.MAPPER.readTree(rest.getForObject(
+                base + "/api/conversations/summaries?status=WAITING_FOR_USER", String.class));
+        assertThat(waiting.path("items").size()).isEqualTo(1);
+        assertThat(waiting.path("items").get(0).path("waitingRunCount").asInt()).isEqualTo(1);
+        var prioritized = Json.MAPPER.readTree(rest.getForObject(base + "/api/conversations/summaries?limit=1", String.class));
+        assertThat(prioritized.path("items").get(0).path("conversationId").asText()).isEqualTo(ids.get(0));
+        assertThat(rest.getForEntity(base + "/api/conversations/summaries?limit=51", String.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(rest.getForEntity(base + "/api/conversations/summaries?cursor=bad", String.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(rest.getForObject(base + "/api/conversations", String.class)).contains(empty);
+
+        try (var other = open("owner-b", "project-a")) {
+            var isolated = Json.MAPPER.readTree(rest.getForObject(base(other) + "/api/conversations/summaries", String.class));
+            assertThat(isolated.path("items").isEmpty()).isTrue();
+        }
     }
 
     @Test void duplicateSubmissionDoesNotCreateAnotherMessageOrRun() throws Exception {

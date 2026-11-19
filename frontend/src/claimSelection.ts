@@ -11,8 +11,8 @@ export interface ClaimSelection {
   select(index: number): void
   /** 清空选中（切 Run/结果时）。 */
   reset(): void
-  /** 与当前 claims 数量对齐：无 claims 置 null；选中下标越界时回退到第一条。 */
-  sync(claimCount: number): void
+  /** 与当前 claims 数量对齐：无默认候选置 null；选中下标越界时回退到指定候选。 */
+  sync(claimCount: number, defaultIndex?: number | null): void
 }
 
 export function createClaimSelection(): ClaimSelection {
@@ -25,13 +25,13 @@ export function createClaimSelection(): ClaimSelection {
     reset() {
       selectedIndex.value = null
     },
-    sync(claimCount: number) {
-      if (claimCount <= 0) {
+    sync(claimCount: number, defaultIndex: number | null = 0) {
+      if (claimCount <= 0 || defaultIndex === null || defaultIndex < 0 || defaultIndex >= claimCount) {
         selectedIndex.value = null
         return
       }
       const current = selectedIndex.value
-      if (current === null || current >= claimCount) selectedIndex.value = 0
+      if (current === null || current >= claimCount) selectedIndex.value = defaultIndex
     }
   }
 }

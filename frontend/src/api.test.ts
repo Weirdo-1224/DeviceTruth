@@ -6,6 +6,7 @@ import {
   ApiError,
   describeFailure,
   listAssets,
+  listConversationSummaries,
   listConversations,
   newRequestKey,
   openRunEventStream,
@@ -300,9 +301,16 @@ describe('api 合同', () => {
     expect(calls.filter((call) => call.url === '/api/runs/' + RUN_ID)).toHaveLength(1)
   })
 
-  it('读取运行与引用都按 runId 定位', async () => {
-    stubFetch(jsonResponse(runView({ status: 'RUNNING' })), jsonResponse([]))
-    expect((await readRun(RUN_ID)).status).toBe('RUNNING')
+  it('读取运行与引用都按 runId 定位，并保留统一排查对象', async () => {
+    stubFetch(jsonResponse(runView({
+      status: 'RUNNING', investigatedAssetId: 'EV-DEMO-017', assetResolution: 'CONFIRMED',
+      changedFromAssetId: 'OFFICE-1'
+    })), jsonResponse([]))
+    const current = await readRun(RUN_ID)
+    expect(current.status).toBe('RUNNING')
+    expect(current.investigatedAssetId).toBe('EV-DEMO-017')
+    expect(current.assetResolution).toBe('CONFIRMED')
+    expect(current.changedFromAssetId).toBe('OFFICE-1')
     expect(await readReferences(RUN_ID)).toEqual([])
     expect(calls.map((call) => call.url)).toEqual(['/api/runs/' + RUN_ID, '/api/runs/' + RUN_ID + '/references'])
   })
@@ -394,6 +402,27 @@ describe('api 合同', () => {
     const second = newRequestKey()
     expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
     expect(first).not.toBe(second)
+  })
+
+  it('会话摘要支持搜索、设备、状态与游标参数，并保留非当前会话待答状态', async () => {
+    stubFetch(jsonResponse({
+      items: [{ conversationId: CONVERSATION_ID, title: '空调不转', investigatedAssetId: 'EV-DEMO-017',
+        latestRunStatus: 'WAITING_FOR_USER', activeRunCount: 1, waitingRunCount: 1, runCount: 2,
+        updatedAt: '2026-11-18T00:00:00Z' }], nextCursor: 'next-1'
+    }))
+    const page = await listConversationSummaries({
+      q: '空调 故障', assetId: 'EV-DEMO-017', status: 'WAITING_FOR_USER', cursor: 'cursor/1', limit: 20
+    })
+    const url = new URL(calls[0].url, 'http://local')
+    expect(url.pathname).toBe('/api/conversations/summaries')
+    expect(url.searchParams.get('q')).toBe('空调 故障')
+    expect(url.searchParams.get('assetId')).toBe('EV-DEMO-017')
+    expect(url.searchParams.get('status')).toBe('WAITING_FOR_USER')
+    expect(url.searchParams.get('cursor')).toBe('cursor/1')
+    expect(url.searchParams.get('limit')).toBe('20')
+    expect(page.items[0].waitingRunCount).toBe(1)
+    expect(page.items[0].latestRunStatus).toBe('WAITING_FOR_USER')
+    expect(page.nextCursor).toBe('next-1')
   })
 
   it('历史会话列表按服务器身份返回，用于刷新/重开后的恢复', async () => {

@@ -44,7 +44,7 @@ const emit = defineEmits<{ (event: 'toggle-reference', referenceId: string): voi
       </div>
       <p v-else class="hint">{{ claim.referenceNote }}</p>
     </template>
-    <p v-else class="hint">本轮未选中调查要点；完整结果、风险与已登记来源仍可在下方查看。</p>
+    <p v-else class="hint">本轮没有默认候选焦点；请查看上方结论、下一步或下方完整结果。</p>
   </div>
 </template>
 

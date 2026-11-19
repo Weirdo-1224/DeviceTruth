@@ -17,13 +17,18 @@ export interface PendingQuestion {
 }
 
 export type Certainty = 'POSSIBLE' | 'SUPPORTED' | 'CONFIRMED'
+export type ClaimKind = 'CAUSE' | 'OBSERVATION' | 'CONCLUSION' | 'OTHER' | 'UNKNOWN'
+export type ClaimRelevance = 'DIRECT' | 'CONTEXT' | 'UNRELATED' | 'UNKNOWN'
 export type AnswerCategory = 'KNOWLEDGE' | 'POSSIBLE_CAUSES' | 'CONFIRMED_FINDING' | 'HUMAN_REVIEW'
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'PROHIBITED'
+export type AssetResolution = 'SELECTED' | 'CONFIRMED' | 'AMBIGUOUS' | 'UNCONFIRMED'
 
 export interface Claim {
   text: string
   referenceIds: string[]
   certainty: Certainty
+  kind?: ClaimKind
+  relevance?: ClaimRelevance
 }
 
 export interface Reference {
@@ -50,6 +55,8 @@ export interface AgentResult {
   riskLevel: RiskLevel
   safetyDisposition: string
   dataNature: string
+  subjectAssetId?: string | null
+  assetResolution?: 'CONFIRMED' | 'AMBIGUOUS' | null
 }
 
 export interface FileView {
@@ -74,6 +81,30 @@ export interface ConversationView {
   updatedAt: string
 }
 
+export interface ConversationSummary {
+  conversationId: string
+  title: string
+  investigatedAssetId: string | null
+  latestRunStatus: RunStatus
+  activeRunCount: number
+  waitingRunCount: number
+  runCount: number
+  updatedAt: string
+}
+
+export interface ConversationSummaryPage {
+  items: ConversationSummary[]
+  nextCursor: string | null
+}
+
+export interface ConversationSummaryQuery {
+  q?: string
+  assetId?: string
+  status?: 'ACTIVE' | RunStatus
+  cursor?: string
+  limit?: number
+}
+
 export interface MessageView {
   messageId: string
   seq: number
@@ -92,6 +123,9 @@ export interface RunView {
   version: number
   requestedAt: string
   asOf: string
+  investigatedAssetId?: string | null
+  assetResolution?: AssetResolution
+  changedFromAssetId?: string | null
   dataNature: string
   pendingQuestion: PendingQuestion | null
   result: AgentResult | null
@@ -163,6 +197,7 @@ const FAILURE_LABELS: Readonly<Record<string, string>> = {
   UNCONFIRMED_FINDING: '缺少现场核验，不能给出确诊结论',
   UNSAFE_ANSWER: '答案包含不安全的设备操作建议，已拒绝',
   INVALID_ANSWER: '答案格式不符合协议，已拒绝',
+  SUBJECT_MISMATCH: '答案中的排查设备与本轮确认对象不一致，已拒绝',
   PERSIST_FAILURE: '保存结果失败，请重试',
   AGENT_RUN_FAILURE: '服务内部错误，请重试',
   RECOVERY_ATTEMPT_LIMIT: '任务多次中断且恢复次数已达上限，已停止；请重新发起调查'
@@ -219,6 +254,17 @@ export function createConversation(): Promise<ConversationView> {
 /** 历史会话列表：刷新/重开浏览器后凭它找回会话，不依赖原页面线程。 */
 export function listConversations(): Promise<ConversationView[]> {
   return call<ConversationView[]>('/api/conversations', { method: 'GET' })
+}
+
+export function listConversationSummaries(query: ConversationSummaryQuery = {}): Promise<ConversationSummaryPage> {
+  const params = new URLSearchParams()
+  if (query.q?.trim()) params.set('q', query.q.trim())
+  if (query.assetId) params.set('assetId', query.assetId)
+  if (query.status) params.set('status', query.status)
+  if (query.cursor) params.set('cursor', query.cursor)
+  if (query.limit != null) params.set('limit', String(query.limit))
+  const suffix = params.size ? '?' + params.toString() : ''
+  return call<ConversationSummaryPage>('/api/conversations/summaries' + suffix, { method: 'GET' })
 }
 
 /** 已登记资产清单（服务器身份范围内）；下拉选择可空，不指定设备也能问答。 */

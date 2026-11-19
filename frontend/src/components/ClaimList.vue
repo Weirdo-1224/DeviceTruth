@@ -47,6 +47,7 @@ function referenceCount(claim: ClaimView, counts?: ReadonlyMap<string, number>):
 </template>
 
 <style scoped>
+.claim-list-box + .claim-list-box { margin-top: 14px; }
 .claim-list-box h3 { font-size: 12px; margin: 0 0 8px; display: flex; align-items: center; gap: 5px; color: var(--text-3);
   text-transform: uppercase; letter-spacing: 0.05em; }
 .claim-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }

@@ -7,11 +7,14 @@ import type {
   AgentResult,
   AnswerCategory,
   Certainty,
+  ClaimKind,
+  ClaimRelevance,
   MessageView,
   Reference,
   RunEvent,
   RunStatus,
-  RunView
+  RunView,
+  AssetResolution
 } from './api'
 
 /** 引用来源类型的受控中文标签；未知类型只给安全通用标签，不猜测具体含义。 */
@@ -79,6 +82,9 @@ export interface ClaimView {
   preview: string
   certainty: Certainty
   certaintyLabel: string
+  /** 与 certainty 独立；历史缺失统一为 UNKNOWN，不参与直接候选。 */
+  kind: ClaimKind
+  relevance: ClaimRelevance
   referenceIds: string[]
   /** 按 ID 在已取得引用中连接到的真实引用，保持 claim.referenceIds 的顺序。 */
   references: ReferenceView[]
@@ -101,14 +107,25 @@ export interface DiagnosisViewModel {
   runId: string | null
   status: RunStatus | null
   failureCode: string | null
-  /** 顶部任务区：本轮目标消息与关联设备（无设备为 null，界面显示“未关联”）。 */
+  /** 顶部任务区：本轮目标消息与统一排查对象；仅已选择/确认对象可用于快照和深入调查。 */
   taskQuestion: string | null
   selectedAssetId: string | null
+  investigatedAssetId: string | null
+  assetResolution: AssetResolution
+  assetResolutionLabel: string
+  changedFromAssetId: string | null
   category: AnswerCategory | null
   categoryLabel: string | null
   /** 判断区标题：按 category 命名；无结果时为 null。 */
   claimsTitle: string | null
   claims: ClaimView[]
+  directCauses: ClaimView[]
+  contextClaims: ClaimView[]
+  otherClaims: ClaimView[]
+  defaultClaimIndex: number | null
+  shortConclusion: string | null
+  nextActions: string[]
+  remainingSuggestionCount: number
   summary: string | null
   suggestions: string[]
   uncertainties: string[]
@@ -188,6 +205,8 @@ function toClaimViews(result: AgentResult, runId: string | null, available: Read
       preview: previewOf(claim.text),
       certainty: claim.certainty,
       certaintyLabel: CERTAINTY_LABELS[claim.certainty] ?? claim.certainty,
+      kind: claim.kind ?? 'UNKNOWN',
+      relevance: claim.relevance ?? 'UNKNOWN',
       referenceIds: [...claim.referenceIds],
       references,
       missingReferenceIds,
@@ -221,23 +240,62 @@ function toEventViews(events: RunEvent[]): RunEventView[] {
   })
 }
 
+function shortConclusionOf(category: AnswerCategory | null, directCauseCount: number): string | null {
+  if (!category) return null
+  if (category === 'POSSIBLE_CAUSES') return directCauseCount > 0
+    ? `本次形成 ${directCauseCount} 项直接相关候选原因，尚不能确诊。`
+    : '本次未形成可直接呈现的候选原因，尚不能确诊。'
+  if (category === 'KNOWLEDGE') return '本次为资料答复，资料记载不等同于现场核验。'
+  if (category === 'CONFIRMED_FINDING') return '本次为服务端核验结论，仍需遵守安全处置要求。'
+  return '本次结果需要人工复核，不能据此直接执行现场操作。'
+}
+
+const ASSET_RESOLUTION_LABELS: Readonly<Record<AssetResolution, string>> = {
+  SELECTED: '设备已选择',
+  CONFIRMED: '设备已确认',
+  AMBIGUOUS: '排查设备存在歧义',
+  UNCONFIRMED: '排查设备未确认'
+}
+
 export function buildDiagnosisViewModel(input: DiagnosisViewModelInput): DiagnosisViewModel {
   const run = input.run
   const result = run?.result ?? null
+  const fallbackAssetId = input.goalMessage?.selectedAssetId ?? null
+  const investigatedAssetId = run?.investigatedAssetId ?? fallbackAssetId
+  const assetResolution = run?.assetResolution ?? (fallbackAssetId ? 'SELECTED' : 'UNCONFIRMED')
+  const selectedAssetId = assetResolution === 'SELECTED' || assetResolution === 'CONFIRMED'
+    ? investigatedAssetId : null
   const availableReferences = new Map<string, ReferenceView>()
   for (const reference of input.references ?? result?.references ?? []) {
     availableReferences.set(reference.referenceId, toReferenceView(reference))
   }
+  const claims = result ? toClaimViews(result, run?.runId ?? null, availableReferences) : []
+  const directCauses = claims.filter(claim => claim.kind === 'CAUSE' && claim.relevance === 'DIRECT')
+  const contextClaims = claims.filter(claim => claim.kind === 'OBSERVATION'
+    || claim.relevance === 'CONTEXT' || claim.relevance === 'UNRELATED')
+  const contextSet = new Set(contextClaims)
+  const otherClaims = claims.filter(claim => !directCauses.includes(claim) && !contextSet.has(claim))
   return {
     runId: run?.runId ?? null,
     status: run?.status ?? null,
     failureCode: run?.failureCode ?? null,
     taskQuestion: input.goalMessage?.content ?? null,
-    selectedAssetId: input.goalMessage?.selectedAssetId ?? null,
+    selectedAssetId,
+    investigatedAssetId,
+    assetResolution,
+    assetResolutionLabel: ASSET_RESOLUTION_LABELS[assetResolution],
+    changedFromAssetId: run?.changedFromAssetId ?? null,
     category: result?.category ?? null,
     categoryLabel: result ? CATEGORY_LABELS[result.category] : null,
     claimsTitle: result ? CATEGORY_LABELS[result.category] : null,
-    claims: result ? toClaimViews(result, run?.runId ?? null, availableReferences) : [],
+    claims,
+    directCauses,
+    contextClaims,
+    otherClaims,
+    defaultClaimIndex: directCauses[0]?.index ?? null,
+    shortConclusion: shortConclusionOf(result?.category ?? null, directCauses.length),
+    nextActions: result ? result.suggestions.slice(0, 3) : [],
+    remainingSuggestionCount: result ? Math.max(0, result.suggestions.length - 3) : 0,
     summary: result?.summary ?? null,
     suggestions: result ? [...result.suggestions] : [],
     uncertainties: result ? [...result.uncertainties] : [],

@@ -33,11 +33,15 @@ public final class StructuredAgentReasoner implements GeneralReasoner {
             {"type":"CALL_TOOL","toolName":"上下文 tools 中的名称","arguments":{...},"purpose":"为什么调用"}
             {"type":"ASK_USER","question":"需要用户补充的一个问题","requestedFields":["具体缺少的字段"]}
             {"type":"ANSWER","category":"KNOWLEDGE|POSSIBLE_CAUSES|CONFIRMED_FINDING|HUMAN_REVIEW",
-              "summary":"回答正文","claims":[{"text":"一条断言","referenceIds":["已有 referenceId"],"certainty":"POSSIBLE|SUPPORTED|CONFIRMED"}],
-              "suggestions":["建议"],"uncertainties":["不确定点"],"limitations":["限制"],"referenceIds":["已有 referenceId"]}
+              "summary":"回答正文","claims":[{"text":"一条断言","referenceIds":["已有 referenceId"],"certainty":"POSSIBLE|SUPPORTED|CONFIRMED",
+                "kind":"CAUSE|OBSERVATION|CONCLUSION|OTHER|UNKNOWN","relevance":"DIRECT|CONTEXT|UNRELATED|UNKNOWN"}],
+              "suggestions":["建议"],"uncertainties":["不确定点"],"limitations":["限制"],"referenceIds":["已有 referenceId"],
+              "subjectAssetId":"本轮实际排查设备 ID；只能使用用户明确选择或成功资产工具返回的设备，未确认时省略"}
             规则：
             1. 引用只能来自上下文的 references，禁止编造文档、版本、章节、页码或 referenceId；空检索时如实说明没有资料。
             2. certainty 为 SUPPORTED/CONFIRMED 的断言必须绑定至少一个 referenceId；没有引用时只能给 POSSIBLE 或明确说明缺少依据。
+               certainty 不表示业务类型。kind=CAUSE 只用于故障候选原因，观测事实用 OBSERVATION；
+               relevance=DIRECT 只用于直接回答当前目标的判断，背景观测用 CONTEXT，与目标无关用 UNRELATED，无法判断用 OTHER/UNKNOWN。
             3. 没有已授权资产或现场核验时，不得输出 CONFIRMED_FINDING；资料只能支持一般原理与可能原因。
             4. 线索不足以检索时使用 ASK_USER，一次只问最关键的缺失信息，不要连续追问。
             5. 工具失败只能换一种检索或如实说明，不能把失败结果当作证据，也不能据此下结论。

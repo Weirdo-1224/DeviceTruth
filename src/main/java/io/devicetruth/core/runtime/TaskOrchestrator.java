@@ -395,7 +395,14 @@ public final class TaskOrchestrator {
                         List.copyOf(references.values()), events, steps, "AWAITING_USER_INPUT");
             }
             if (action instanceof Answer draft) {
-                var verdict = answerGuard.review(input, List.copyOf(references.values()), draft);
+                var accessedAssetIds = new LinkedHashSet<String>();
+                for (var result : toolResults) {
+                    if (!List.of("get_asset", "get_configuration", "get_maintenance_history", "get_observations")
+                            .contains(result.toolName())) continue;
+                    String assetId = result.status().get("assetId");
+                    if (assetId != null && !assetId.isBlank()) accessedAssetIds.add(assetId);
+                }
+                var verdict = answerGuard.review(input, List.copyOf(references.values()), draft, false, accessedAssetIds);
                 if (!verdict.allowed()) {
                     // 有界修正：只给模型一次重答机会，仍不合法就按失败结束，不伪装成答案
                     rejections++;

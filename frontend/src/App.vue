@@ -6,7 +6,7 @@ import {
   createConversation,
   describeFailure,
   listAssets,
-  listConversations,
+  listConversationSummaries,
   readConversation,
   readReferences,
   readRun,
@@ -18,6 +18,7 @@ import {
   uploadMarkdown,
   waitForFile,
   waitForRun,
+  type ConversationSummary,
   type ConversationView,
   type FileView,
   type MessageView,
@@ -26,6 +27,7 @@ import {
   type SkillSelection
 } from './api'
 import RunTimeline from './components/RunTimeline.vue'
+import DiagnosisReport from './components/DiagnosisReport.vue'
 import RecentInvestigations from './components/RecentInvestigations.vue'
 import ProfessionalDiagnosisPage from './components/ProfessionalDiagnosisPage.vue'
 import EvidenceComparison from './components/EvidenceComparison.vue'
@@ -35,14 +37,21 @@ import { createRunTimelineController } from './timeline'
 import { buildInvestigationMessage, buildDiagnosisViewModel, toReferenceView, type ReferenceView } from './diagnosisViewModel'
 import { resolveRunTargets, runPermissions, UNSETTLED_STATUSES } from './runTargets'
 import { createScopedLoader, mergeRunList, mergeRunView } from './scope'
+import { appendConversationPage, conversationBadge } from './history'
+import { ensureConversation } from './draftSubmission'
 import { createScheduledReads, TERMINAL_EVENT_STATUSES } from './scheduler'
 
 const STORAGE_KEY = 'devicetruth.conversation-id'
 
 const conversation = ref<ConversationView | null>(null)
-const conversations = ref<ConversationView[]>([])
+const conversations = ref<ConversationSummary[]>([])
 const historyLoaded = ref(false)
 const historyError = ref('')
+const historyNextCursor = ref<string | null>(null)
+const historyQuery = ref('')
+const historyStatus = ref<'' | 'ACTIVE' | 'WAITING_FOR_USER' | 'COMPLETED' | 'FAILED'>('')
+const historyLoadingMore = ref(false)
+let historyGeneration = 0
 const assets = ref<string[]>([])
 const selectedAssetId = ref<string>('')
 // 持久消息与轮次：服务器返回的顺序即展示与默认跟随顺序。
@@ -91,8 +100,9 @@ const errorText = ref('')
 const uploadedFile = ref<FileView | null>(null)
 const selectedSkill = ref<SkillSelection | null>(null)
 const cancelling = ref(false)
-const historyTitles = ref<Record<string, string>>({})
 const recordDrawerOpen = ref(false)
+const reportOpen = ref(false)
+let reportReturnFocus: HTMLElement | null = null
 const narrowLayout = window.matchMedia('(max-width: 1100px)')
 const smallScreen = ref(narrowLayout.matches)
 /** 深入调查载荷：由专业页按所看轮选中判断给出（选择动作零提交）。 */
@@ -125,11 +135,15 @@ let sceneGeneration = 0
 
 const sceneKey = computed(() => conversation.value?.conversationId ?? '')
 
-const taskTitle = computed(() => messages.value.find(message => message.role === 'USER')?.content || '新调查')
 /** 所看轮的目标消息：只按该轮自己的 goalMessageId 匹配，不跟随输入框资产。 */
 const goalMessage = computed(() => messages.value.find(message => message.messageId === run.value?.goalMessageId) ?? null)
-/** 设备快照所用资产与业务时点：一律来自所看轮。 */
-const viewedAssetId = computed(() => goalMessage.value?.selectedAssetId ?? null)
+/** 设备快照所用资产与业务时点：统一使用所看轮的权威对象，歧义/未确认不打开快照。 */
+const viewedAssetId = computed(() => {
+  const current = run.value
+  const resolution = current?.assetResolution ?? (goalMessage.value?.selectedAssetId ? 'SELECTED' : 'UNCONFIRMED')
+  return resolution === 'SELECTED' || resolution === 'CONFIRMED'
+    ? current?.investigatedAssetId ?? goalMessage.value?.selectedAssetId ?? null : null
+})
 const viewedAsOf = computed(() => run.value?.asOf ?? null)
 
 const registeredSources = ref<Awaited<ReturnType<typeof readReferences>>>([])
@@ -245,14 +259,14 @@ watch(
 )
 
 watch(
-  () => [run.value?.runId ?? '', diagnosisModel.value.claims.length] as const,
-  ([runId, count], previous) => {
+  () => [run.value?.runId ?? '', diagnosisModel.value.claims.length, diagnosisModel.value.defaultClaimIndex] as const,
+  ([runId, count, defaultIndex], previous) => {
     if (count <= 0) {
       selectedClaimIndex.value = null
       return
     }
     const current = selectedClaimIndex.value
-    if (previous?.[0] !== runId || current === null || current >= count) selectedClaimIndex.value = 0
+    if (previous?.[0] !== runId || current === null || current >= count) selectedClaimIndex.value = defaultIndex
   },
   { immediate: true }
 )
@@ -419,7 +433,6 @@ function applyDetail(nextRuns: RunView[], nextMessages: MessageView[], nextConve
   if (!sameScene || nextConversation.version >= previous.version) {
     conversation.value = nextConversation
     messages.value = nextMessages
-    historyTitles.value[nextConversation.conversationId] = taskTitle.value
   }
   runs.value = sameScene ? mergeRunList(runs.value, nextRuns) : nextRuns
   if (preferredActiveRunId.value && !runs.value.some((item) => item.runId === preferredActiveRunId.value
@@ -440,6 +453,7 @@ async function resyncRun(runId: string, terminal = false): Promise<void> {
       if (!isCurrentScene(conversationId, generation)) return
       upsertRun(view)
       await refresh()
+      void refreshHistory()
     } catch {
       // 回读失败不改写界面状态，等待失效时由有界轮询与手动同步兜底
     }
@@ -478,6 +492,7 @@ async function track(runId: string): Promise<void> {
     if (!isCurrentScene(conversationId, generation) || controller.signal.aborted) return
     upsertRun(finished)
     await refresh()
+    void refreshHistory()
   } catch (error) {
     if (isCurrentScene(conversationId, generation) && !controller.signal.aborted) {
       errorText.value = describeError(error)
@@ -547,21 +562,32 @@ async function openConversation(conversationId: string): Promise<void> {
   }
 }
 
-async function startNewConversation(): Promise<void> {
+function startNewConversation(): void {
   if (busy.value || cancelling.value) return
-  busy.value = true
+  sceneGeneration += 1
+  abortAllTracking()
+  timeline.clear()
+  handledSignals.clear()
+  conversation.value = null
+  messages.value = []
+  runs.value = []
+  pinnedRunId.value = null
+  preferredActiveRunId.value = null
+  selectedClaimIndex.value = null
+  uploadedFile.value = null
+  uploading.value = false
+  composeMode.value = 'free'
+  investigationDrafts.value = {}
+  draft.value = ''
+  replyDraft.value = ''
   errorText.value = ''
+  reportOpen.value = false
   try {
-    const created = await createConversation()
-    applyDetail([], [], created)
-    rememberConversation(created.conversationId)
-    recordDrawerOpen.value = false
-    await refreshHistory()
-  } catch (error) {
-    errorText.value = describeError(error)
-  } finally {
-    busy.value = false
+    window.localStorage.removeItem(STORAGE_KEY)
+  } catch {
+    // 本地存储不可用时只影响下次自动找回，不影响本次草稿
   }
+  recordDrawerOpen.value = false
 }
 
 function abortAllTracking(): void {
@@ -580,39 +606,61 @@ function rememberConversation(conversationId: string): void {
 }
 
 async function refreshHistory(): Promise<void> {
+  const generation = ++historyGeneration
   try {
-    conversations.value = await listConversations()
+    const page = await listConversationSummaries({
+      q: historyQuery.value || undefined, status: historyStatus.value || undefined, limit: 20
+    })
+    if (generation !== historyGeneration) return
+    conversations.value = page.items
+    historyNextCursor.value = page.nextCursor
     historyError.value = ''
   } catch (error) {
-    historyError.value = describeError(error)
+    if (generation === historyGeneration) historyError.value = describeError(error)
   } finally {
-    historyLoaded.value = true
+    if (generation === historyGeneration) historyLoaded.value = true
   }
 }
 
-const sortedConversations = computed(() =>
-  [...conversations.value].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)))
-const historyItems = computed(() => sortedConversations.value.map(item => ({
-  conversationId: item.conversationId,
-  title: conversationTitle(item),
-  time: dateTime.format(new Date(item.updatedAt)),
-  badge: historyBadge(item)
-})))
-function conversationTitle(item: ConversationView): string {
-  return historyTitles.value[item.conversationId] || (item.version === 0 ? '新调查' : '调查会话')
+async function searchHistory(query: string): Promise<void> {
+  historyQuery.value = query.trim()
+  await refreshHistory()
 }
 
-type HistoryBadge = '' | 'waiting' | 'running' | 'failed' | 'cancelled'
-function historyBadge(item: ConversationView): HistoryBadge {
-  if (item.conversationId !== conversation.value?.conversationId || !runs.value.length) return ''
-  const pending = targets.value.activeRuns
-  if (pending.some(run => run.status === 'WAITING_FOR_USER')) return 'waiting'
-  if (pending.length) return 'running'
-  const latest = runs.value.at(-1)!
-  if (latest.status === 'FAILED') return 'failed'
-  if (latest.status === 'CANCELLED') return 'cancelled'
-  return ''
+async function filterHistory(status: string): Promise<void> {
+  historyStatus.value = status as typeof historyStatus.value
+  await refreshHistory()
 }
+
+async function loadMoreHistory(): Promise<void> {
+  if (!historyNextCursor.value || historyLoadingMore.value) return
+  historyLoadingMore.value = true
+  const generation = historyGeneration
+  try {
+    const page = await listConversationSummaries({
+      q: historyQuery.value || undefined, status: historyStatus.value || undefined,
+      cursor: historyNextCursor.value, limit: 20
+    })
+    if (generation !== historyGeneration) return
+    const merged = appendConversationPage(conversations.value, page)
+    conversations.value = merged.items
+    historyNextCursor.value = merged.nextCursor
+    historyError.value = ''
+  } catch (error) {
+    if (generation === historyGeneration) historyError.value = describeError(error)
+  } finally {
+    historyLoadingMore.value = false
+  }
+}
+
+const historyItems = computed(() => conversations.value.map(item => ({
+  conversationId: item.conversationId,
+  title: item.title,
+  assetId: item.investigatedAssetId,
+  runCount: item.runCount,
+  time: dateTime.format(new Date(item.updatedAt)),
+  badge: conversationBadge(item)
+})))
 
 function selectViewedRun(runId: string): void {
   if (runId !== run.value?.runId) composeMode.value = 'free'
@@ -642,8 +690,8 @@ async function upload(event: Event): Promise<void> {
 }
 
 async function importAttachment(start: () => Promise<string>): Promise<void> {
-  if (uploading.value || !conversation.value) return
-  const conversationId = conversation.value.conversationId
+  if (uploading.value) return
+  const conversationId = conversation.value?.conversationId ?? ''
   const generation = sceneGeneration
   uploading.value = true
   errorText.value = ''
@@ -683,17 +731,21 @@ function enterNewRun(accepted: RunView): void {
     if (isCurrentScene(accepted.conversationId, generation)) errorText.value = describeError(error)
   })
   ensureTracking()
+  void refreshHistory()
 }
 
 async function submit(): Promise<void> {
-  if (!canSend.value || !conversation.value) return
+  if (!canSend.value) return
   if (composeMode.value === 'investigate') return investigateCurrent()
   busy.value = true
   errorText.value = ''
   try {
     const attachments = uploadedFile.value?.parseStatus === 'PARSED' ? [uploadedFile.value.fileId] : []
+    const current = await ensureConversation(conversation.value, createConversation)
+    conversation.value = current
+    rememberConversation(current.conversationId)
     const accepted = await sendMessage(
-      conversation.value.conversationId,
+      current.conversationId,
       composeMode.value === 'observation' ? '现场观察（用户报告，未经核实）：\n' + draft.value : draft.value,
       undefined,
       attachments,
@@ -839,13 +891,28 @@ function openRecord(section?: string): void {
 }
 
 function showReport(): void {
-  const report = document.getElementById('pro-full-report')
-  if (!report) {
+  if (!run.value) {
     openRecord('pro-history')
     return
   }
-  if (report.getAttribute('aria-expanded') === 'false') report.click()
-  report.focus()
+  reportReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  reportOpen.value = true
+  recordDrawerOpen.value = false
+  void nextTick(() => document.getElementById('diagnosis-report-title')?.focus())
+}
+
+function closeReport(): void {
+  reportOpen.value = false
+  const target = reportReturnFocus
+  reportReturnFocus = null
+  void nextTick(() => {
+    if (target?.isConnected) target.focus()
+    else document.querySelector<HTMLElement>('.pro-task-title')?.focus()
+  })
+}
+
+function printReport(): void {
+  window.print()
 }
 
 watch([() => run.value?.runId, selectedClaimIndex], () => {
@@ -890,12 +957,8 @@ onMounted(async () => {
         applyDetail(detail.runs, detail.messages, detail.conversation)
         await refresh()
       } catch {
-        conversation.value = await createConversation()
-        rememberConversation(conversation.value.conversationId)
+        startNewConversation()
       }
-    } else {
-      conversation.value = await createConversation()
-      rememberConversation(conversation.value.conversationId)
     }
     assets.value = await listAssets()
     await refreshHistory()
@@ -954,6 +1017,7 @@ onUnmounted(() => {
         <button class="secondary" :aria-expanded="recordDrawerOpen" @click="recordDrawerOpen = !recordDrawerOpen">
           <UiIcon name="menu" /> 查看调查记录
         </button>
+        <button v-if="run" type="button" class="pro-outline pro-mobile-report" @click="showReport"><UiIcon name="file" /> 报告</button>
         <a class="pro-outline pro-mobile-compose" :href="waitingRun ? '#pending-question-title' : '#pro-composer'">
           <UiIcon name="chat" /> 继续调查
         </a>
@@ -963,7 +1027,10 @@ onUnmounted(() => {
     <div class="pro-shell">
       <!-- 桌面常驻「近期调查」；窄屏由顶部“查看调查记录”打开同一列表 -->
       <RecentInvestigations v-if="!smallScreen" :items="historyItems" :current-id="sceneKey" :busy="busy || cancelling" :history-loaded="historyLoaded"
-                            :history-error="historyError" @create="startNewConversation" @retry="refreshHistory" @select="openConversation">
+                            :history-error="historyError" :query="historyQuery" :status="historyStatus" :next-cursor="historyNextCursor"
+                            :loading-more="historyLoadingMore"
+                            @create="startNewConversation" @retry="refreshHistory" @select="openConversation"
+                            @search="searchHistory" @filter="filterHistory" @load-more="loadMoreHistory">
         <template #workspace>
           <nav class="pro-side-nav" aria-label="工作空间">
             <h2 class="side-label">工作空间</h2>
@@ -981,7 +1048,7 @@ onUnmounted(() => {
             {{ errorText }}
             <button type="button" class="text-button" @click="retrySync">重新同步</button>
           </p>
-          <ProfessionalDiagnosisPage :run="run"
+          <ProfessionalDiagnosisPage v-if="!reportOpen" :run="run"
                                      :model="diagnosisModel"
                                      :selected-claim="selectedClaimOfPage"
                                      :selected-index="selectedClaimIndex"
@@ -1091,6 +1158,11 @@ onUnmounted(() => {
               </details>
             </template>
           </ProfessionalDiagnosisPage>
+          <DiagnosisReport v-else-if="run" :run="run" :model="diagnosisModel" :references="registeredReferences"
+                           :references-state="referencesState === 'idle' ? 'loading' : referencesState"
+                           :references-note="referencesNote" :failure-text="describeFailure(run.failureCode)"
+                           @close="closeReport" @print="printReport" @open-reference="openReference"
+                           @retry-references="loadRegisteredReferences(run.runId)" />
         </div>
       </section>
     </div>
@@ -1109,7 +1181,10 @@ onUnmounted(() => {
       </div>
       <div class="pro-drawer-body">
         <RecentInvestigations v-if="smallScreen" :items="historyItems" :current-id="sceneKey" :busy="busy || cancelling" :history-loaded="historyLoaded"
-                            :history-error="historyError" @create="startNewConversation" @retry="refreshHistory" @select="openConversation" />
+                            :history-error="historyError" :query="historyQuery" :status="historyStatus" :next-cursor="historyNextCursor"
+                            :loading-more="historyLoadingMore"
+                            @create="startNewConversation" @retry="refreshHistory" @select="openConversation"
+                            @search="searchHistory" @filter="filterHistory" @load-more="loadMoreHistory" />
         <template v-if="run">
           <h3 id="pro-history" tabindex="-1">调查轮次</h3>
           <p v-if="!runs.length" class="hint">本会话还没有调查轮次。</p>

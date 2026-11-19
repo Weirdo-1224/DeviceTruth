@@ -49,11 +49,16 @@ public final class GeneralAgentService {
                                  List<Map<String, Object>> attachments, List<Map<String, Object>> contextRefs,
                                  Instant asOf, Map<String, Object> replyTo) {}
     public record ConversationView(UUID conversationId, long version, Instant createdAt, Instant updatedAt) {}
+    public record ConversationSummary(UUID conversationId, String title, String investigatedAssetId,
+                                      String latestRunStatus, int activeRunCount, int waitingRunCount,
+                                      int runCount, Instant updatedAt) {}
+    public record ConversationSummaryPage(List<ConversationSummary> items, String nextCursor) {}
     public record MessageView(UUID messageId, long seq, String role, String content, String selectedAssetId,
                               Instant requestedAt, Instant asOf) {}
     /** 运行视图：待答问题与最终答案都从持久层读回，刷新页面不会丢状态。 */
     public record RunView(UUID runId, UUID conversationId, UUID goalMessageId, String status, long version,
-                          Instant requestedAt, Instant asOf, String dataNature,
+                          Instant requestedAt, Instant asOf, String investigatedAssetId, String assetResolution,
+                          String changedFromAssetId, String dataNature,
                           PendingQuestion pendingQuestion, AgentResult result, String failureCode,
                           Long activeDurationMs, String usageStatus,
                           Long inputTokens, Long outputTokens, BigDecimal cost) {}
@@ -194,6 +199,40 @@ public final class GeneralAgentService {
     public ConversationView create() { return conversations.create(identity, Instant.now()); }
     public List<ConversationView> list() { return conversations.list(identity); }
 
+    public ConversationSummaryPage summaries(String query, String assetId, String status, String cursor, Integer limit) {
+        if (query != null && (query.codePointCount(0, query.length()) > 200 || query.indexOf('\0') >= 0))
+            throw new RequestFailure("INVALID_QUERY", 400);
+        if (assetId != null) Checks.id(assetId, "assetId");
+        if (status != null && !Set.of("ACTIVE", "QUEUED", "RUNNING", "WAITING_FOR_USER", "COMPLETED",
+                "FAILED", "CANCELLED").contains(status)) throw new RequestFailure("INVALID_STATUS", 400);
+        int pageSize = limit == null ? 20 : limit;
+        if (pageSize < 1 || pageSize > 50) throw new RequestFailure("INVALID_PAGE_SIZE", 400);
+        var decoded = decodeCursor(cursor);
+        var page = conversations.summaries(identity, query, assetId, status, decoded, pageSize);
+        return new ConversationSummaryPage(page.items(),
+                page.nextCursor() == null ? null : encodeCursor(page.nextCursor()));
+    }
+
+    private static ConversationRepository.SummaryCursor decodeCursor(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            String decoded = new String(java.util.Base64.getUrlDecoder().decode(value), java.nio.charset.StandardCharsets.UTF_8);
+            String[] parts = decoded.split(":", 3);
+            int waiting = Integer.parseInt(parts[0]);
+            if (parts.length != 3 || waiting < 0 || waiting > 1) throw new IllegalArgumentException();
+            return new ConversationRepository.SummaryCursor(waiting,
+                    Instant.ofEpochMilli(Long.parseLong(parts[1])), UUID.fromString(parts[2]));
+        } catch (RuntimeException e) {
+            throw new RequestFailure("INVALID_CURSOR", 400);
+        }
+    }
+
+    private static String encodeCursor(ConversationRepository.SummaryCursor cursor) {
+        String value = cursor.waitingPriority() + ":" + cursor.updatedAt().toEpochMilli() + ":" + cursor.conversationId();
+        return java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
     public ConversationDetail read(UUID conversationId) {
         return transactions.execute(status -> {
             // 与提交共用行锁，避免把旧版本与刚提交的消息拼成一次读取结果。
@@ -323,6 +362,10 @@ public final class GeneralAgentService {
             conversations.appendReplyWithReferences(identity, conversationId, requestKey, input.userMessage(),
                     input.selectedAssetId(), now, asOf, record.runId(), record.pendingQuestionId(),
                     record.questionVersion(), attachments, contextRefs);
+            if (input.selectedAssetId() != null)
+                runs.confirmSelectedSubject(identity, record.runId(), input.selectedAssetId(),
+                        input.selectedAssetId().equals(record.selectedAssetId())
+                                ? record.changedFromAssetId() : record.selectedAssetId());
             if (runs.queueReply(identity, record, target.pendingQuestionId(), target.questionVersion(), now) != 1)
                 throw new RequestFailure("STALE_OR_UNRELATED_REPLY", 409);
             importContextRefs(contextRefs, record.runId());

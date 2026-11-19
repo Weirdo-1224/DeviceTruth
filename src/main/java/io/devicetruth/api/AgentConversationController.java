@@ -34,6 +34,14 @@ public class AgentConversationController {
     @GetMapping("/api/conversations")
     List<ConversationView> list() { return service.list(); }
 
+    @GetMapping("/api/conversations/summaries")
+    GeneralAgentService.ConversationSummaryPage summaries(
+            @RequestParam(required = false) String q, @RequestParam(required = false) String assetId,
+            @RequestParam(required = false) String status, @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer limit) {
+        return service.summaries(q, assetId, status, cursor, limit);
+    }
+
     @GetMapping("/api/conversations/{id}")
     ConversationDetail read(@PathVariable UUID id) { return service.read(id); }
 

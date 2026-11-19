@@ -1,6 +1,7 @@
 package io.devicetruth.core.contract;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 通用 Agent 答案（schemaVersion = 1）：服务器校验引用与风险后生成的公开视图。
@@ -10,7 +11,13 @@ import java.util.List;
 public record AgentResult(String summary, Category category, List<Claim> claims,
                           List<String> suggestions, List<String> uncertainties, List<String> limitations,
                           List<Reference> references, RiskLevel riskLevel, String safetyDisposition,
-                          String dataNature) {
+                          String dataNature, String subjectAssetId, String assetResolution) {
+    public AgentResult(String summary, Category category, List<Claim> claims,
+                       List<String> suggestions, List<String> uncertainties, List<String> limitations,
+                       List<Reference> references, RiskLevel riskLevel, String safetyDisposition, String dataNature) {
+        this(summary, category, claims, suggestions, uncertainties, limitations, references, riskLevel,
+                safetyDisposition, dataNature, null, null);
+    }
     /** 答案类别：手册解释 / 可能原因 / 已确认发现 / 需人工核验。 */
     public enum Category { KNOWLEDGE, POSSIBLE_CAUSES, CONFIRMED_FINDING, HUMAN_REVIEW }
 
@@ -20,13 +27,20 @@ public record AgentResult(String summary, Category category, List<Claim> claims,
     /** 服务器判定的风险等级，模型自报不作为结论依据。 */
     public enum RiskLevel { LOW, MEDIUM, HIGH, PROHIBITED }
 
-    /** 一条断言：必须绑定本 run 已取回的引用 ID；SUPPORTED/CONFIRMED 不允许零引用。 */
-    public record Claim(String text, List<String> referenceIds, Certainty certainty) {
+    /** 一条断言：确定性、业务类型与相关性相互独立，历史缺省值不得升级为直接候选。 */
+    public record Claim(String text, List<String> referenceIds, Certainty certainty, Kind kind, Relevance relevance) {
+        public enum Kind { CAUSE, OBSERVATION, CONCLUSION, OTHER, UNKNOWN }
+        public enum Relevance { DIRECT, CONTEXT, UNRELATED, UNKNOWN }
+        public Claim(String text, List<String> referenceIds, Certainty certainty) {
+            this(text, referenceIds, certainty, Kind.UNKNOWN, Relevance.UNKNOWN);
+        }
         public Claim {
             Checks.text(text, "claim.text");
             if (text.codePointCount(0, text.length()) > 2000) throw new IllegalArgumentException("claim too long");
             referenceIds = Checks.list(referenceIds);
             Checks.required(certainty, "claim.certainty");
+            if (kind == null) kind = Kind.UNKNOWN;
+            if (relevance == null) relevance = Relevance.UNKNOWN;
         }
     }
 
@@ -63,6 +77,9 @@ public record AgentResult(String summary, Category category, List<Claim> claims,
         Checks.text(safetyDisposition, "safetyDisposition");
         if (!"SIMULATED".equals(dataNature) && !"AUTHORIZED".equals(dataNature))
             throw new IllegalArgumentException("Invalid dataNature");
+        if (subjectAssetId != null) Checks.id(subjectAssetId, "subjectAssetId");
+        if (assetResolution != null && !Set.of("CONFIRMED", "AMBIGUOUS").contains(assetResolution))
+            throw new IllegalArgumentException("Invalid assetResolution");
     }
 
     public List<String> referenceIds() {

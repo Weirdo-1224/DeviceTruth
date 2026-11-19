@@ -8,13 +8,13 @@ DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI
 - `core/reasoning/`：`Reasoner` 根据状态提出 `ActionProposal`，`ScriptedReasoner` 支持离线推理；`ActionProposal` 现含 legacy 五动作与通用三动作（`CALL_TOOL`/`ASK_USER`/`ANSWER`），`GeneralReasoner`/`ScriptedAgentReasoner` 提供通用 Agent 的单步提议。
 - `core/runtime/`：`TaskOrchestrator` 是唯一产品主循环，`run(...)` 服务 legacy 诊断、`runAgent(...)` 服务通用 Agent，共享单步、事件与有界循环；`AgentRunOutcome` 表达等待/完成/失败。
 - `core/capability/`：`CapabilityGateway` 注册 legacy 单值能力与通用工具（`registerTool/toolCatalog/executeTool`），校验参数、授权与只读；`AgentToolTypes` 定义 `ToolSpec`/`ToolOutcome`；`ToolContext` 携带服务器确定的身份与 run 范围。
-- `core/evidence/`、`core/state/`、`core/decision/`：`EvidenceManager` 重建事实并使旧依赖失效，`StateManager` 提交状态版本，`DecisionGuard` 校验 legacy 决策，`AnswerGuard` 校验通用答案的引用子集、风险与“无资产不得确诊”。
-- `core/contract/`：`Models` 为 legacy 诊断协议值；`AgentTaskInput`/`AgentResult` 为通用 Agent 的输入与答案（事实/可能性/建议/人工项、引用、风险、dataNature）。
+- `core/evidence/`、`core/state/`、`core/decision/`：`EvidenceManager` 重建事实并使旧依赖失效，`StateManager` 提交状态版本，`DecisionGuard` 校验 legacy 决策，`AnswerGuard` 校验通用答案的引用子集、风险、“无资产不得确诊”、判断类型/相关性及本轮排查对象冲突与歧义。
+- `core/contract/`：`Models` 为 legacy 诊断协议值；`AgentTaskInput`/`AgentResult` 为通用 Agent 的输入与答案（判断、建议、人工项、引用、风险、dataNature、业务类型/相关性、可选排查对象）。
 - `adapter/`：`JsonRepositories` 读取数据，`QwenReasoner`、`OpenAiReasoner`（OpenAI 兼容，可指向 DeepSeek）、`AgentScopeStep` 对接模型，`StructuredAgentReasoner`/`AgentModelConnections` 提供通用 Agent 的单步协议与供应商连接，`RunReportWriter` 保存报告，`persistence/` 读写 PG。
 - `server/`、`api/`、`application/`：HTTP 服务与产品 Agent。
   - `DeviceTruthServerApplication` 起服务；`legacy` profile 装配 `LegacyConfiguration`（V0.1/V0.2 场景目录、Router、内存会话、异步诊断）与 `ConversationController`（legacy 会话/诊断接口，`/api/sessions`、`/api/diagnoses`），`product` profile 只装产品链路，两者互斥且都不装时仅剩 `/api/health`；`HealthController` 无条件提供健康探针。
-  - `AgentConversationController` 暴露产品会话/run/引用/明细/事件/SSE 流（`GET /api/runs/{id}/events`、`/stream`）与取消。
-  - `application/agent/GeneralAgentService`：QUEUED→RUNNING→WAITING_FOR_USER→…→COMPLETED/FAILED/CANCELLED 持久状态机与有界 worker。
+  - `AgentConversationController` 暴露产品会话/run/引用/明细/事件/SSE 流（`GET /api/runs/{id}/events`、`/stream`）与取消；`GET /api/conversations/summaries` 提供归属受限的标题、设备、真实状态、搜索筛选和游标分页，原会话列表接口保留。
+  - `application/agent/GeneralAgentService`：QUEUED→RUNNING→WAITING_FOR_USER→…→COMPLETED/FAILED/CANCELLED 持久状态机与有界 worker；V18 起 Run 持久化实际排查对象、确认状态和变更来源，补答与 worker 恢复共用同一对象。
   - `RunRecoveryService`：执行租约 + 版本 CAS 的崩溃恢复；`RunEventStreamService`：先历史后订阅再补读的有界事件流；`SafeAgentEventViews`：事件白名单映射。
   - `AssetTools`（`get_asset`/`get_configuration`/`get_maintenance_history`）、`ObservationTools`（`get_observations` 只读授权资产的模拟观测）、`AgentReportTools`（`generate_diagnosis_report`）注册进产品 Agent 网关。
 - `knowledge/`：知识导入与检索。
@@ -22,7 +22,7 @@ DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI
   - `FileUploadService` 负责受控原文件存储、有界异步导入与失败重试。
   - `KnowledgeSearchService` 做归属过滤、向量/关键词/RRF 混合召回与引用登记；`KnowledgeTools` 暴露 `search_knowledge`/`get_document_excerpt` 服务端合同并注册进产品 Agent 网关。
   - `EmbeddingClient` 适配真实供应商或离线确定性向量；`api/KnowledgeController`、`api/FileController` 分别暴露 `/api/knowledge/*` 与 `/api/files`。PDF 尚未实现。
-- `frontend/`：Vue3 + TypeScript + Vite 产品页（`src/api.ts` 冻结消息/补答/上传/事件流合同与安全轮询，`src/timeline.ts` 为 SSE 时间线控制器，`src/components/RunTimeline.vue` 展示运行事件，断线按 `Last-Event-ID` 续传并按 seq 去重，`DiagnosisReport.vue`/`EvidenceComparison.vue` 提供诊断报告与证据对比工作台（含取消 run 与 Skill 展示），`src/App.vue` 展示 Markdown 导入状态、持久消息、追问、答案与可展开章节引用）。
+- `frontend/`：Vue3 + TypeScript + Vite 产品页（`src/api.ts` 冻结消息/补答/上传/事件流合同与安全轮询，`src/timeline.ts` 为 SSE 时间线控制器，`src/components/RunTimeline.vue` 展示运行事件，断线按 `Last-Event-ID` 续传并按 seq 去重）。`diagnosisViewModel.ts` 统一排查对象并分组直接候选、背景观测和历史未知判断；专业页先显示短结论与前三项下一步。`RecentInvestigations.vue` 支持真实标题/状态、搜索筛选和分页；新调查首次提交才创建会话。`DiagnosisReport.vue` 复用持久 Run 和同一 ViewModel 提供独立报告及打印/另存为 PDF，不再次调用模型；`EvidenceComparison.vue` 提供证据对比，`App.vue` 展示 Markdown 导入、持久消息、追问与引用。
 - `skill/`：标准 Skill 加载与运行时域。
   - `SkillRegistry.load(root, limits)` 扫描根目录下含 `SKILL.md` 的一层子目录，严格解析 frontmatter 元数据并登记版本与 references 清单；`SkillContextLoader` 按需读取正文与单篇 reference；路径穿越、大小、UTF-8 与 YAML 子集格式问题统一抛 `SkillException`。
   - `SkillRuntime`（04-01 起接入产品 Runtime）注册 `activate_skill`/`read_skill_reference` 工具，按 run 记录选中的 Skill 与版本（`GET /api/runs/{id}/skill`）；安装状态与工具绑定经 V14 `dt_skill_installation` 持久化、重启保留。
