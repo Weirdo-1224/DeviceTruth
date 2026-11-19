@@ -46,10 +46,10 @@ public final class ScriptedAgentReasoner implements GeneralReasoner {
             if (context.toolResults().stream().noneMatch(result -> signature.equals(result.callSignature())))
                 return search;
         }
+        if (!assetQuery && !context.askedUser() && needsClarification(context)) return ask();
         if (context.activeSkill() != null && available(context, OBSERVATIONS) && !context.attempted(OBSERVATIONS))
             return new ActionProposal.CallTool(OBSERVATIONS, Map.of(), "核查该任务是否已有观测记录");
         if (assetQuery) return configurationAnswer(context);
-        if (!context.askedUser() && needsClarification(context)) return ask();
         return answer(context);
     }
 

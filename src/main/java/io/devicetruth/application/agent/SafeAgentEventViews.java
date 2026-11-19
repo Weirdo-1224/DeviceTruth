@@ -18,18 +18,20 @@ public final class SafeAgentEventViews {
     }
 
     /** 各事件类型允许透出的 data 字段（契约 §2 表 + 复验 §8.1 RUN_WAITING）；不在表内的类型一律空对象。 */
-    private static final Map<String, Set<String>> ALLOWED_FIELDS = Map.of(
-            "RUN_QUEUED", Set.of("status"),
-            "RUN_RECOVERED", Set.of("attempts"),
-            "RUN_TOOL", Set.of("toolName", "success", "errorCode", "references", "durationMs", "retryable"),
-            "RUN_MODEL", Set.of("model", "attempt", "outcome", "durationMs", "retryable",
-                    "inputTokens", "outputTokens", "cost"),
-            "RUN_ANSWER", Set.of("summary", "category", "claims", "suggestions", "uncertainties",
-                    "limitations", "references", "riskLevel", "safetyDisposition", "dataNature"),
-            "RUN_FAILED", Set.of("code"),
-            "RUN_CANCELLED", Set.of("phase"),
-            "RUN_LATE_RESPONSE", Set.of("status", "code"),
-            "RUN_WAITING", Set.of("questionVersion"));
+    private static final Map<String, Set<String>> ALLOWED_FIELDS = Map.ofEntries(
+            Map.entry("RUN_QUEUED", Set.of("status")),
+            Map.entry("RUN_RECOVERED", Set.of("attempts")),
+            Map.entry("RUN_TOOL", Set.of("toolName", "success", "errorCode", "references", "durationMs", "retryable")),
+            Map.entry("RUN_MODEL", Set.of("model", "attempt", "outcome", "durationMs", "retryable",
+                    "inputTokens", "outputTokens", "cost")),
+            Map.entry("RUN_ANSWER", Set.of("summary", "category", "claims", "suggestions", "uncertainties",
+                    "limitations", "references", "riskLevel", "safetyDisposition", "dataNature")),
+            Map.entry("RUN_FAILED", Set.of("code")),
+            Map.entry("RUN_CANCELLED", Set.of("phase")),
+            Map.entry("RUN_LATE_RESPONSE", Set.of("status", "code")),
+            Map.entry("RUN_WAITING", Set.of("questionVersion")),
+            Map.entry("RUN_PHASE", Set.of("phase", "reason")),
+            Map.entry("RUN_DEGRADED", Set.of("code", "references")));
 
     private SafeAgentEventViews() {}
 

@@ -640,7 +640,7 @@ class RunRecoveryTest {
         }
     }
 
-    @Test void fabricatedCitationAfterRestartIsStillRejected() throws Exception {        var first = service(null);
+    @Test void fabricatedCitationAfterRestartIsRejectedAndLimitedResultHasNoForgery() throws Exception {        var first = service(null);
         UUID conversation;
         RunView waiting;
         try {
@@ -651,7 +651,7 @@ class RunRecoveryTest {
         } finally {
             first.shutdown();
         }
-        // 重启后模型伪造引用：守卫在恢复后的同一 run 上仍然拒绝，答案不落地
+        // 重启后模型伪造引用：守卫仍拒绝，最终只交付不含伪造断言的有限结果
         StructuredAgentReasoner.Completion fabricating = (system, context) -> {
             try {
                 if (Json.MAPPER.readTree(context).path("references").isEmpty())
@@ -668,11 +668,17 @@ class RunRecoveryTest {
                 () -> new StructuredAgentReasoner("fabricator", fabricating), 1, 2, true, null, LEASE_SECONDS, 3);
         try {
             second.submit(conversation, UUID.randomUUID(), replyInput("直流快充，SOC 约 40%", waiting));
-            awaitTerminal(second, waiting.runId(), "FAILED");
-            assertThat(second.run(waiting.runId()).failureCode()).isEqualTo("INVALID_CITATION");
+            awaitTerminal(second, waiting.runId(), "COMPLETED");
+            assertThat(second.run(waiting.runId()).failureCode()).isNull();
+            assertThat(second.run(waiting.runId()).result().summary()).doesNotContain("已确诊");
+            assertThat(second.run(waiting.runId()).result().claims()).isEmpty();
+            assertThat(second.run(waiting.runId()).result().limitations()).anyMatch(item -> item.contains("INVALID_CITATION"));
             assertThat(jdbc.queryForObject(
                     "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_ANSWER'",
-                    Integer.class, waiting.runId())).isZero();
+                    Integer.class, waiting.runId())).isEqualTo(1);
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_DEGRADED'"
+                            + " AND safe_payload->>'code'='INVALID_CITATION'", Integer.class, waiting.runId())).isEqualTo(1);
         } finally {
             second.shutdown();
         }

@@ -107,13 +107,12 @@ public final class AnswerGuard {
         } catch (IllegalArgumentException e) {
             return Verdict.rejected("INVALID_ANSWER");
         }
-        // 3) 业务类型与确定性独立校验，历史 UNKNOWN 保留但不能成为直接候选
-        for (Claim claim : draft.claims()) {
-            if (claim.relevance() == Claim.Relevance.UNRELATED
-                    && (claim.kind() == Claim.Kind.CAUSE || claim.kind() == Claim.Kind.CONCLUSION)
-                    || claim.relevance() == Claim.Relevance.DIRECT && claim.kind() == Claim.Kind.UNKNOWN)
-                return Verdict.rejected("INVALID_ANSWER");
-        }
+        // 3) 分类只影响展示：未知的直接相关性降为 UNKNOWN，非安全分类组合不否决整份答案
+        List<Claim> claims = draft.claims().stream().map(claim ->
+                claim.kind() == Claim.Kind.UNKNOWN && claim.relevance() == Claim.Relevance.DIRECT
+                        ? new Claim(claim.text(), claim.referenceIds(), claim.certainty(), claim.kind(),
+                                Claim.Relevance.UNKNOWN)
+                        : claim).toList();
         // 4) 排查对象只能来自显式选择及成功资产工具，未声明的多候选保持歧义
         var assetCandidates = new LinkedHashSet<String>();
         if (input.selectedAssetId() != null) assetCandidates.add(input.selectedAssetId());
@@ -130,7 +129,7 @@ public final class AnswerGuard {
             assetResolution = "AMBIGUOUS";
         }
         // 5) 危险执行建议：逐句逐子句判断，含动作的句子只允许禁止性提示或资质边界声明
-        if (recommendsControlAction(draft.summary()) || draft.claims().stream().anyMatch(claim -> recommendsControlAction(claim.text()))
+        if (recommendsControlAction(draft.summary()) || claims.stream().anyMatch(claim -> recommendsControlAction(claim.text()))
                 || draft.suggestions().stream().anyMatch(AnswerGuard::recommendsControlAction)
                 || draft.uncertainties().stream().anyMatch(AnswerGuard::recommendsControlAction)
                 || draft.limitations().stream().anyMatch(AnswerGuard::recommendsControlAction))
@@ -138,19 +137,19 @@ public final class AnswerGuard {
         // 6) 没有服务器判定的现场核验时，确诊路径一律关闭：CONFIRMED 枚举、完成时态确诊表述、
         //    以及针对当前设备的确定性故障断言都拒绝，模型只能给出带引用的可能原因
         if (!fieldVerified && (category == AgentResult.Category.CONFIRMED_FINDING
-                || draft.claims().stream().anyMatch(claim -> claim.certainty() == AgentResult.Certainty.CONFIRMED)
+                || claims.stream().anyMatch(claim -> claim.certainty() == AgentResult.Certainty.CONFIRMED)
                 || assertsConfirmedFinding(draft.summary())
-                || draft.claims().stream().anyMatch(claim -> assertsConfirmedFinding(claim.text()))
+                || claims.stream().anyMatch(claim -> assertsConfirmedFinding(claim.text()))
                 || draft.suggestions().stream().anyMatch(AnswerGuard::assertsConfirmedFinding)
                 || draft.uncertainties().stream().anyMatch(AnswerGuard::assertsConfirmedFinding)
                 || draft.limitations().stream().anyMatch(AnswerGuard::assertsConfirmedFinding)
                 || assertsDeviceDefect(draft.summary())
-                || draft.claims().stream().anyMatch(claim -> assertsDeviceDefect(claim.text()))
+                || claims.stream().anyMatch(claim -> assertsDeviceDefect(claim.text()))
                 || draft.suggestions().stream().anyMatch(AnswerGuard::assertsDeviceDefect)
                 || draft.uncertainties().stream().anyMatch(AnswerGuard::assertsDeviceDefect)
                 || draft.limitations().stream().anyMatch(AnswerGuard::assertsDeviceDefect)))
             return Verdict.rejected("UNCONFIRMED_FINDING");
-        String text = draft.summary() + " " + draft.claims().stream().map(Claim::text).toList() + " "
+        String text = draft.summary() + " " + claims.stream().map(Claim::text).toList() + " "
                 + String.join(" ", draft.suggestions());
         // 7) 风险由服务器判定：模型自报的“低风险”不作数
         AgentResult.RiskLevel risk = risk(category, text);
@@ -170,7 +169,7 @@ public final class AnswerGuard {
         List<Reference> used = referencesOf(draft, known);
         String dataNature = !used.isEmpty() && used.stream().allMatch(reference -> "AUTHORIZED".equals(reference.dataNature()))
                 ? "AUTHORIZED" : "SIMULATED";
-        return Verdict.accepted(new AgentResult(draft.summary(), category, draft.claims(), draft.suggestions(),
+        return Verdict.accepted(new AgentResult(draft.summary(), category, claims, draft.suggestions(),
                 draft.uncertainties(), limitations, used, risk, disposition, dataNature,
                 subjectAssetId, assetResolution));
     }

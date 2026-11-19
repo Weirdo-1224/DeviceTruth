@@ -337,6 +337,8 @@ const STREAM_EVENT_TYPES: readonly string[] = [
   'RUN_FAILED',
   'RUN_CANCELLED',
   'RUN_LATE_RESPONSE',
+  'RUN_PHASE',
+  'RUN_DEGRADED',
   'RUN_TERMINAL'
 ]
 

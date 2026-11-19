@@ -6,6 +6,7 @@ import io.devicetruth.core.capability.AgentToolTypes.ToolSpec;
 import io.devicetruth.core.capability.CapabilityGateway;
 import io.devicetruth.core.capability.CapabilityTypes.ToolError;
 import io.devicetruth.core.capability.ToolContext;
+import io.devicetruth.core.contract.AgentResult;
 import io.devicetruth.core.contract.AgentResult.Reference;
 import io.devicetruth.core.contract.AgentTaskInput;
 import io.devicetruth.core.reasoning.ActionProposal;
@@ -19,6 +20,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiFunction;
 import org.junit.jupiter.api.Test;
 
@@ -327,7 +329,8 @@ class AgentToolFeedbackTest {
     @Test void oversizedToolResultsAreBounded() {
         var gateway = new CapabilityGateway();
         register(gateway, "big_tool", (arguments, context) -> ok("big_tool",
-                Map.of("blob", "x".repeat(5000), "conflict", "NONE", "installationStatus", "UNCONFIRMED")));
+                Map.of("blob", "x".repeat(5000), "conflict", "NONE", "installationStatus", "UNCONFIRMED",
+                        "n", String.valueOf(arguments.get("n")))));
         var script = new ArrayList<ActionProposal>();
         for (int index = 0; index < 12; index++)
             script.add(new ActionProposal.CallTool("big_tool", Map.of("n", index), "第 " + index + " 次"));
@@ -356,7 +359,8 @@ class AgentToolFeedbackTest {
     @Test void evictedResultCanBeFetchedAgainButImmediateRepeatIsBlocked() {
         var gateway = new CapabilityGateway();
         var oldest = register(gateway, "get_asset", (arguments, context) -> ok("get_asset", Map.of("components", "A")));
-        register(gateway, "fill", (arguments, context) -> ok("fill", Map.of("blob", "x".repeat(1000))));
+        register(gateway, "fill", (arguments, context) -> ok("fill",
+                Map.of("blob", "x".repeat(1000), "n", String.valueOf(arguments.get("n")))));
         var asset = new ActionProposal.CallTool("get_asset", Map.of(), "查询资产");
         var script = new ArrayList<ActionProposal>(List.of(asset, asset));
         for (int index = 0; index < 6; index++)
@@ -494,7 +498,9 @@ class AgentToolFeedbackTest {
                 toolContext(Set.of()), List.of(), reasoner);
 
         assertThat(reasoner.contextAt(1).feedback()).isEqualTo("工具调用失败：UNKNOWN_TOOL");
-        assertThat(reasoner.contextAt(2).feedback()).isEqualTo("工具调用失败：TOOL_NOT_ALLOWED");
+        assertThat(reasoner.contextAt(2).feedback())
+                .contains("工具调用失败：TOOL_NOT_ALLOWED")
+                .contains("最终回答阶段");
     }
 
     // T12a：ASK_USER 闭环不退化
@@ -526,9 +532,9 @@ class AgentToolFeedbackTest {
     }
 
     // T12c：步数预算仍是最终约束
-    @Test void stepBudgetStillTerminatesTheLoop() {
+    @Test void lastStepIsReservedForAnswerInsteadOfStartingAnotherTool() {
         var gateway = new CapabilityGateway();
-        register(gateway, "get_asset", (arguments, context) -> ok("get_asset", Map.of()));
+        var tool = register(gateway, "get_asset", (arguments, context) -> ok("get_asset", Map.of()));
         var reasoner = new ScriptedStub(new ActionProposal.CallTool("get_asset", Map.of(), "查询"),
                 new ActionProposal.CallTool("get_asset", Map.of("second", true), "第二次"));
 
@@ -536,7 +542,45 @@ class AgentToolFeedbackTest {
                 toolContext(gateway.toolNames()), List.of(), reasoner);
 
         assertThat(outcome.status()).isEqualTo(TaskOrchestrator.AgentStatus.FAILED);
-        assertThat(outcome.stopReason()).isEqualTo("BUDGET_EXHAUSTED");
+        assertThat(outcome.stopReason()).isEqualTo("ANSWER_REQUIRED");
+        assertThat(tool.executions()).hasValue(0);
+    }
+
+    @Test void repeatedEmptyInvestigationsEnterFinalAnswerPhase() {
+        var gateway = new CapabilityGateway();
+        register(gateway, "search_knowledge", (arguments, context) -> ok("search_knowledge", Map.of("hits", "0")));
+        var reasoner = new ScriptedStub(
+                new ActionProposal.CallTool("search_knowledge", Map.of("query", "第一次"), "检索"),
+                new ActionProposal.CallTool("search_knowledge", Map.of("query", "第二次"), "换词检索"),
+                plainAnswer());
+
+        var outcome = new TaskOrchestrator(gateway).runAgent(input(12), gateway,
+                toolContext(gateway.toolNames()), List.of(), reasoner);
+
+        assertThat(outcome.status()).isEqualTo(TaskOrchestrator.AgentStatus.COMPLETED);
+        assertThat(reasoner.contextAt(2).tools())
+                .as("first=%s second=%s", reasoner.contextAt(1).toolResults(), reasoner.contextAt(2).toolResults())
+                .isEmpty();
+        assertThat(reasoner.contextAt(2).feedback()).contains("最终回答阶段");
+        assertThat(outcome.events().stream().filter(event -> event.type().equals("RUN_PHASE"))
+                .map(event -> event.data().get("reason"))).contains("NO_PROGRESS");
+    }
+
+    @Test void answerTimeReserveSuppressesNewInvestigation() {
+        var gateway = new CapabilityGateway();
+        register(gateway, "search_knowledge", (arguments, context) -> ok("search_knowledge", Map.of()));
+        var task = input(12);
+        var context = toolContext(gateway.toolNames());
+        var reasoner = new ScriptedStub(plainAnswer());
+
+        var outcome = new TaskOrchestrator(gateway).runAgent(task, gateway, context, List.of(), reasoner,
+                null, () -> new TaskOrchestrator.SkillStep(context, List.of(), null), null, List.of(), null,
+                step -> { }, java.util.function.Supplier::get, saved -> { }, () -> 1_000L, 2_000L);
+
+        assertThat(outcome.status()).isEqualTo(TaskOrchestrator.AgentStatus.COMPLETED);
+        assertThat(reasoner.contextAt(0).tools()).isEmpty();
+        assertThat(outcome.events().stream().filter(event -> event.type().equals("RUN_PHASE"))
+                .map(event -> event.data().get("reason"))).contains("BUDGET_RESERVE");
     }
 
     // 结构化协议适配器必须真正收到工具结果：补全输入 JSON 含 toolResults 白名单
@@ -582,6 +626,184 @@ class AgentToolFeedbackTest {
                 input.contains("请纠正")
                         ? "{\"type\":\"ASK_USER\",\"question\":\"缺少什么？\",\"requestedFields\":[\"字段\"],\"toolName\":\"x\"}"
                         : "{\"type\":\"ASK_USER\",\"question\":\"缺少什么？\",\"requestedFields\":[\"字段\"],\"toolName\":\"x\"}");
+
+        assertThatThrownBy(() -> reasoner.propose(context()))
+                .hasMessageContaining("MODEL_OUTPUT_INVALID_AFTER_RETRY");
+    }
+
+    @Test void phaseAndDegradedEventsExposeOnlyWhitelistedFields() {
+        var phase = io.devicetruth.application.agent.SafeAgentEventViews.fromPayload(1, "RUN_PHASE", Instant.EPOCH,
+                Map.of("phase", "FINALIZING", "reason", "NO_PROGRESS", "prompt", "secret"));
+        var degraded = io.devicetruth.application.agent.SafeAgentEventViews.fromPayload(2, "RUN_DEGRADED", Instant.EPOCH,
+                Map.of("code", "TOTAL_TIMEOUT", "references", 2, "rawOutput", "secret"));
+
+        assertThat(phase.data()).containsOnlyKeys("phase", "reason");
+        assertThat(degraded.data()).containsOnlyKeys("code", "references");
+    }
+
+    @Test void investigatedRunDeliversLimitedResultAfterModelFailure() {
+        var gateway = new CapabilityGateway();
+        var reference = knowledgeReference("ref-1", "手册记载的排查原则");
+        register(gateway, "search_knowledge", (arguments, context) -> ok("search_knowledge", Map.of("hits", "1"), reference));
+        GeneralReasoner reasoner = new GeneralReasoner() {
+            private int round;
+            @Override public ActionProposal propose(Context context) {
+                if (round++ == 0) return new ActionProposal.CallTool("search_knowledge", Map.of("query", "充电"), "检索");
+                throw new TaskOrchestrator.ReasonerFailure("MODEL_OUTPUT_INVALID_AFTER_RETRY");
+            }
+            @Override public String name() { return "stub"; }
+        };
+
+        var outcome = new TaskOrchestrator(gateway).runAgent(input(12), gateway,
+                toolContext(gateway.toolNames()), List.of(), reasoner);
+
+        assertThat(outcome.status()).isEqualTo(TaskOrchestrator.AgentStatus.COMPLETED);
+        assertThat(outcome.limited()).isTrue();
+        assertThat(outcome.answer().category()).isEqualTo(AgentResult.Category.HUMAN_REVIEW);
+        assertThat(outcome.answer().claims()).isEmpty();
+        assertThat(outcome.answer().references()).extracting(Reference::referenceId).containsExactly("ref-1");
+        assertThat(outcome.answer().limitations()).anyMatch(item -> item.contains("MODEL_OUTPUT_INVALID_AFTER_RETRY"));
+        assertThat(outcome.answer().dataNature()).isEqualTo("SIMULATED");
+        assertThat(outcome.events().stream().filter(event -> event.type().equals("RUN_DEGRADED"))
+                .map(event -> event.data().get("code"))).contains("MODEL_OUTPUT_INVALID_AFTER_RETRY");
+    }
+
+    @Test void firstModelFailureWithoutInvestigationStaysTechnicalFailure() {
+        GeneralReasoner reasoner = new GeneralReasoner() {
+            @Override public ActionProposal propose(Context context) {
+                throw new TaskOrchestrator.ReasonerFailure("MODEL_TRANSPORT_OR_TIMEOUT");
+            }
+            @Override public String name() { return "stub"; }
+        };
+        var gateway = new CapabilityGateway();
+
+        var outcome = new TaskOrchestrator(gateway).runAgent(input(12), gateway,
+                toolContext(gateway.toolNames()), List.of(), reasoner);
+
+        assertThat(outcome.status()).isEqualTo(TaskOrchestrator.AgentStatus.FAILED);
+        assertThat(outcome.limited()).isFalse();
+        assertThat(outcome.answer()).isNull();
+        assertThat(outcome.stopReason()).isEqualTo("MODEL_TRANSPORT_OR_TIMEOUT");
+    }
+
+    @Test void lateModelProposalIsDiscardedButInvestigationCanCloseAsLimited() {
+        var gateway = new CapabilityGateway();
+        register(gateway, "search_knowledge", (arguments, context) -> ok("search_knowledge", Map.of("hits", "0")));
+        var expired = new AtomicBoolean();
+        GeneralReasoner reasoner = new GeneralReasoner() {
+            private int round;
+            @Override public ActionProposal propose(Context context) {
+                if (round++ == 0) return new ActionProposal.CallTool("search_knowledge", Map.of("query", "充电"), "检索");
+                expired.set(true);
+                return plainAnswer();
+            }
+            @Override public String name() { return "stub"; }
+        };
+
+        var outcome = new TaskOrchestrator(gateway).runAgent(input(12), gateway,
+                toolContext(gateway.toolNames()), List.of(), reasoner,
+                () -> expired.get() ? "TOTAL_TIMEOUT" : null);
+
+        assertThat(outcome.status()).isEqualTo(TaskOrchestrator.AgentStatus.COMPLETED);
+        assertThat(outcome.limited()).isTrue();
+        assertThat(outcome.answer().category()).isEqualTo(AgentResult.Category.HUMAN_REVIEW);
+        assertThat(outcome.events().stream().filter(event -> event.type().equals("RUN_LATE_RESPONSE"))).hasSize(1);
+        assertThat(outcome.stopReason()).isEqualTo("LIMITED_TOTAL_TIMEOUT");
+    }
+
+    @Test void toolBatchExecutesSequentiallyWithinOneReasoningStep() {
+        var gateway = new CapabilityGateway();
+        var observations = register(gateway, "get_observations", (arguments, context) -> ok("get_observations", Map.of()));
+        var knowledge = register(gateway, "search_knowledge", (arguments, context) -> ok("search_knowledge", Map.of()));
+        var batch = new ActionProposal.CallTools(List.of(
+                new ActionProposal.ToolCall("get_observations", Map.of(), "观测"),
+                new ActionProposal.ToolCall("search_knowledge", Map.of("query", "充电"), "检索")));
+        var reasoner = new ScriptedStub(batch, plainAnswer());
+
+        var outcome = new TaskOrchestrator(gateway).runAgent(input(4), gateway,
+                toolContext(gateway.toolNames()), List.of(), reasoner);
+
+        assertThat(outcome.status()).isEqualTo(TaskOrchestrator.AgentStatus.COMPLETED);
+        assertThat(outcome.stepsUsed()).isEqualTo(2);
+        assertThat(observations.executions()).hasValue(1);
+        assertThat(knowledge.executions()).hasValue(1);
+        assertThat(outcome.events().stream().filter(event -> event.type().equals("TOOL_RESULT"))).hasSize(2);
+        assertThat(reasoner.rounds()).isEqualTo(2);
+    }
+
+    @Test void batchAcceptsExistingCheckpointContract() {
+        var gateway = new CapabilityGateway();
+        register(gateway, "get_observations", (arguments, context) -> ok("get_observations", Map.of()));
+        register(gateway, "search_knowledge", (arguments, context) -> ok("search_knowledge", Map.of()));
+        var task = input(4);
+        var context = toolContext(gateway.toolNames());
+        var checkpoint = new AgentExecutionCheckpoint(1, task.runId(), 0,
+                List.of(), Set.of(), List.of(), null, 0);
+        var reasoner = new ScriptedStub(new ActionProposal.CallTools(List.of(
+                new ActionProposal.ToolCall("get_observations", Map.of(), "观测"),
+                new ActionProposal.ToolCall("search_knowledge", Map.of("query", "充电"), "检索"))), plainAnswer());
+
+        var outcome = new TaskOrchestrator(gateway).runAgent(task, gateway, context, List.of(), reasoner,
+                null, () -> new TaskOrchestrator.SkillStep(context, List.of(), null), null, List.of(), checkpoint,
+                step -> { }, java.util.function.Supplier::get, saved -> { });
+
+        assertThat(outcome.status()).isEqualTo(TaskOrchestrator.AgentStatus.COMPLETED);
+        assertThat(outcome.events().stream().filter(event -> event.type().equals("TOOL_RESULT"))).hasSize(2);
+    }
+
+    @Test void unauthorizedOrSkillBatchDoesNotExecuteAnyPrefix() {
+        var gateway = new CapabilityGateway();
+        var allowed = register(gateway, "get_observations", (arguments, context) -> ok("get_observations", Map.of()));
+        var denied = register(gateway, "read_skill_reference", (arguments, context) -> ok("read_skill_reference", Map.of()));
+        var batch = new ActionProposal.CallTools(List.of(
+                new ActionProposal.ToolCall("get_observations", Map.of(), "观测"),
+                new ActionProposal.ToolCall("read_skill_reference", Map.of("name", "rules.md"), "读取")));
+        var reasoner = new ScriptedStub(batch, plainAnswer());
+
+        var outcome = new TaskOrchestrator(gateway).runAgent(input(4), gateway,
+                toolContext(gateway.toolNames()), List.of(), reasoner);
+
+        assertThat(outcome.status()).isEqualTo(TaskOrchestrator.AgentStatus.COMPLETED);
+        assertThat(allowed.executions()).hasValue(0);
+        assertThat(denied.executions()).hasValue(0);
+        assertThat(outcome.events().stream().filter(event -> event.type().equals("ACTION_REJECTED"))
+                .map(event -> event.data().get("code"))).contains("INVALID_TOOL_BATCH");
+    }
+
+    @Test void callToolsParsesUpToThreeIndependentCalls() {
+        StructuredAgentReasoner reasoner = new StructuredAgentReasoner("stub", (system, input) ->
+                "{\"type\":\"call_tools\",\"calls\":["
+                        + "{\"toolName\":\"get_observations\",\"arguments\":{},\"purpose\":\"观测\"},"
+                        + "{\"toolName\":\"search_knowledge\",\"arguments\":{\"query\":\"充电\"},\"purpose\":\"检索\"}]}");
+
+        var action = reasoner.propose(context());
+
+        assertThat(action).isInstanceOf(ActionProposal.CallTools.class);
+        assertThat(((ActionProposal.CallTools) action).calls()).hasSize(2);
+        assertThat(((ActionProposal.CallTools) action).calls().get(1).toolName()).isEqualTo("search_knowledge");
+    }
+
+    @Test void fencedAnswerAndKnownEnumsAreNormalizedWithoutRelaxingSchema() {
+        StructuredAgentReasoner reasoner = new StructuredAgentReasoner("stub", (system, input) ->
+                "```json\n{\"type\":\"answer\",\"category\":\"possible_causes\",\"summary\":\"仅为可能原因。\","
+                        + "\"claims\":[{\"text\":\"可能是供电异常\",\"referenceIds\":[],\"certainty\":\"possible\","
+                        + "\"kind\":\"cause\",\"relevance\":\"direct\"}],\"suggestions\":[],\"uncertainties\":[],"
+                        + "\"limitations\":[],\"referenceIds\":[]}\n```");
+
+        var action = (ActionProposal.Answer) reasoner.propose(context());
+
+        assertThat(action.category()).isEqualTo("POSSIBLE_CAUSES");
+        assertThat(action.claims().getFirst().kind()).isEqualTo(AgentResult.Claim.Kind.CAUSE);
+        assertThat(action.claims().getFirst().relevance()).isEqualTo(AgentResult.Claim.Relevance.DIRECT);
+    }
+
+    @Test void oversizedToolBatchIsRejectedAfterBoundedRetry() {
+        StructuredAgentReasoner reasoner = new StructuredAgentReasoner("stub", (system, input) ->
+                "{\"type\":\"CALL_TOOLS\",\"calls\":["
+                        + "{\"toolName\":\"a\",\"arguments\":{},\"purpose\":\"1\"},"
+                        + "{\"toolName\":\"b\",\"arguments\":{},\"purpose\":\"2\"},"
+                        + "{\"toolName\":\"c\",\"arguments\":{},\"purpose\":\"3\"},"
+                        + "{\"toolName\":\"d\",\"arguments\":{},\"purpose\":\"4\"}]}");
 
         assertThatThrownBy(() -> reasoner.propose(context()))
                 .hasMessageContaining("MODEL_OUTPUT_INVALID_AFTER_RETRY");

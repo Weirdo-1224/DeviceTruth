@@ -36,7 +36,7 @@ class AnswerGuardTest {
         return new Answer(category, summary, claims, List.of(), List.of(), List.of(), referenceIds);
     }
 
-    @Test void claimKindAndRelevanceAreIndependentOfCertaintyAndLegacyValuesStayUnknown() throws Exception {
+    @Test void presentationClassificationDoesNotRejectWholeAnswer() throws Exception {
         var collected = List.of(reference("r1", "SIMULATED"));
         var observation = new Claim("模拟观测显示胎压信号", List.of("r1"), Certainty.SUPPORTED,
                 Claim.Kind.OBSERVATION, Claim.Relevance.CONTEXT);
@@ -48,14 +48,16 @@ class AnswerGuardTest {
 
         var unrelatedCause = new Claim("无关原因", List.of("r1"), Certainty.POSSIBLE,
                 Claim.Kind.CAUSE, Claim.Relevance.UNRELATED);
-        assertThat(guard.review(input(null), collected,
-                answer("POSSIBLE_CAUSES", "候选分析", List.of(unrelatedCause), List.of("r1"))).code())
-                .isEqualTo("INVALID_ANSWER");
+        var unrelated = guard.review(input(null), collected,
+                answer("POSSIBLE_CAUSES", "候选分析", List.of(unrelatedCause), List.of("r1")));
+        assertThat(unrelated.allowed()).isTrue();
+        assertThat(unrelated.answer().claims().getFirst().relevance()).isEqualTo(Claim.Relevance.UNRELATED);
         var unknownDirect = new Claim("分类不明的直接判断", List.of("r1"), Certainty.POSSIBLE,
                 Claim.Kind.UNKNOWN, Claim.Relevance.DIRECT);
-        assertThat(guard.review(input(null), collected,
-                answer("KNOWLEDGE", "资料回答", List.of(unknownDirect), List.of("r1"))).code())
-                .isEqualTo("INVALID_ANSWER");
+        var downgraded = guard.review(input(null), collected,
+                answer("KNOWLEDGE", "资料回答", List.of(unknownDirect), List.of("r1")));
+        assertThat(downgraded.allowed()).isTrue();
+        assertThat(downgraded.answer().claims().getFirst().relevance()).isEqualTo(Claim.Relevance.UNKNOWN);
         var knowledgeCause = new Claim("一般原因", List.of("r1"), Certainty.POSSIBLE,
                 Claim.Kind.CAUSE, Claim.Relevance.DIRECT);
         assertThat(guard.review(input(null), collected,

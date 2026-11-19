@@ -100,7 +100,9 @@ class AgentStreamTest {
             Map.entry("RUN_FAILED", Set.of("code")),
             Map.entry("RUN_CANCELLED", Set.of("phase")),
             Map.entry("RUN_LATE_RESPONSE", Set.of("status", "code")),
-            Map.entry("RUN_WAITING", Set.of("questionVersion")));
+            Map.entry("RUN_WAITING", Set.of("questionVersion")),
+            Map.entry("RUN_PHASE", Set.of("phase", "reason")),
+            Map.entry("RUN_DEGRADED", Set.of("code", "references")));
 
     @BeforeAll static void start() throws Exception {
         databaseBaseUrl = requiredEnvironment("DEVICETRUTH_TEST_PG_BASE_URL");
@@ -369,16 +371,18 @@ class AgentStreamTest {
         assertExactlySeqsOneToN(first.runEventFrames(), s);
         first.close();
 
-        // 真实 scripted 推理器用补答组成新查询，断线期间落一条检索和一条最终答案。
+        // 补答检索与模拟观测均无新增信息，随后落阶段事件和最终答案。
         reply(base, conversationId, runId, waiting.path("pendingQuestion"));
         await(base, runId, "COMPLETED", 20_000);
         long n = eventsJson(base, runId, null).size();
-        assertThat(n - s).isEqualTo(2);
+        assertThat(n - s).isEqualTo(4);
         JsonNode missed = eventsJson(base, runId, String.valueOf(s));
         assertThat(missed.get(0).path("type").asText()).isEqualTo("RUN_TOOL");
         assertThat(missed.get(0).path("data").path("toolName").asText()).isEqualTo("search_knowledge");
         assertThat(missed.get(0).path("data").path("success").asBoolean()).isTrue();
-        assertThat(missed.get(1).path("type").asText()).isEqualTo("RUN_ANSWER");
+        assertThat(missed.get(1).path("type").asText()).isEqualTo("RUN_TOOL");
+        assertThat(missed.get(2).path("type").asText()).isEqualTo("RUN_PHASE");
+        assertThat(missed.get(3).path("type").asText()).isEqualTo("RUN_ANSWER");
 
         // 连接二：Last-Event-ID=S 重连 → 只补齐 S+1..N，按序、各一次，随后 RUN_TERMINAL 收尾
         try (SseClient second = new SseClient(streamUrl(base, runId), String.valueOf(s))) {

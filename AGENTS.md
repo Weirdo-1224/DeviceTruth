@@ -5,17 +5,17 @@
 DeviceTruth 使用 Java 21、Spring Boot 和 Maven，提供非 Web 模式的 CLI 与独立 HTTP 服务两个入口。源码位于 `src/main/java/io/devicetruth/`：
 
 - `app/`：`DeviceTruthApplication` 负责启动和装配，`CliOptions` 解析参数。
-- `core/reasoning/`：`Reasoner` 根据状态提出 `ActionProposal`，`ScriptedReasoner` 支持离线推理；`ActionProposal` 现含 legacy 五动作与通用三动作（`CALL_TOOL`/`ASK_USER`/`ANSWER`），`GeneralReasoner`/`ScriptedAgentReasoner` 提供通用 Agent 的单步提议。
-- `core/runtime/`：`TaskOrchestrator` 是唯一产品主循环，`run(...)` 服务 legacy 诊断、`runAgent(...)` 服务通用 Agent，共享单步、事件与有界循环；`AgentRunOutcome` 表达等待/完成/失败。
+- `core/reasoning/`：`Reasoner` 根据状态提出 `ActionProposal`，`ScriptedReasoner` 支持离线推理；`ActionProposal` 现含 legacy 五动作与通用四动作（`CALL_TOOL`/`CALL_TOOLS`/`ASK_USER`/`ANSWER`），`CALL_TOOLS` 一次提议最多 3 个独立只读查询，`GeneralReasoner`/`ScriptedAgentReasoner` 提供通用 Agent 的单步提议。
+- `core/runtime/`：`TaskOrchestrator` 是唯一产品主循环，`run(...)` 服务 legacy 诊断、`runAgent(...)` 服务通用 Agent，共享单步、事件与有界循环；通用循环按连续无进展、最后一步和回答时间预留进入最终回答阶段，已有调查记录时可用显式 `limited` 的 `HUMAN_REVIEW` 结果收口；`AgentRunOutcome` 表达等待/完成/失败/取消。
 - `core/capability/`：`CapabilityGateway` 注册 legacy 单值能力与通用工具（`registerTool/toolCatalog/executeTool`），校验参数、授权与只读；`AgentToolTypes` 定义 `ToolSpec`/`ToolOutcome`；`ToolContext` 携带服务器确定的身份与 run 范围。
-- `core/evidence/`、`core/state/`、`core/decision/`：`EvidenceManager` 重建事实并使旧依赖失效，`StateManager` 提交状态版本，`DecisionGuard` 校验 legacy 决策，`AnswerGuard` 校验通用答案的引用子集、风险、“无资产不得确诊”、判断类型/相关性及本轮排查对象冲突与歧义。
+- `core/evidence/`、`core/state/`、`core/decision/`：`EvidenceManager` 重建事实并使旧依赖失效，`StateManager` 提交状态版本，`DecisionGuard` 校验 legacy 决策，`AnswerGuard` 校验通用答案的引用子集、风险、“无资产不得确诊”及本轮排查对象冲突与歧义，并将 `DIRECT + kind=UNKNOWN` 的展示相关性保守降为 `UNKNOWN`，不因分类组合否决整份答案。
 - `core/contract/`：`Models` 为 legacy 诊断协议值；`AgentTaskInput`/`AgentResult` 为通用 Agent 的输入与答案（判断、建议、人工项、引用、风险、dataNature、业务类型/相关性、可选排查对象）。
-- `adapter/`：`JsonRepositories` 读取数据，`QwenReasoner`、`OpenAiReasoner`（OpenAI 兼容，可指向 DeepSeek）、`AgentScopeStep` 对接模型，`StructuredAgentReasoner`/`AgentModelConnections` 提供通用 Agent 的单步协议与供应商连接，`RunReportWriter` 保存报告，`persistence/` 读写 PG。
+- `adapter/`：`JsonRepositories` 读取数据，`QwenReasoner`、`OpenAiReasoner`（OpenAI 兼容，可指向 DeepSeek）、`AgentScopeStep` 对接模型，`StructuredAgentReasoner`/`AgentModelConnections` 提供通用 Agent 的单步协议与供应商连接，单次模型等待取固定上限与 Run 剩余时间的较小值；`RunReportWriter` 保存报告，`persistence/` 读写 PG。
 - `server/`、`api/`、`application/`：HTTP 服务与产品 Agent。
   - `DeviceTruthServerApplication` 起服务；`legacy` profile 装配 `LegacyConfiguration`（V0.1/V0.2 场景目录、Router、内存会话、异步诊断）与 `ConversationController`（legacy 会话/诊断接口，`/api/sessions`、`/api/diagnoses`），`product` profile 只装产品链路，两者互斥且都不装时仅剩 `/api/health`；`HealthController` 无条件提供健康探针。
   - `AgentConversationController` 暴露产品会话/run/引用/明细/事件/SSE 流（`GET /api/runs/{id}/events`、`/stream`）与取消；`GET /api/conversations/summaries` 提供归属受限的标题、设备、真实状态、搜索筛选和游标分页，原会话列表接口保留。
-  - `application/agent/GeneralAgentService`：QUEUED→RUNNING→WAITING_FOR_USER→…→COMPLETED/FAILED/CANCELLED 持久状态机与有界 worker；V18 起 Run 持久化实际排查对象、确认状态和变更来源，补答与 worker 恢复共用同一对象。
-  - `RunRecoveryService`：执行租约 + 版本 CAS 的崩溃恢复；`RunEventStreamService`：先历史后订阅再补读的有界事件流；`SafeAgentEventViews`：事件白名单映射。
+  - `application/agent/GeneralAgentService`：QUEUED→RUNNING→WAITING_FOR_USER→…→COMPLETED/FAILED/CANCELLED 持久状态机与有界 worker；V18 起 Run 持久化实际排查对象、确认状态和变更来源，补答与 worker 恢复共用同一对象。总超时后的迟到模型提案仍不采纳，已有调查记录时允许宿主构造的有限结果落库。
+  - `RunRecoveryService`：执行租约 + 版本 CAS 的崩溃恢复；`RunEventStreamService`：先历史后订阅再补读的有界事件流；`SafeAgentEventViews`：事件白名单映射，包含 `RUN_PHASE`/`RUN_DEGRADED` 的阶段与原原因码。
   - `AssetTools`（`get_asset`/`get_configuration`/`get_maintenance_history`）、`ObservationTools`（`get_observations` 只读授权资产的模拟观测）、`AgentReportTools`（`generate_diagnosis_report`）注册进产品 Agent 网关。
 - `knowledge/`：知识导入与检索。
   - `KnowledgeImportService` 负责 MD/TXT 章节切片与向量化落库；`DocumentParser` 严格解析上传 Markdown。

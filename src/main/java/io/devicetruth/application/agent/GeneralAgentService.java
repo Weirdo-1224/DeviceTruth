@@ -451,7 +451,7 @@ public final class GeneralAgentService {
         try {
             run = runs.load(identity, runId, false);
             if (!"QUEUED".equals(run.status())) return;
-            // 总时限=累计执行时长上限（不含等待用户的时间）：恢复/重调度不清零，超限直接明确 FAILED
+            // 领取前累计执行时长已耗尽时直接 FAILED；执行中的有限结果收口由主循环与 persist 处理
             if (run.activeDurationMs() >= run.maxActiveDurationMs()) {
                 failQuietly(runId, "TOTAL_TIMEOUT");
                 return;
@@ -540,7 +540,9 @@ public final class GeneralAgentService {
                             runs.reserveStep(identity, runId, step, totalActiveMs(run, segmentStartNanos)))),
                     action -> persistToolStep(run, action, segmentStartNanos),
                     saved -> writeCheckpoint(run, () -> requireUpdated(
-                            runs.saveCheckpoint(identity, saved, totalActiveMs(run, segmentStartNanos), false))));
+                            runs.saveCheckpoint(identity, saved, totalActiveMs(run, segmentStartNanos), false))),
+                    () -> Math.max(0, run.maxActiveDurationMs() - totalActiveMs(run, segmentStartNanos)),
+                    Math.min(30_000L, run.maxActiveDurationMs() / 4));
         } catch (CheckpointFailure e) {
             LOG.error("Agent execution checkpoint failed: runId={} type={}", runId,
                     e.getCause().getClass().getSimpleName());
@@ -585,7 +587,7 @@ public final class GeneralAgentService {
             }
             if (current.cancelRequested()) {
                 runs.cancelRunning(identity, current, outcome.stepsUsed(), segmentMs, 0, 0, now);
-            } else if (timedOut) {
+            } else if (timedOut && !outcome.limited()) {
                 runs.fail(identity, current, "TOTAL_TIMEOUT", outcome.stepsUsed(), segmentMs, 0, 0, now);
             } else if (outcome.status() == TaskOrchestrator.AgentStatus.WAITING_FOR_USER) {
                 var question = outcome.question().withVersion(run.questionVersion() + 1);
@@ -664,6 +666,8 @@ public final class GeneralAgentService {
         return event -> {
             if ("MODEL_ATTEMPT".equals(event.type()))
                 appendProgress(run, "RUN_MODEL", modelEventPayload(event.data()));
+            if ("RUN_PHASE".equals(event.type()) || "RUN_DEGRADED".equals(event.type()))
+                appendProgress(run, event.type(), event.data());
         };
     }
 

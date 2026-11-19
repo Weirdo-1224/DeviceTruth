@@ -636,7 +636,7 @@ public final class AgentRunRepository {
                     active_duration_ms=?, active_accounted_at=clock_timestamp()
                 WHERE id=? AND owner_id=? AND project_id=?
                   AND (budget#>>'{used,steps}')::int = ?
-                  AND COALESCE((execution_checkpoint->>'step')::int, -1) < ?
+                  AND COALESCE((execution_checkpoint->>'step')::int, -1) <= ?
                 """, Json.write(checkpoint), totalActiveMs, toolAttempt ? 1 : 0, totalActiveMs, checkpoint.runId(),
                 identity.ownerId(), identity.projectId(), checkpoint.step(), checkpoint.step());
     }

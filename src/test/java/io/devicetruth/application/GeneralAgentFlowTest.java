@@ -440,7 +440,7 @@ class GeneralAgentFlowTest {
                 && "UNCONFIRMED_FINDING".equals(String.valueOf(event.data().get("code"))));
     }
 
-    @Test void insistingOnConfirmedFindingFailsTheRun() {
+    @Test void insistingOnConfirmedFindingDeliversLimitedResult() {
         var run = queuedRun("充电中断是否需要更换控制器？");
         var outcome = run(run, model(context -> {
             var references = context.path("references");
@@ -452,9 +452,13 @@ class GeneralAgentFlowTest {
                     + "\"limitations\":[],\"referenceIds\":[\"" + referenceId + "\"]}";
         }));
 
-        assertThat(outcome.status()).isEqualTo(AgentStatus.FAILED);
-        assertThat(outcome.stopReason()).isEqualTo("UNCONFIRMED_FINDING");
-        assertThat(outcome.answer()).isNull();
+        assertThat(outcome.status()).isEqualTo(AgentStatus.COMPLETED);
+        assertThat(outcome.limited()).isTrue();
+        assertThat(outcome.stopReason()).isEqualTo("LIMITED_UNCONFIRMED_FINDING");
+        assertThat(outcome.answer().category()).isEqualTo(io.devicetruth.core.contract.AgentResult.Category.HUMAN_REVIEW);
+        assertThat(outcome.answer().summary()).doesNotContain("已确诊");
+        assertThat(outcome.answer().claims()).isEmpty();
+        assertThat(outcome.answer().limitations()).anyMatch(item -> item.contains("UNCONFIRMED_FINDING"));
     }
 
     @Test void dangerousControlAdviceIsRefusedEvenWhenTheModelInsists() {
@@ -470,9 +474,12 @@ class GeneralAgentFlowTest {
                     + "\"uncertainties\":[],\"limitations\":[],\"referenceIds\":[\"" + referenceId + "\"]}";
         }));
 
-        assertThat(outcome.status()).isEqualTo(AgentStatus.FAILED);
-        assertThat(outcome.stopReason()).isEqualTo("UNSAFE_ANSWER");
-        assertThat(outcome.answer()).isNull();
+        assertThat(outcome.status()).isEqualTo(AgentStatus.COMPLETED);
+        assertThat(outcome.limited()).isTrue();
+        assertThat(outcome.stopReason()).isEqualTo("LIMITED_UNSAFE_ANSWER");
+        assertThat(outcome.answer().summary()).doesNotContain("短接").doesNotContain("上电");
+        assertThat(outcome.answer().claims()).isEmpty();
+        assertThat(outcome.answer().limitations()).anyMatch(item -> item.contains("UNSAFE_ANSWER"));
     }
 
     @Test void deviceDefectAssertionWithoutFieldEvidenceIsRefusedAndCorrectable() {
@@ -510,7 +517,7 @@ class GeneralAgentFlowTest {
                 && "UNCONFIRMED_FINDING".equals(String.valueOf(event.data().get("code"))));
     }
 
-    @Test void insistingOnDeviceDefectAssertionFailsTheRun() {
+    @Test void insistingOnDeviceDefectAssertionDeliversLimitedResult() {
         var run = queuedRun("这台设备的充电故障原因是什么？");
         var outcome = run(run, model(context -> {
             var references = context.path("references");
@@ -523,9 +530,12 @@ class GeneralAgentFlowTest {
                     + "\"uncertainties\":[],\"limitations\":[],\"referenceIds\":[\"" + referenceId + "\"]}";
         }));
 
-        assertThat(outcome.status()).isEqualTo(AgentStatus.FAILED);
-        assertThat(outcome.stopReason()).isEqualTo("UNCONFIRMED_FINDING");
-        assertThat(outcome.answer()).isNull();
+        assertThat(outcome.status()).isEqualTo(AgentStatus.COMPLETED);
+        assertThat(outcome.limited()).isTrue();
+        assertThat(outcome.stopReason()).isEqualTo("LIMITED_UNCONFIRMED_FINDING");
+        assertThat(outcome.answer().summary()).doesNotContain("该设备").doesNotContain("故障原因");
+        assertThat(outcome.answer().claims()).isEmpty();
+        assertThat(outcome.answer().limitations()).anyMatch(item -> item.contains("UNCONFIRMED_FINDING"));
     }
 
     @Test void concurrentRunsKeepUniqueMessageSequenceAndTerminalState() throws Exception {

@@ -19,6 +19,8 @@ const TYPE_LABELS: Record<string, string> = {
   RUN_FAILED: '失败',
   RUN_CANCELLED: '取消',
   RUN_LATE_RESPONSE: '迟到响应',
+  RUN_PHASE: '收口',
+  RUN_DEGRADED: '有限结果',
   RUN_TERMINAL: '运行结束'
 }
 
@@ -114,6 +116,10 @@ function describeEvent(event: RunEvent): string {
       const claims = asNumber(data.claims)
       return claims !== null ? `${summary} · 依据 ${claims} 条` : summary
     }
+    case 'RUN_PHASE':
+      return data.reason === 'NO_PROGRESS' ? '连续调查没有新增信息，进入最终回答' : '预算接近上限，进入最终回答'
+    case 'RUN_DEGRADED':
+      return `形成有限结果（${asString(data.code) ?? 'UNKNOWN'}）`
     case 'RUN_FAILED':
       return `执行失败（${asString(data.code) ?? 'UNKNOWN'}）`
     case 'RUN_CANCELLED':

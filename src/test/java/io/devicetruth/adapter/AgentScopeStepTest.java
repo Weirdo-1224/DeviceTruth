@@ -52,6 +52,35 @@ class AgentScopeStepTest {
         assertThatThrownBy(()->new AgentScopeStep(never,Duration.ofMillis(20)).complete("JSON","state")).hasMessageContaining("Timeout");
     }
 
+    @Test void requestTimeoutUsesSmallerRemainingBudget() {
+        var observed = new java.util.concurrent.atomic.AtomicReference<Duration>();
+        Model never = new Model() {
+            public String getModelName() { return "offline-remaining-budget"; }
+            public Flux<ChatResponse> stream(List<Msg> m, List<ToolSchema> t, GenerateOptions o) {
+                observed.set(o.getExecutionConfig().getTimeout());
+                return Flux.never();
+            }
+        };
+        var step = new AgentScopeStep(never, Duration.ofSeconds(45));
+
+        assertThatThrownBy(() -> step.completeWithUsage("JSON", "state", Duration.ofMillis(20)))
+                .hasMessageContaining("Timeout");
+        assertThat(observed.get()).isEqualTo(Duration.ofMillis(20));
+    }
+
+    @Test void protocolRetryUsesLatestRemainingBudgetInsteadOfResetting() {
+        var budgets = new java.util.ArrayList<Duration>();
+        var reasoner = StructuredAgentReasoner.withBudgetedUsage("stub", (system, input, remaining) -> {
+            budgets.add(remaining);
+            return new StructuredAgentReasoner.CompletionResult("invalid", "stub", null);
+        });
+        var context = new GeneralReasoner.Context("问题", List.of(), List.of(), List.of(), List.of(), 0, 12, null);
+
+        assertThatThrownBy(() -> reasoner.propose(context, () -> null,
+                () -> 3000L - budgets.size() * 1000L)).hasMessage("MODEL_OUTPUT_INVALID_AFTER_RETRY");
+        assertThat(budgets).containsExactly(Duration.ofSeconds(3), Duration.ofSeconds(2));
+    }
+
     @Test void reportedUsageSurvivesAnInvalidProposalButDeadlinePreventsRetry() {
         var expired = new AtomicBoolean();
         var calls = new AtomicInteger();
