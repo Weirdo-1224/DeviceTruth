@@ -158,3 +158,20 @@ mvn -q '-Dtest=AuthMailTest' test
 ### 交付和后续
 
 第 1–3 组完成，但尚未部署或升级运行库，未认领用户真实资料、未重启现有 Docker 产品容器、未执行全量前后端/浏览器或外部模型验收。真实收件/TLS 与完整产品联调按 8.2/8.3 验证。后续实施从第 4 组共同调查和串行运行开始；不自动续跑其他变更。
+
+## 2026-11-19 补测真实模型：链路与授权通过，知识答案降级
+
+用户要求先测试真实模型、邮件后续再说。新增显式 opt-in 的 AuthenticatedRealModelTest，在随机隔离 PG 启动当前 product 后端，真实注册/登录三账号、创建团队、导入模拟手册、正式提交，并由团队成员回读 Run 和每条来源、团队外账号尝试读取。团队成员关系通过隔离 SQL 夹具建立，不冒充邀请收件验收。没有重启现有 Docker 产品服务或操作运行库。
+
+执行：`mvn -q '-Dtest=AuthenticatedRealModelTest' '-Ddevicetruth.test.real-agent=true' test`。JUnit 1 项通过、失败 0、错误 0、跳过 0，测试耗时约 54 秒。该断言验证真实模型调用/持久结果/来源和授权，并允许宿主有限结果；**正常知识答案质量另判，本次未通过**。
+
+- 模型：`deepseek-flash`，通过配置好的 OpenAI-compatible 连接实际外部调用，未使用 scripted 或模型替身。
+- Run：`c96da39d-263f-4b35-84f8-c30fdab28ab0`；状态 COMPLETED，activeDurationMs=43509。
+- 实际模型尝试 5 次：1 次 INVALID_JSON_OR_SCHEMA 后有界重试，4 次 VALID_PROPOSAL；实际工具 activate_skill 1 次、search_knowledge 2 次，均成功，登记 4 条知识引用。
+- 答案为 HUMAN_REVIEW 有限结果，RUN_DEGRADED 原因 UNCONFIRMED_FINDING；没有得到本次请求期望的正常 KNOWLEDGE 说明。当前审计记录只有拒绝码，不能据此判定具体触发的是 certainty=CONFIRMED、确诊类别或正文确定性措辞。未放宽 Guard，也未重跑同一请求追求正结果。
+- 团队协作成员可读 Run 及 4 条来源原文，外部账号对 Run/引用列表/每条来源均 404。
+- 数据库为真实 PG16.15/pgvector 隔离库；embedding 明确为 deterministic，手册和场景为 SIMULATED，无设备档案或现场数据。此项不计真实 embedding/现场诊断、完整第 8.2 协作流程或浏览器验收。
+
+脱敏报告位于被忽略的 `outputs/validation/authenticated-real-model/report-c96da39d-263f-4b35-84f8-c30fdab28ab0.json`，保留模型事件、工具事件、结果和引用，不保存凭据或原始 Prompt。测试结束已关闭临时后端并删除本次随机库；报告可继续回读。实际收件按用户要求暂缓，未测试。
+
+下一步质量问题是围绕该类无现场资产的资料问答，定向检查模型草案与 AnswerGuard 的拒绝条件，区分正确拦截和过度拦截，再确定修复；不能把 COMPLETED 或本测试断言通过当成答案已可用。第 4 组交接需保留这一问题，不改变其协作实施范围。
