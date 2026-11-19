@@ -38,9 +38,11 @@ public final class SkillRuntime {
     private final SkillInstallationRepository repository;
     private final ServerIdentity identity;
     private final Set<String> serverTools;
+    private final List<String> defaults;
 
     public SkillRuntime(SkillRegistry registry, SkillInstallationRepository repository, ServerIdentity identity,
                         Set<String> serverTools, List<String> defaults) {
+        this.defaults=List.copyOf(defaults);
         this.registry = registry;
         this.loader = new SkillContextLoader(registry);
         this.repository = repository;
@@ -53,6 +55,10 @@ public final class SkillRuntime {
                 throw new IllegalArgumentException("Invalid server Skill installation");
             repository.installDefault(identity, binding[0], binding[1], this.serverTools);
         }
+    }
+
+    public SkillRuntime forIdentity(ServerIdentity scope) {
+        return identity.equals(scope)?this:new SkillRuntime(registry,repository,scope,serverTools,defaults);
     }
 
     public SelectionView selection(UUID runId) {
@@ -110,7 +116,7 @@ public final class SkillRuntime {
                         metadata.risks(), metadata.citations(), metadata.references(), verifiedReference());
             }
             var context = new ToolContext(base.ownerId(), base.projectId(), base.conversationId(), base.runId(),
-                    base.selectedAssetId(), base.requestedAt(), base.asOf(), allowed);
+                    base.selectedAssetId(), base.requestedAt(), base.asOf(), allowed,base.actorUserId(),base.workspaceId());
             var available = installed.keySet().stream().map(registry::require).map(SkillRuntime::summary).toList();
             return new SkillStep(context, available, active);
         }

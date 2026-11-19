@@ -58,7 +58,7 @@ class ResourceAuthorizationTest {
         baseA = base(ownerA);
         baseB = base(ownerB);
         baseOtherProject = base(otherProject);
-        rest = new TestRestTemplate();
+        rest = io.devicetruth.server.AuthenticatedProductTestSupport.client(ownerA, ownerB, otherProject);
         jdbc = new JdbcTemplate(ownerA.getBean(com.zaxxer.hikari.HikariDataSource.class));
     }
 
@@ -81,7 +81,7 @@ class ResourceAuthorizationTest {
 
     private static ConfigurableApplicationContext open(String owner, String project, boolean seedAssets) {
         return new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--logging.level.org.springframework=WARN", "--logging.level.org.springframework.jdbc=INFO",
                 "--devicetruth.core.reasoner=scripted", "--devicetruth.agent.reasoner=scripted",
                 // 本用例只验证读路径授权，不启动 worker，避免后台 run 干扰断言。

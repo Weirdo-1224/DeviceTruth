@@ -1,6 +1,6 @@
 # Tasks
 
-实施基准：`proposal.md`、`design.md`、五份 `specs/*/spec.md` 及已认可的 `prototype/workbench.html`。2026-11-19 已开始实施 1.1，新增 V19 及迁移测试；隔离 PG 配置缺失，尚无完成项。具体证据见 `acceptance.md`，表结构见 `data-foundation.md`。其余拟新增测试名仅用于确定验证责任，不表示文件已存在。
+实施基准：`proposal.md`、`design.md`、五份 `specs/*/spec.md` 及已认可的 `prototype/workbench.html`。2026-11-19 已完成第 1–3 组（11/33），通过隔离 PG/HTTP/协议回归；真实邮件/模型及前端验收仍按后续项执行。具体证据见 `acceptance.md`，数据基础见 `data-foundation.md`，认证与空间合同见 `account-api.md`、`workspace-api.md`、`authorization-runtime.md`。其余拟新增测试名仅用于确定验证责任，不表示文件已存在。
 
 实施顺序：1 → 2/3 → 4 → 5 → 6 → 7 → 8。2、3 必须在共享身份/邮件接口就绪后串接，未完成全链授权前不把半成品开放到正式 product。每项完成时记录实际命令、通过/失败/错误/跳过数及环境，不以编译或原型截图代替运行验收。
 
@@ -12,17 +12,17 @@
 
 ## 2. 账号会话与邮件恢复
 
-- [ ] 2.1 增加 Boot 管理的 Security/Session 依赖、product 专用安全链及注册/登录/退出/me/CSRF 接口，注册原子创建个人空间，PBKDF2 编码口令并配置会话 Cookie。验证：拟新增 `AccountAuthenticationTest` 实测重复邮箱、错误密码、会话轮换、刷新、退出、CSRF 和匿名 401，CLI/legacy/health 不被默认登录页拦截；更新账号接口文档。
-- [ ] 2.2 实现密码重置申请、一次性限时令牌消费及成功后全会话撤销，统一外部应答且不回显秘密。验证：拟新增 `PasswordRecoveryTest` 覆盖过期、重放、两次密码不一致、多会话失效及并发消费只成功一次；记录安全默认值和恢复路径。
-- [ ] 2.3 接入可配置 SMTP、有界超时、真实投递状态和显式重发/凭证轮换，增加有界限流；秘密只走批准的环境配置。验证：邮件替身测试覆盖超时、失败、重发与未知邮箱一致应答，检查响应/日志不含口令或原始凭证；更新 `.example` 配置及邮件故障说明，不编辑本机真实配置。
+- [x] 2.1 增加 Boot 管理的 Security/Session 依赖、product 专用安全链及注册/登录/退出/me/CSRF 接口，注册原子创建个人空间，PBKDF2 编码口令并配置会话 Cookie。验证：拟新增 `AccountAuthenticationTest` 实测重复邮箱、错误密码、会话轮换、刷新、退出、CSRF 和匿名 401，CLI/legacy/health 不被默认登录页拦截；更新账号接口文档。
+- [x] 2.2 实现密码重置申请、一次性限时令牌消费及成功后全会话撤销，统一外部应答且不回显秘密。验证：拟新增 `PasswordRecoveryTest` 覆盖过期、重放、两次密码不一致、多会话失效及并发消费只成功一次；记录安全默认值和恢复路径。
+- [x] 2.3 接入可配置 SMTP、有界超时、真实投递状态和显式重发/凭证轮换，增加有界限流；秘密只走批准的环境配置。验证：邮件替身测试覆盖超时、失败、重发与未知邮箱一致应答，检查响应/日志不含口令或原始凭证；更新 `.example` 配置及邮件故障说明，不编辑本机真实配置。
 
 ## 3. 团队成员与端到端授权
 
-- [ ] 3.1 实现创建团队、空间列表/改名、成员列表/角色/移除及至少一位管理员的事务约束。验证：拟新增 `WorkspaceMembershipTest` 在真实 PG 覆盖两个空间隔离、只读/协作禁止管理、并发降权最后管理员不成功；同步角色矩阵文档。
-- [ ] 3.2 实现邀请创建、列表、撤销/重发及匹配邮箱接受，接通注册后加入路径，重复接受不扩大角色；验证：拟新增 `TeamInvitationTest` 覆盖错误账号、过期/撤销/重放、未接受不能访问、邮件失败不冒充成员，并记录邮件与成员状态区别。
-- [ ] 3.3 将 product 会话、Run、资产、文件、知识及报告/引用接口全部接入显式 scope，移除 HTTP 固定身份 fallback，已登录旧请求缺空间时仅默认个人空间；不改变显式知识导入用途。验证：扩展 `GeneralAgentApiTest`、`ResourceAuthorizationTest`，覆盖所有资源 ID 路径、列表游标、直接工具/引用访问及 401/403/404；更新 API 身份约定。
-- [ ] 3.4 改造 `GeneralAgentService` 的 dispatch/persist、Run 仓储、恢复、ToolContext 及 SkillRuntime，使 worker 从持久 Run 恢复 scope/actor，不使用其他请求的单例身份；新空间按服务器策略初始化 Skill，不复制他空间授权。验证：扩展 `RunRecoveryTest`、Skill 集成测试，覆盖两个空间交错执行、服务重启、标准 Skill 安装/选择隔离及旧内部入口；更新实际运行链路说明。
-- [ ] 3.5 接通模型步骤/工具/结果采纳前的当前权限检查，以及 SSE 建立和每批输出/心跳的会话及成员复核。验证：扩展 `AgentStreamTest`、`AgentLifecycleTest`，在真实 PG 注入执行中移除/降权、退出后旧连接、迟到模型结果，确认无后续数据泄露/工具调用且明确 `AUTHORIZATION_REVOKED`；文档明确 worker 持久授权与浏览器会话生命周期的区别。
+- [x] 3.1 实现创建团队、空间列表/改名、成员列表/角色/移除及至少一位管理员的事务约束。验证：拟新增 `WorkspaceMembershipTest` 在真实 PG 覆盖两个空间隔离、只读/协作禁止管理、并发降权最后管理员不成功；同步角色矩阵文档。
+- [x] 3.2 实现邀请创建、列表、撤销/重发及匹配邮箱接受，接通注册后加入路径，重复接受不扩大角色；验证：拟新增 `TeamInvitationTest` 覆盖错误账号、过期/撤销/重放、未接受不能访问、邮件失败不冒充成员，并记录邮件与成员状态区别。
+- [x] 3.3 将 product 会话、Run、资产、文件、知识及报告/引用接口全部接入显式 scope，移除 HTTP 固定身份 fallback，已登录旧请求缺空间时仅默认个人空间；不改变显式知识导入用途。验证：扩展 `GeneralAgentApiTest`、`ResourceAuthorizationTest`，覆盖所有资源 ID 路径、列表游标、直接工具/引用访问及 401/403/404；更新 API 身份约定。
+- [x] 3.4 改造 `GeneralAgentService` 的 dispatch/persist、Run 仓储、恢复、ToolContext 及 SkillRuntime，使 worker 从持久 Run 恢复 scope/actor，不使用其他请求的单例身份；新空间按服务器策略初始化 Skill，不复制他空间授权。验证：扩展 `RunRecoveryTest`、Skill 集成测试，覆盖两个空间交错执行、服务重启、标准 Skill 安装/选择隔离及旧内部入口；更新实际运行链路说明。
+- [x] 3.5 接通模型步骤/工具/结果采纳前的当前权限检查，以及 SSE 建立和每批输出/心跳的会话及成员复核。验证：扩展 `AgentStreamTest`、`AgentLifecycleTest`，在真实 PG 注入执行中移除/降权、退出后旧连接、迟到模型结果，确认无后续数据泄露/工具调用且明确 `AUTHORIZATION_REVOKED`；文档明确 worker 持久授权与浏览器会话生命周期的区别。
 
 ## 4. 共同调查与串行运行
 

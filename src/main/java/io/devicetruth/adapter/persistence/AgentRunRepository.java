@@ -85,6 +85,38 @@ public final class AgentRunRepository {
     }
 
     private final JdbcTemplate jdbc;
+    public io.devicetruth.application.agent.AccessScope persistedScope(UUID runId) {
+        return jdbc.query("SELECT c.workspace_id,r.execution_actor_user_id,r.owner_id,r.project_id,COALESCE(m.role,'VIEWER') role FROM dt_agent_run r JOIN dt_conversation c ON c.id=r.conversation_id LEFT JOIN dt_workspace_member m ON m.workspace_id=c.workspace_id AND m.user_id=r.execution_actor_user_id WHERE r.id=? AND c.workspace_id IS NOT NULL AND r.execution_actor_user_id IS NOT NULL",
+                (rs,n)->new io.devicetruth.application.agent.AccessScope(rs.getObject("execution_actor_user_id",UUID.class),rs.getObject("workspace_id",UUID.class),io.devicetruth.application.agent.AccessScope.Role.valueOf(rs.getString("role")),new ServerIdentity(rs.getString("owner_id"),rs.getString("project_id"))),runId).stream().findFirst().orElse(null);
+    }
+    public boolean canWrite(io.devicetruth.application.agent.AccessScope scope) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM dt_workspace_member WHERE workspace_id=? AND user_id=? AND role IN ('ADMIN','COLLABORATOR'))",Boolean.class,scope.workspaceId(),scope.actorUserId()));
+    }
+    public boolean lockWriteAuthorization(io.devicetruth.application.agent.AccessScope scope) {
+        return !jdbc.queryForList("SELECT user_id FROM dt_workspace_member WHERE workspace_id=? AND user_id=? AND role IN ('ADMIN','COLLABORATOR') FOR SHARE",UUID.class,scope.workspaceId(),scope.actorUserId()).isEmpty();
+    }
+    public List<ServerIdentity> recoveryIdentities(ServerIdentity legacy) {
+        var values=new java.util.ArrayList<ServerIdentity>();if(legacy!=null)values.add(legacy);
+        values.addAll(jdbc.query("SELECT DISTINCT r.owner_id,r.project_id FROM dt_agent_run r JOIN dt_conversation c ON c.id=r.conversation_id WHERE c.workspace_id IS NOT NULL AND r.status IN ('QUEUED','RUNNING')",
+                (rs,n)->new ServerIdentity(rs.getString(1),rs.getString(2))));return values.stream().distinct().toList();
+    }
+    public void bindConversation(UUID id,io.devicetruth.application.agent.AccessScope scope) {
+        jdbc.update("UPDATE dt_conversation SET workspace_id=?,created_by_user_id=? WHERE id=?",scope.workspaceId(),scope.actorUserId(),id);
+    }
+    public void bindRun(UUID run,UUID message,io.devicetruth.application.agent.AccessScope scope) {
+        jdbc.update("UPDATE dt_agent_run SET initiated_by_user_id=?,execution_actor_user_id=? WHERE id=?",scope.actorUserId(),scope.actorUserId(),run);
+        jdbc.update("UPDATE dt_message SET actor_user_id=? WHERE id=?",scope.actorUserId(),message);
+        snapshot(run,scope);
+    }
+    public void bindReply(UUID run,UUID key,io.devicetruth.application.agent.AccessScope scope) {
+        jdbc.update("UPDATE dt_agent_run SET execution_actor_user_id=? WHERE id=?",scope.actorUserId(),run);
+        jdbc.update("UPDATE dt_message SET actor_user_id=? WHERE request_key=? AND run_id=?",scope.actorUserId(),key,run);
+        snapshot(run,scope);
+    }
+    private void snapshot(UUID run,io.devicetruth.application.agent.AccessScope scope) {
+        jdbc.update("UPDATE dt_agent_run r SET input_snapshot=(SELECT jsonb_build_object('messages',COALESCE(jsonb_agg(jsonb_build_object('id',m.id,'seq',m.seq,'content',m.content,'actor',m.actor_user_id) ORDER BY m.seq),'[]'::jsonb)) FROM dt_message m WHERE m.conversation_id=r.conversation_id) WHERE r.id=?",run);
+        jdbc.update("INSERT INTO dt_run_input_segment(run_id,segment_no,conversation_id,owner_id,project_id,actor_user_id,input_snapshot) SELECT id,(SELECT COALESCE(max(segment_no),0)+1 FROM dt_run_input_segment WHERE run_id=r.id),conversation_id,owner_id,project_id,execution_actor_user_id,input_snapshot FROM dt_agent_run r WHERE id=?",run);
+    }
     /** 总时限（累计执行时长上限，毫秒）：入队时写入 budget.limits.maxActiveDurationMs，恢复不清零。 */
     private final long maxActiveDurationMs;
     /** 恢复状态与事件原子提交，事件序号分配由同一事务中的 run 行锁保护。 */
@@ -419,6 +451,8 @@ public final class AgentRunRepository {
 
     /** 每步核验 worker 仍持原版本的执行租约，防止已回收任务继续执行后续动作。 */
     public String claimStopCode(ServerIdentity identity, UUID runId, long version) {
+        var scope=persistedScope(runId);
+        if(scope!=null && !canWrite(scope)) return "AUTHORIZATION_REVOKED";
         var rows = jdbc.query("""
                 SELECT cancel_requested_at IS NOT NULL FROM dt_agent_run
                 WHERE id=? AND owner_id=? AND project_id=?

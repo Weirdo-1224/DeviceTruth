@@ -104,10 +104,15 @@ public final class RunEventStreamService {
      * 通过后订阅登记并把 relay 交给专用线程池。终态/断开/IOException/超时都走同一清理路径。
      */
     public SseEmitter open(UUID runId, String lastEventId) {
+        return open(runId,lastEventId,identity,()->{});
+    }
+    public SseEmitter open(UUID runId,String lastEventId,ServerIdentity identity,Runnable authorize) {
+        authorize.run();
         long cursor = parseCursor(lastEventId);
         runs.require(identity, runId);
         var emitter = new SseEmitter(ttl.toMillis());
         Subscription subscription = subscribe(runId, emitter);
+        subscription.identity=identity; subscription.authorize=authorize;
         emitter.onCompletion(() -> cleanup(subscription));
         emitter.onTimeout(() -> cleanup(subscription));
         emitter.onError(throwable -> cleanup(subscription));
@@ -128,11 +133,12 @@ public final class RunEventStreamService {
             while (!subscription.closed.get()) {
                 // 首次循环=订阅点补读（含订阅瞬间错过的交界事件），此后=实时追加/兜底补读。
                 lastSent = sendNewEvents(subscription, runId, lastSent);
-                RunView current = runs.require(identity, runId);
+                subscription.authorize.run();
+                RunView current = runs.require(subscription.identity, runId);
                 if (TERMINAL_STATUSES.contains(current.status())) {
                     // 终态判定后再补一轮，收窄“判终态后到达的迟到事件”（如 CANCELLED 后的 RUN_LATE_RESPONSE）丢失窗口。
                     lastSent = sendNewEvents(subscription, runId, lastSent);
-                    if (runs.latestSeq(identity, runId) <= lastSent) {
+                    if (runs.latestSeq(subscription.identity, runId) <= lastSent) {
                         sendTerminal(subscription, current.status());
                         return;
                     }
@@ -146,8 +152,10 @@ public final class RunEventStreamService {
                     return;
                 }
                 if (subscription.closed.get()) return;
-                if (signal == null)
+                if (signal == null) {
+                    subscription.authorize.run();
                     subscription.emitter.send(SseEmitter.event().comment("heartbeat"));
+                }
             }
         } catch (IOException | IllegalStateException e) {
             // 典型为客户端断开/代理切断/emitter 已被超时回收：连接已提交，无法改状态码，只做清理。
@@ -174,12 +182,14 @@ public final class RunEventStreamService {
     /** 从 lastSent 之后分批读库并逐条发送，返回新的游标（没有新事件时不变）。 */
     private long sendNewEvents(Subscription subscription, UUID runId, long lastSent) throws IOException {
         while (!subscription.closed.get()) {
+            subscription.authorize.run();
             List<SafeAgentEventViews.PublicEvent> batch =
-                    runs.eventsAfter(identity, runId, lastSent, CATCH_UP_LIMIT);
+                    runs.eventsAfter(subscription.identity, runId, lastSent, CATCH_UP_LIMIT);
             if (batch.isEmpty()) return lastSent;
             for (SafeAgentEventViews.PublicEvent event : batch) {
                 if (subscription.closed.get()) return lastSent;
                 // 契约 §3 线格式：id=持久 seq，event=类型，data=公开事件 JSON，空行收尾。
+                subscription.authorize.run();
                 subscription.emitter.send(SseEmitter.event()
                         .id(String.valueOf(event.seq()))
                         .name(event.type())
@@ -193,6 +203,7 @@ public final class RunEventStreamService {
 
     /** 终态收尾：最后一条持久事件之后发 RUN_TERMINAL（无 id），随后服务端正常结束响应体。 */
     private static void sendTerminal(Subscription subscription, String status) throws IOException {
+        subscription.authorize.run();
         subscription.emitter.send(SseEmitter.event()
                 .name("RUN_TERMINAL")
                 .data(Json.write(Map.of("status", status))));
@@ -247,6 +258,8 @@ public final class RunEventStreamService {
 
     /** 单订阅：runId + emitter + 唤醒通道（容量 1，通知风暴折叠为一次信号；漏唤醒由心跳兜底补读覆盖）。 */
     private static final class Subscription {
+        private ServerIdentity identity;
+        private Runnable authorize;
         private final UUID runId;
         private final SseEmitter emitter;
         private final AtomicBoolean closed = new AtomicBoolean();

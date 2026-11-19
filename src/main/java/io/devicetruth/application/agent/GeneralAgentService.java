@@ -98,7 +98,7 @@ public final class GeneralAgentService {
     private final RunRecoveryService recovery;
     private final java.util.concurrent.ScheduledExecutorService heartbeats;
     /** 进程内待执行集合：周期扫描与提交路径并发时，不会向 executor 重复堆同一个 run。 */
-    private final Set<UUID> pendingDispatch = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Set<UUID> pendingDispatch;
 
     public GeneralAgentService(ConversationRepository conversations, AgentRunRepository runs,
                                TransactionTemplate transactions, ServerIdentity identity,
@@ -166,6 +166,8 @@ public final class GeneralAgentService {
                                java.util.function.Consumer<UUID> eventNotifier, int recoveryScanLimit) {
         if (maxConcurrentRuns < 1 || maxQueue < 0) throw new IllegalArgumentException("Worker limits must be positive");
         if (leaseSeconds < 1) throw new IllegalArgumentException("leaseSeconds must be positive");
+        this.accessScope=null;
+        this.pendingDispatch=java.util.concurrent.ConcurrentHashMap.newKeySet();
         this.eventNotifier = eventNotifier;
         this.conversations = conversations;
         this.runs = runs;
@@ -196,7 +198,35 @@ public final class GeneralAgentService {
         });
     }
 
-    public ConversationView create() { return conversations.create(identity, Instant.now()); }
+    private final AccessScope accessScope;
+    private boolean authenticatedRecoveryOnly;
+    private GeneralAgentService(GeneralAgentService root, ServerIdentity identity, AccessScope scope) {
+        this.pendingDispatch=root.pendingDispatch;
+        this.conversations=root.conversations; this.runs=root.runs; this.transactions=root.transactions;
+        this.identity=identity; this.accessScope=scope; this.gateway=root.gateway; this.reasoners=root.reasoners;
+        this.orchestrator=root.orchestrator; this.workerEnabled=root.workerEnabled; this.executor=root.executor;
+        this.files=root.files; this.skills=root.skills==null?null:root.skills.forIdentity(identity);
+        this.workerId=root.workerId; this.eventNotifier=root.eventNotifier; this.leaseDuration=root.leaseDuration;
+        this.recovery=root.recovery; this.heartbeats=root.heartbeats;
+    }
+    public GeneralAgentService forScope(AccessScope scope) {
+        return new GeneralAgentService(this, scope.storageIdentity(), scope);
+    }
+    private GeneralAgentService executionService(UUID runId) {
+        AccessScope persisted=runs.persistedScope(runId);
+        return persisted==null?this:forScope(persisted);
+    }
+    private void requireWrite() {
+        if(accessScope!=null && !runs.canWrite(accessScope)) throw new RequestFailure("AUTHORIZATION_REVOKED",403);
+    }
+    public ConversationView create() {
+        requireWrite();
+        return transactions.execute(status -> {
+            var created=conversations.create(identity, Instant.now());
+            if(accessScope!=null) runs.bindConversation(created.conversationId(),accessScope);
+            return created;
+        });
+    }
     public List<ConversationView> list() { return conversations.list(identity); }
 
     public ConversationSummaryPage summaries(String query, String assetId, String status, String cursor, Integer limit) {
@@ -207,10 +237,22 @@ public final class GeneralAgentService {
                 "FAILED", "CANCELLED").contains(status)) throw new RequestFailure("INVALID_STATUS", 400);
         int pageSize = limit == null ? 20 : limit;
         if (pageSize < 1 || pageSize > 50) throw new RequestFailure("INVALID_PAGE_SIZE", 400);
+        if(accessScope!=null && cursor!=null) {
+            try {
+                var token=io.devicetruth.adapter.Json.MAPPER.readTree(java.util.Base64.getUrlDecoder().decode(cursor));
+                if(!token.path("workspace").asText().equals(accessScope.workspaceId().toString())
+                    || !token.path("query").asText().equals(java.util.Objects.toString(query,""))
+                    || !token.path("asset").asText().equals(java.util.Objects.toString(assetId,""))
+                    || !token.path("status").asText().equals(java.util.Objects.toString(status,""))) throw new IllegalArgumentException();
+                cursor=token.path("cursor").asText();
+            } catch(Exception e) {throw new RequestFailure("INVALID_CURSOR",400);}
+        }
         var decoded = decodeCursor(cursor);
         var page = conversations.summaries(identity, query, assetId, status, decoded, pageSize);
-        return new ConversationSummaryPage(page.items(),
-                page.nextCursor() == null ? null : encodeCursor(page.nextCursor()));
+        String next=page.nextCursor()==null?null:encodeCursor(page.nextCursor());
+        if(next!=null && accessScope!=null) next=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(
+            io.devicetruth.adapter.Json.write(Map.of("workspace",accessScope.workspaceId().toString(),"query",java.util.Objects.toString(query,""),"asset",java.util.Objects.toString(assetId,""),"status",java.util.Objects.toString(status,""),"cursor",next)).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return new ConversationSummaryPage(page.items(),next);
     }
 
     private static ConversationRepository.SummaryCursor decodeCursor(String value) {
@@ -257,6 +299,7 @@ public final class GeneralAgentService {
      * 终态 run 再取消返回 409 RUN_ALREADY_TERMINAL；不存在/跨身份统一 404。
      */
     public RunView cancel(UUID runId) {
+        requireWrite();
         RunView view = transactions.execute(status -> {
             runs.load(identity, runId, true);
             if (runs.requestCancel(identity, runId, Instant.now()) != 1)
@@ -273,15 +316,26 @@ public final class GeneralAgentService {
      * 租约已过期的遗留 RUNNING 按持久检查点恢复（RUNNING → QUEUED → 重新调度），
      * 超出恢复上限的明确 FAILED；WAITING_FOR_USER 与租约仍有效的 RUNNING 原样保留。
      */
+    public void recoverAuthenticatedQueued() {
+        authenticatedRecoveryOnly = true;
+        recoverQueued();
+    }
+
     public void recoverQueued() {
-        recovery.reconcile(identity, workerEnabled, this::dispatch);
+        for(var storage: runs.recoveryIdentities(authenticatedRecoveryOnly ? null : identity)) {
+            var scoped=new GeneralAgentService(this,storage,null);
+            recovery.reconcile(storage,workerEnabled,scoped::dispatch);
+        }
         // 周期任务（P1-04 修复）：过期 RUNNING 回收 + 有界滞留 QUEUED 补派。
         // 必须整体捕获异常——scheduleWithFixedDelay 遇到未捕获异常会永久取消后续执行。
         if (workerEnabled && recoveryScheduled.compareAndSet(false, true))
             heartbeats.scheduleWithFixedDelay(() -> {
                 try {
-                    recovery.reconcileExpired(identity, this::dispatch);
-                    recovery.reconcileQueued(identity, this::dispatch);
+                    for(var storage: runs.recoveryIdentities(authenticatedRecoveryOnly ? null : identity)) {
+                        var scoped=new GeneralAgentService(this,storage,null);
+                        recovery.reconcileExpired(storage,scoped::dispatch);
+                        recovery.reconcileQueued(storage,scoped::dispatch);
+                    }
                 } catch (RuntimeException e) {
                     LOG.error("Agent periodic recovery failed: {}", e.getClass().getSimpleName());
                 }
@@ -317,6 +371,7 @@ public final class GeneralAgentService {
      * 关联不成立时返回 REPLY_TARGET_REQUIRED/STALE_OR_UNRELATED_REPLY，绝不静默新建 run。
      */
     public RunView submit(UUID conversationId, UUID requestKey, AgentTaskInput input) {
+        requireWrite();
         if (requestKey == null || input == null || input.userMessage() == null || input.userMessage().isBlank()
                 || input.userMessage().codePointCount(0, input.userMessage().length()) > 8000
                 || input.userMessage().indexOf('\0') >= 0) throw new IllegalArgumentException("Invalid message");
@@ -335,6 +390,7 @@ public final class GeneralAgentService {
             UUID messageId = conversations.appendWithReferences(identity, conversationId, requestKey,
                     input.userMessage(), input.selectedAssetId(), now, asOf, attachments, contextRefs);
             RunView created = runs.enqueue(identity, conversationId, messageId, now, asOf);
+            if(accessScope!=null) runs.bindRun(created.runId(), messageId, accessScope);
             importContextRefs(contextRefs, created.runId());
             return created;
         });
@@ -368,6 +424,7 @@ public final class GeneralAgentService {
                                 ? record.changedFromAssetId() : record.selectedAssetId());
             if (runs.queueReply(identity, record, target.pendingQuestionId(), target.questionVersion(), now) != 1)
                 throw new RequestFailure("STALE_OR_UNRELATED_REPLY", 409);
+            if(accessScope!=null) runs.bindReply(record.runId(), requestKey, accessScope);
             importContextRefs(contextRefs, record.runId());
             return runs.require(identity, record.runId());
         });
@@ -436,7 +493,7 @@ public final class GeneralAgentService {
         try {
             executor.execute(() -> {
                 pendingDispatch.remove(runId);
-                executeRun(runId);
+                executionService(runId).executeRun(runId);
             });
         } catch (RejectedExecutionException e) {
             pendingDispatch.remove(runId);
@@ -451,6 +508,7 @@ public final class GeneralAgentService {
         try {
             run = runs.load(identity, runId, false);
             if (!"QUEUED".equals(run.status())) return;
+            if(accessScope!=null && !runs.canWrite(accessScope)) { failQuietly(runId,"AUTHORIZATION_REVOKED"); return; }
             // 领取前累计执行时长已耗尽时直接 FAILED；执行中的有限结果收口由主循环与 persist 处理
             if (run.activeDurationMs() >= run.maxActiveDurationMs()) {
                 failQuietly(runId, "TOTAL_TIMEOUT");
@@ -518,7 +576,8 @@ public final class GeneralAgentService {
                     run.selectedAssetId(), run.requestedAt(), run.asOf(), run.version(), run.stepsUsed(),
                     run.maxSteps());
             var toolContext = new ToolContext(identity.ownerId(), identity.projectId(), run.conversationId(), runId,
-                    run.selectedAssetId(), run.requestedAt(), run.asOf(), gateway.toolNames());
+                    run.selectedAssetId(), run.requestedAt(), run.asOf(), gateway.toolNames(),
+                    accessScope==null?null:accessScope.actorUserId(),accessScope==null?null:accessScope.workspaceId());
             GeneralReasoner reasoner;
             try {
                 reasoner = reasoners.get();
@@ -546,7 +605,7 @@ public final class GeneralAgentService {
         } catch (CheckpointFailure e) {
             LOG.error("Agent execution checkpoint failed: runId={} type={}", runId,
                     e.getCause().getClass().getSimpleName());
-            failClaimedQuietly(run, "CHECKPOINT_PERSIST_FAILURE");
+            failClaimedQuietly(run, accessScope!=null && !runs.canWrite(accessScope)?"AUTHORIZATION_REVOKED":"CHECKPOINT_PERSIST_FAILURE");
             return null;
         } catch (SkillException e) {
             failClaimedQuietly(run, e.code());
@@ -585,7 +644,9 @@ public final class GeneralAgentService {
                 runs.appendEvent(identity, run.runId(), run.conversationId(), "RUN_LATE_RESPONSE",
                         Map.of("status", current.cancelRequested() ? "CANCELLED" : "FAILED", "code", code), now);
             }
-            if (current.cancelRequested()) {
+            if (accessScope!=null && !runs.lockWriteAuthorization(accessScope)) {
+                runs.fail(identity,current,"AUTHORIZATION_REVOKED",outcome.stepsUsed(),segmentMs,0,0,now);
+            } else if (current.cancelRequested()) {
                 runs.cancelRunning(identity, current, outcome.stepsUsed(), segmentMs, 0, 0, now);
             } else if (timedOut && !outcome.limited()) {
                 runs.fail(identity, current, "TOTAL_TIMEOUT", outcome.stepsUsed(), segmentMs, 0, 0, now);
@@ -639,10 +700,12 @@ public final class GeneralAgentService {
         TaskOrchestrator.ToolStep completed;
         try {
             completed = transactions.execute(status -> {
+                if(accessScope!=null && !runs.lockWriteAuthorization(accessScope)) throw new IllegalStateException("AUTHORIZATION_REVOKED");
                 String stop = runs.claimStopCode(identity, run.runId(), run.version() + 1);
                 if (stop != null) throw new IllegalStateException(stop);
                 Object savepoint = status.createSavepoint();
                 var step = action.get();
+                if(accessScope!=null && !runs.canWrite(accessScope)) throw new IllegalStateException("AUTHORIZATION_REVOKED");
                 if (!Boolean.TRUE.equals(step.audit().get("success"))) status.rollbackToSavepoint(savepoint);
                 status.releaseSavepoint(savepoint);
                 if (!lockClaim(run)) throw new IllegalStateException("Run claim expired during tool");

@@ -124,7 +124,7 @@ class AgentStreamTest {
         otherBase = base(otherOwnerApp);
         misconfiguredBase = base(misconfiguredApp);
         limitedBase = base(limitedApp);
-        rest = new TestRestTemplate();
+        rest = io.devicetruth.server.AuthenticatedProductTestSupport.client(app, otherOwnerApp, misconfiguredApp, limitedApp);
         jdbc = new JdbcTemplate(app.getBean(HikariDataSource.class));
         importManual();
     }
@@ -150,7 +150,7 @@ class AgentStreamTest {
     private static ConfigurableApplicationContext open(String owner, String project, String agentReasoner,
                                                        String... extra) {
         var arguments = new ArrayList<String>(List.of(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--logging.level.org.springframework=WARN", "--logging.level.org.springframework.jdbc=INFO",
                 "--devicetruth.core.reasoner=scripted", "--devicetruth.agent.reasoner=" + agentReasoner,
                 "--spring.datasource.url=" + databaseBaseUrl + databaseName,
@@ -1016,7 +1016,7 @@ class AgentStreamTest {
         private final Thread thread;
 
         SseClient(String url, String lastEventId) throws IOException, InterruptedException {
-            var builder = HttpRequest.newBuilder(URI.create(url)).header("Accept", "text/event-stream");
+            var builder = HttpRequest.newBuilder(URI.create(url)).header("Cookie",AuthenticatedProductTestSupport.cookie(url)).header("Accept", "text/event-stream");
             if (lastEventId != null) builder.header("Last-Event-ID", lastEventId);
             HttpResponse<InputStream> response =
                     HTTP.send(builder.GET().build(), HttpResponse.BodyHandlers.ofInputStream());

@@ -22,7 +22,8 @@ import java.nio.file.Path;
         org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration.class,
         org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration.class,
         org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration.class,
-        org.springframework.boot.autoconfigure.session.SessionAutoConfiguration.class})
+        org.springframework.boot.autoconfigure.session.SessionAutoConfiguration.class,
+        org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration.class})
 public class DeviceTruthApplication {
     private static final Logger LOG = LoggerFactory.getLogger(DeviceTruthApplication.class);
 

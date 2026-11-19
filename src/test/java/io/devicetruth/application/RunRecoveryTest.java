@@ -84,7 +84,7 @@ class RunRecoveryTest {
             statement.execute("CREATE DATABASE " + databaseName);
         }
         app = new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--logging.level.org.springframework=WARN", "--logging.level.org.springframework.jdbc=INFO",
                 "--devicetruth.core.reasoner=scripted",
                 "--spring.datasource.url=" + databaseBaseUrl + databaseName,
@@ -124,7 +124,7 @@ class RunRecoveryTest {
     private static void importManual() throws Exception {
         var headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        var response = new TestRestTemplate().exchange(base + "/api/knowledge/documents", HttpMethod.POST,
+        var response = io.devicetruth.server.AuthenticatedProductTestSupport.client(app).exchange(base + "/api/knowledge/documents", HttpMethod.POST,
                 new HttpEntity<>(Map.of(
                         "title", "充电系统检修手册（演示资料）", "domain", "automotive-demo", "version", "2026.1",
                         "filename", "manual.md", "mimeType", "text/markdown",

@@ -76,7 +76,7 @@ public class ProductConfiguration {
      * initMethod=recoverQueued 在装配完成后接手上一个进程遗留的 QUEUED 任务（M0 队列交接）。
      * 事件通知钩子取 RunEventStreamService.publish：只在事件事务提交后调用（先提交后发布）。
      */
-    @Bean(initMethod = "recoverQueued")
+    @Bean(initMethod = "recoverAuthenticatedQueued")
     @DependsOn("productFlyway")
     GeneralAgentService generalAgentService(HikariDataSource source, Environment environment,
             @Qualifier("agentCapabilityGateway") CapabilityGateway gateway,
