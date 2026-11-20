@@ -16,6 +16,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SafePublicFieldsTest {
     private static final String SYNTHETIC = "review-only C:\\review-fixture\\context.txt PROMPT_FRAGMENT";
 
+    @Test void answerReviewEventExposesOnlyStableLocationsAndRules() {
+        var event = io.devicetruth.application.agent.SafeAgentEventViews.fromPayload(1,
+                "RUN_ANSWER_REVIEW", Instant.now(), java.util.Map.of(
+                        "code", "UNCONFIRMED_FINDING", "unitIds", List.of("summary"),
+                        "rules", List.of("LEGACY_CONFIRMATION_WORDING"),
+                        "prompt", SYNTHETIC, "draft", SYNTHETIC, "apiKey", SYNTHETIC));
+        assertThat(event.data()).containsOnlyKeys("code", "unitIds", "rules");
+        assertThat(event.data().toString()).doesNotContain(SYNTHETIC);
+    }
+
     @Test void whitelistIsExactlyTheFrozenTwentyEight() {
         // 28 项是 spec §4.8 冻结值；这 28 个必须原样保留。
         var frozen = List.of("REASONER_FAILURE", "REPEATED_ACTION_WITHOUT_NEW_INFORMATION", "TOOL_FAILURE_NO_PROGRESS",

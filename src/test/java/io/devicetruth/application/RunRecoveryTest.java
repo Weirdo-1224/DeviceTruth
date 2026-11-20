@@ -55,6 +55,102 @@ import static org.assertj.core.api.Assertions.*;
  * 旧版本/跨身份/伪造引用负例在重启后仍然成立。
  */
 class RunRecoveryTest {
+    @Test void deliveryV2ReviewAndCorrectionDiscardLateResponsesAndRecoverWithoutRepeatingCalls() throws Exception {
+        for (String phase : List.of("REVIEWING", "CORRECTING")) {
+            for (String intervention : List.of("CANCEL", "REVOKE", "RESTART")) {
+                var account = app.getBean(io.devicetruth.server.AccountService.class)
+                        .register(UUID.randomUUID() + "@guard.test", "isolated-guard-password-123", "Guard验收");
+                var row = jdbc.queryForMap("SELECT id,owner_id,project_id FROM dt_workspace WHERE personal_user_id=?", account.userId());
+                var identity = new ServerIdentity((String) row.get("owner_id"), (String) row.get("project_id"));
+                var scope = new io.devicetruth.application.agent.AccessScope(account.userId(), (UUID) row.get("id"),
+                        io.devicetruth.application.agent.AccessScope.Role.ADMIN, identity);
+                var entered = new CountDownLatch(1);
+                var release = new AtomicBoolean();
+                var calls = new java.util.concurrent.atomic.AtomicInteger();
+                var reasoner = new StructuredAgentReasoner("guard-v2-pg", (system, payload) -> {
+                    calls.incrementAndGet();
+                    boolean review = system.contains("整体交付复核器");
+                    boolean correcting = system.contains("这是唯一一次定向修正");
+                    if ((phase.equals("REVIEWING") && review) || (phase.equals("CORRECTING") && correcting)) {
+                        entered.countDown();
+                        while (!release.get()) {
+                            Thread.interrupted(); LockSupport.parkNanos(Duration.ofMillis(5).toNanos());
+                        }
+                    }
+                    if (review) return phase.equals("CORRECTING")
+                            ? "{\"issues\":[{\"location\":\"summary\",\"code\":\"UNSUPPORTED_CONCLUSION\",\"reason\":\"删除无依据故障\",\"referenceIds\":[]}]}"
+                            : "{\"issues\":[]}";
+                    return Json.write(new ActionProposal.Answer("KNOWLEDGE", "请补充日志，尚不能确定故障。",
+                            List.of(), List.of("补充日志时区"), List.of(), List.of(), List.of()));
+                });
+                var root = new GeneralAgentService(conversations, runs, transactions, identity, gateway,
+                        () -> reasoner, 1, 2, true, null, LEASE_SECONDS, 3);
+                var scoped = root.forScope(scope);
+                UUID runId = null;
+                try {
+                    var conversation = scoped.create();
+                    runId = scoped.submit(conversation.conversationId(), UUID.randomUUID(),
+                            new AgentTaskInput(1, "解释手册，不作现场确诊", null, null, null, null, null, null, 0L)).runId();
+                    assertThat(entered.await(15, TimeUnit.SECONDS)).as(phase + intervention).isTrue();
+                    var checkpoint = runs.checkpoint(identity, runId);
+                    assertThat(checkpoint.answerReview().protocolVersion()).isEqualTo(2);
+                    assertThat(checkpoint.answerReview().phase().name()).isEqualTo(phase);
+                    int used = runs.load(identity, runId, false).stepsUsed();
+                    if (intervention.equals("CANCEL")) scoped.cancel(runId);
+                    else if (intervention.equals("REVOKE")) jdbc.update("DELETE FROM dt_workspace_member WHERE workspace_id=? AND user_id=?", scope.workspaceId(), scope.actorUserId());
+                    else {
+                        root.shutdown();
+                        Thread.sleep(LEASE_SECONDS * 1000 + 500);
+                        var unexpected = new java.util.concurrent.atomic.AtomicInteger();
+                        var recovered = new GeneralAgentService(conversations, runs, transactions, identity, gateway,
+                                () -> new StructuredAgentReasoner("no-repeat", (s,p) -> { unexpected.incrementAndGet(); return "{}"; }),
+                                1, 2, true, null, LEASE_SECONDS, 3);
+                        try {
+                            recovered.recoverQueued();
+                            for (int i = 0; i < 300 && List.of("QUEUED","RUNNING").contains(runs.load(identity, runId, false).status()); i++) Thread.sleep(50);
+                            assertThat(unexpected.get()).isZero();
+                            assertThat(runs.load(identity, runId, false).stepsUsed()).isGreaterThanOrEqualTo(used);
+                        } finally { recovered.shutdown(); }
+                    }
+                    release.set(true);
+                    for (int i = 0; i < 300 && List.of("QUEUED","RUNNING").contains(runs.load(identity, runId, false).status()); i++) Thread.sleep(50);
+                    var terminal = runs.load(identity, runId, false);
+                    assertThat(terminal.status()).isIn("CANCELLED", "FAILED");
+                    assertThat(terminal.stepsUsed()).isGreaterThanOrEqualTo(used);
+                    if (intervention.equals("CANCEL")) assertThat(terminal.status()).isEqualTo("CANCELLED");
+                    if (intervention.equals("REVOKE")) assertThat(jdbc.queryForObject(
+                            "SELECT safe_payload->>'code' FROM dt_run_event WHERE run_id=? AND type='RUN_FAILED' ORDER BY seq DESC LIMIT 1", String.class, runId)).isEqualTo("AUTHORIZATION_REVOKED");
+                    assertThat(calls.get()).isEqualTo(phase.equals("REVIEWING") ? 2 : 3);
+                    assertThat(jdbc.queryForObject("SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_ANSWER'", Integer.class, runId)).isZero();
+                } finally { release.set(true); root.shutdown(); }
+            }
+        }
+    }
+    @Test void completedDeliveryV2HasOneAnswerAndIsNotReenqueuedAfterRestart() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var reasoner = new StructuredAgentReasoner("guard-v2-success", (system, payload) -> {
+            calls.incrementAndGet();
+            return system.contains("整体交付复核器") ? "{\"issues\":[]}"
+                    : Json.write(new ActionProposal.Answer("KNOWLEDGE", "建议补充日志。", List.of(),
+                            List.of("补充日志时区"), List.of(), List.of(), List.of()));
+        });
+        var first = service(reasoner);
+        UUID id;
+        try {
+            id = first.submit(first.create().conversationId(), UUID.randomUUID(), input("解释并建议下一步")).runId();
+            assertThat(awaitTerminal(first, id, "COMPLETED")).isEqualTo("COMPLETED");
+            assertThat(first.run(id).result().review().version()).isEqualTo(2);
+        } finally { first.shutdown(); }
+        int budget = runs.load(IDENTITY, id, false).stepsUsed();
+        var second = service(reasoner);
+        try {
+            second.recoverQueued();
+            assertThat(second.run(id).status()).isEqualTo("COMPLETED");
+            assertThat(calls.get()).isEqualTo(2);
+            assertThat(runs.load(IDENTITY, id, false).stepsUsed()).isEqualTo(budget);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM dt_run_event WHERE run_id=? AND type='RUN_ANSWER'", Integer.class, id)).isEqualTo(1);
+        } finally { second.shutdown(); }
+    }
     @org.junit.jupiter.api.io.TempDir static Path fileRoot;
     private static final String MANUAL = "datasets/knowledge/charging-system-manual.md";
     private static String databaseName;
@@ -654,6 +750,15 @@ class RunRecoveryTest {
         // 重启后模型伪造引用：守卫仍拒绝，最终只交付不含伪造断言的有限结果
         StructuredAgentReasoner.Completion fabricating = (system, context) -> {
             try {
+                if (system.contains("你是受控答案的语义复核器")) {
+                    var assessments = new java.util.ArrayList<io.devicetruth.core.contract.AnswerReview.Assessment>();
+                    for (var unit : Json.MAPPER.readTree(context).path("units"))
+                        assessments.add(new io.devicetruth.core.contract.AnswerReview.Assessment(unit.path("unitId").asText(),
+                                io.devicetruth.core.contract.AnswerReview.Nature.DOCUMENT_FACT, null, null,
+                                List.of(new io.devicetruth.core.contract.AnswerReview.Support("fabricated-reference", "伪造原文")),
+                                List.of(), io.devicetruth.core.contract.AnswerReview.Disposition.RETAINED, "SUPPORTED"));
+                    return Json.write(new io.devicetruth.core.contract.AnswerReview.Batch(assessments));
+                }
                 if (Json.MAPPER.readTree(context).path("references").isEmpty())
                     return "{\"type\":\"CALL_TOOL\",\"toolName\":\"search_knowledge\",\"arguments\":{\"query\":\"充电中断\"}}";
                 return "{\"type\":\"ANSWER\",\"category\":\"POSSIBLE_CAUSES\",\"summary\":\"已确诊。\","

@@ -1,6 +1,6 @@
 /**
  * 与 /api 的强类型合同：发送自由消息、回答待答问题、读取持久状态与运行事件。
- * 浏览器不持有任何凭据，也不提交 owner/project/权限：身份始终由服务器决定。
+ * 浏览器通过同源 Cookie 会话与内存 CSRF 访问，不持有模型密钥，也不提交 owner/project/权限。
  * 运行进度用 SSE 订阅（原生 EventSource 断线自动带 Last-Event-ID 重连），轮询作为兜底与终态校准。
  */
 
@@ -57,9 +57,34 @@ export interface AgentResult {
   dataNature: string
   subjectAssetId?: string | null
   assetResolution?: 'CONFIRMED' | 'AMBIGUOUS' | null
+  review?: AnswerReview | null
+}
+
+export type EvidenceNature = 'DOCUMENT_FACT' | 'USER_REPORT' | 'HISTORICAL_RECORD' | 'DEVICE_INFERENCE' | 'INDEPENDENT_VERIFICATION'
+export type UnitDisposition = 'RETAINED' | 'REMOVED' | 'PENDING'
+export interface ReviewUnit {
+  unitId: string
+  position: 'SUMMARY' | 'CLAIM' | 'SUGGESTION' | 'UNCERTAINTY' | 'LIMITATION' | 'PROCEDURE_STEP'
+  index: number
+  text: string
+  nature: EvidenceNature
+  subjectId: string | null
+  observedAt: string | null
+  supports: { sourceId: string; quote: string }[]
+  dependsOn: string[]
+}
+export interface AnswerReview {
+  version: number
+  units: ReviewUnit[]
+  decisions: { unitId: string; disposition: UnitDisposition; rule: string; sourceIds: string[] }[]
+  limited: boolean
 }
 
 export interface FileView {
+  uploadedByUserId?: string | null
+  conversationId?: string | null
+  usageScope?: string
+  dataNature?: string
   fileId: string
   originalName: string
   mime: string
@@ -106,6 +131,8 @@ export interface ConversationSummaryQuery {
 }
 
 export interface MessageView {
+  actorUserId?: string | null
+  discussionQuotes?: {discussionId: string; version: number; authorName: string; content: string; createdAt: string; dataNature: string}[]
   messageId: string
   seq: number
   role: 'USER' | 'ASSISTANT'
@@ -116,6 +143,7 @@ export interface MessageView {
 }
 
 export interface RunView {
+  executionActorUserId?: string | null
   runId: string
   conversationId: string
   goalMessageId: string
@@ -218,20 +246,81 @@ export function newRequestKey(): string {
   })
 }
 
+export interface AccountView { userId: string; email: string; displayName: string }
+export interface WorkspaceView { workspaceId: string; kind: 'PERSONAL' | 'TEAM'; name: string; role: 'ADMIN' | 'COLLABORATOR' | 'VIEWER' }
+let workspaceId: string | null = null
+let accountId: string | null = null
+let contextGeneration = 0
+const scopedStreams = new Set<() => void>()
+let csrfGeneration = 0
+let csrf: { headerName: string; token: string } | null = null
+export function setAccessContext(account: string | null, workspace: string | null): void {
+  for (const close of scopedStreams) close()
+  scopedStreams.clear()
+  accountId = account
+  workspaceId = workspace
+  contextGeneration++
+}
+export function accessContextKey(): string { return `${accountId ?? 'anonymous'}:${workspaceId ?? 'personal'}` }
+export function clearAuthentication(): void {
+  csrfGeneration++
+  csrf = null
+  setAccessContext(null, null)
+}
+export async function loadCsrf(): Promise<void> {
+  const generation = csrfGeneration
+  const response = await fetch('/api/auth/csrf', { credentials: 'same-origin' })
+  if (!response.ok) throw new ApiError('CSRF_UNAVAILABLE', response.status, '无法取得安全凭证，请重试')
+  const token = await response.json()
+  if (generation !== csrfGeneration) throw new ApiError('ACCESS_CONTEXT_CHANGED', 0, '登录状态已变化，请重新操作')
+  csrf = token
+}
+export function currentAccount(): Promise<AccountView> { return call('/api/auth/me', { method: 'GET' }) }
+export async function authenticate(mode: 'login' | 'register', input: {email: string; password: string; displayName?: string}): Promise<AccountView> {
+  await loadCsrf()
+  const account = await call<AccountView>('/api/auth/' + mode, { method: 'POST', body: JSON.stringify(input) })
+  csrfGeneration++
+  csrf = null
+  return account
+}
+export async function logout(): Promise<void> {
+  await call('/api/auth/logout', { method: 'POST' })
+  clearAuthentication()
+}
+export function authAction(action: 'password-reset-requests' | 'password-resets', input: object): Promise<unknown> {
+  return call('/api/auth/' + action, { method: 'POST', body: JSON.stringify(input) })
+}
+export function listWorkspaces(): Promise<WorkspaceView[]> { return call('/api/workspaces', { method: 'GET' }) }
+export function workspaceRequest<T>(suffix: string, method = 'GET', body?: object): Promise<T> {
+  return call<T>('/api/workspaces' + suffix, { method, ...(body ? { body: JSON.stringify(body) } : {}) })
+}
+
 async function call<T>(path: string, init: RequestInit, requestKey?: string): Promise<T> {
+  const generation = contextGeneration
+  const selectedWorkspace = workspaceId
+  if (!['GET', 'HEAD'].includes(init.method ?? 'GET') && !csrf) await loadCsrf()
+  if (generation !== contextGeneration) throw new ApiError('ACCESS_CONTEXT_CHANGED', 0, '空间已切换，已停止旧请求')
   const headers = new Headers(init.headers)
+  if (selectedWorkspace && !path.startsWith('/api/auth/')) headers.set('X-Workspace-ID', selectedWorkspace)
+  if (!['GET', 'HEAD'].includes(init.method ?? 'GET') && csrf) headers.set(csrf.headerName, csrf.token)
   headers.set('Accept', 'application/json')
   if (init.body !== undefined && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   if (requestKey) headers.set('Idempotency-Key', requestKey)
-  const response = await fetch(path, { ...init, headers })
+  const response = await fetch(path, { ...init, headers, credentials: 'same-origin' })
   const text = await response.text()
   const payload = text.length > 0 ? safeJson(text) : null
+  if (generation !== contextGeneration) throw new ApiError('ACCESS_CONTEXT_CHANGED', 0, '空间已切换，已忽略旧响应')
   if (!response.ok) {
+    if (response.status === 403) { csrfGeneration++; csrf = null }
+    if (response.status === 401 && path !== '/api/auth/login' && path !== '/api/auth/register') {
+      clearAuthentication()
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('devicetruth-auth-expired'))
+    }
     const body = payload as Partial<ApiErrorBody> | null
     throw new ApiError(
       body?.code ?? 'HTTP_' + response.status,
       response.status,
-      body?.message ?? '请求无法处理',
+      body?.message ?? ({ INVALID_CREDENTIALS: '邮箱或密码不正确', INVITATION_EMAIL_MISMATCH: '当前登录邮箱与受邀邮箱不匹配，请切换账号', MAIL_UNAVAILABLE: '邮件服务尚不可用，请联系管理员后重试', LAST_WORKSPACE_ADMIN: '团队必须保留至少一位管理员', CONVERSATION_VERSION_CONFLICT: '调查已有更新，请同步后重新确认', CONVERSATION_BUSY: '当前调查仍有未结束的运行', AUTH_RATE_LIMITED: '操作过于频繁，请稍后重试' } as Record<string,string>)[body?.code ?? ''] ?? ('请求未完成（' + (body?.code ?? response.status) + '）'),
       body?.retryable ?? false,
       body?.traceId ?? null
     )
@@ -391,7 +480,9 @@ export function openRunEventStream(runId: string, options: RunStreamOptions): Ru
     if (closed) return
     closed = true
     source.close()
+    scopedStreams.delete(close)
   }
+  scopedStreams.add(close)
 
   for (const type of STREAM_EVENT_TYPES) {
     source.addEventListener(type, (message) => {
@@ -472,8 +563,10 @@ export function retryFile(fileId: string): Promise<FileView> {
 }
 
 export async function waitForFile(fileId: string, timeoutMs = 60_000): Promise<FileView> {
+  const context = contextGeneration
   const deadline = Date.now() + timeoutMs
   for (;;) {
+    if (context !== contextGeneration) throw new ApiError('ACCESS_CONTEXT_CHANGED', 0, '已停止旧空间的附件等待')
     const file = await readFile(fileId)
     if (['PARSED', 'FAILED', 'OCR_REQUIRED'].includes(file.parseStatus)) return file
     if (Date.now() >= deadline) throw new ApiError('FILE_WAIT_TIMEOUT', 0, '等待文件导入超时')
@@ -515,7 +608,9 @@ export function sendMessage(
   requestKey = newRequestKey(),
   attachmentIds: string[] = [],
   selectedAssetId: string | null = null,
-  contextRefs: readonly string[] = []
+  contextRefs: readonly string[] = [],
+  expectedConversationVersion?: number,
+  discussionQuotes: readonly {discussionId: string; version: number}[] = []
 ): Promise<RunView> {
   return call<RunView>(
     '/api/conversations/' + encodeURIComponent(conversationId) + '/messages',
@@ -524,6 +619,8 @@ export function sendMessage(
       body: JSON.stringify({
         schemaVersion: 1,
         userMessage,
+        ...(discussionQuotes.length ? { discussionQuotes } : {}),
+        ...(expectedConversationVersion !== undefined ? { expectedConversationVersion } : {}),
         ...(attachmentIds.length > 0 ? { attachments: attachmentIds.map((fileId) => ({ fileId })) } : {}),
         ...(selectedAssetId ? { selectedAssetId } : {}),
         ...(contextRefs.length > 0 ? { contextRefs: contextRefs.map((referenceId) => ({ referenceId })) } : {})
@@ -538,7 +635,8 @@ export function replyToQuestion(
   conversationId: string,
   target: ReplyTarget,
   userMessage: string,
-  requestKey = newRequestKey()
+  requestKey = newRequestKey(),
+  discussionQuotes: readonly {discussionId: string; version: number}[] = []
 ): Promise<RunView> {
   return call<RunView>(
     '/api/conversations/' + encodeURIComponent(conversationId) + '/messages',
@@ -547,6 +645,7 @@ export function replyToQuestion(
       body: JSON.stringify({
         schemaVersion: 1,
         userMessage,
+        ...(discussionQuotes.length ? { discussionQuotes } : {}),
         replyTo: {
           runId: target.runId,
           pendingQuestionId: target.pendingQuestionId,
@@ -572,13 +671,17 @@ export interface WaitOptions {
  * 轮询不会创建新 run，也不会重发消息；超时只抛出 RUN_WAIT_TIMEOUT，由界面提示刷新重试。
  */
 export async function waitForRun(runId: string, options: WaitOptions = {}): Promise<RunView> {
+  const context = contextGeneration
   const timeoutMs = options.timeoutMs ?? 60_000
   const intervalMs = options.intervalMs ?? 1_000
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
   const deadline = Date.now() + timeoutMs
   for (;;) {
+    if (context !== contextGeneration) throw new ApiError('ACCESS_CONTEXT_CHANGED', 0, '已停止旧空间的运行等待')
     if (options.signal?.aborted) throw new ApiError('RUN_WAIT_CANCELLED', 0, '已停止等待该运行')
     const run = await readRun(runId)
+    if (context !== contextGeneration) throw new ApiError('ACCESS_CONTEXT_CHANGED', 0, '已停止旧空间的运行等待')
+    if (options.signal?.aborted) throw new ApiError('RUN_WAIT_CANCELLED', 0, '已停止等待该运行')
     options.onUpdate?.(run)
     if (TERMINAL.has(run.status)) return run
     if (Date.now() >= deadline) throw new ApiError('RUN_WAIT_TIMEOUT', 0, '等待运行结果超时')
@@ -663,4 +766,12 @@ export interface AssetComposite {
 export function readAsset(assetId: string, asOf?: string): Promise<AssetComposite> {
   const query = asOf ? '?asOf=' + encodeURIComponent(asOf) : ''
   return call<AssetComposite>('/api/assets/' + encodeURIComponent(assetId) + query, { method: 'GET' })
+}
+
+export function productRequest<T>(path: string, method = 'GET', body?: object): Promise<T> {
+  return call<T>('/api/' + path, { method, ...(body ? { body: JSON.stringify(body) } : {}) })
+}
+export function uploadInvestigationAttachment(conversationId: string, file: File): Promise<FileView> {
+  const body = new FormData(); body.append('file', file)
+  return call('/api/conversations/' + encodeURIComponent(conversationId) + '/attachments', { method: 'POST', body })
 }

@@ -32,6 +32,7 @@ public final class SafeAgentEventViews {
             Map.entry("RUN_LATE_RESPONSE", Set.of("status", "code")),
             Map.entry("RUN_WAITING", Set.of("questionVersion")),
             Map.entry("RUN_PHASE", Set.of("phase", "reason")),
+            Map.entry("RUN_ANSWER_REVIEW", Set.of("code", "unitIds", "rules", "reviews", "corrections")),
             Map.entry("RUN_DEGRADED", Set.of("code", "references")));
 
     private SafeAgentEventViews() {}

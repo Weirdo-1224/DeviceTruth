@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ensureConversation } from './draftSubmission'
-import type { ConversationView } from './api'
+import { createConversation, loadCsrf, sendMessage, setAccessContext, type ConversationView } from './api'
 
 const created: ConversationView = {
   conversationId: 'conv-new', version: 0,
@@ -30,4 +30,21 @@ describe('新调查首次提交', () => {
     expect((await ensureConversation(created, factory)).conversationId).toBe('conv-new')
     expect(factory).not.toHaveBeenCalled()
   })
+})
+
+it('团队首次有效提交复用认证空间，携带创建返回的期望版本且不要求设备',async()=>{
+  const calls:{path:string;init?:RequestInit}[]=[]
+  vi.stubGlobal('fetch',vi.fn(async(path,init)=>{
+    calls.push({path:String(path),init})
+    return new Response(JSON.stringify(String(path).endsWith('/csrf')?{headerName:'X-CSRF-TOKEN',token:'c'}:String(path)==='/api/conversations'?created:{runId:'accepted'}),{status:200})
+  }))
+  try {
+    setAccessContext('account','team');await loadCsrf()
+    const current=await ensureConversation(null,createConversation)
+    await sendMessage(current.conversationId,'未指定设备也可以问答','key',[],null,[],current.version)
+    expect(calls.filter(c=>c.path==='/api/conversations')).toHaveLength(1)
+    const submitted=calls.find(c=>c.path.endsWith('/messages'))!
+    expect(new Headers(submitted.init?.headers).get('X-Workspace-ID')).toBe('team')
+    expect(JSON.parse(String(submitted.init?.body))).toEqual({schemaVersion:1,userMessage:'未指定设备也可以问答',expectedConversationVersion:0})
+  } finally { setAccessContext(null,null);vi.unstubAllGlobals() }
 })

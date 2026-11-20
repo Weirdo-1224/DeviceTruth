@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import UiIcon from './UiIcon.vue'
+import AnswerReviewPanel from './AnswerReviewPanel.vue'
 import { REPORT_STATUS_LABELS, canRetryReportReferences, reportReferenceNumbers } from '../reportView'
 import type { RunView } from '../api'
 import type { ClaimView, DiagnosisViewModel, ReferenceView } from '../diagnosisViewModel'
@@ -87,6 +88,7 @@ function claimReferenceLabels(claim: ClaimView): string {
       </section>
       <p v-if="model.safetyNotice" class="safety">{{ model.safetyNotice }}</p>
       <p v-if="model.dataNatureNote" class="report-note">{{ model.dataNatureNote }}</p>
+      <AnswerReviewPanel :review="model.review" @open-reference="emit('openReference', $event)" />
 
       <section class="report-section">
         <h2>建议行动与人工核验</h2>
@@ -117,10 +119,10 @@ function claimReferenceLabels(claim: ClaimView): string {
 
     <section class="report-section report-sources">
       <h2>来源与引用（{{ references.length }}）</h2>
-      <p class="hint">{{ referencesNote }}</p>
+      <p v-if="referencesNote" class="hint">{{ referencesNote }}</p>
       <button v-if="canRetryReportReferences(referencesState)" type="button" class="text-button pro-report-actions"
               @click="emit('retryReferences')">重试读取来源</button>
-      <p v-if="referencesState === 'empty'" class="hint">本轮没有已登记来源。</p>
+      <p v-if="referencesState === 'empty' && !referencesNote" class="hint">本轮没有已登记来源。</p>
       <ol>
         <li v-for="(reference, index) in references" :key="reference.referenceId" class="report-source">
           <h3>[{{ index + 1 }}] 《{{ reference.title }}》</h3>

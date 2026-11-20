@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  loadCsrf,
   cancelRun,
   readAsset,
   readRunSkill,
@@ -85,7 +86,9 @@ function bodyOf(call: Recorded): Record<string, unknown> {
   return JSON.parse(String(call.init.body)) as Record<string, unknown>
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ headerName: 'X-CSRF-TOKEN', token: 'test-csrf' })))
+  await loadCsrf()
   calls = []
 })
 

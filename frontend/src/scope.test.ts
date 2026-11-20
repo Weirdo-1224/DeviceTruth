@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createScopedLoader, mergeRunList, mergeRunView } from './scope'
+import { scopedRunKey, createScopedLoader, mergeRunList, mergeRunView } from './scope'
 import { createScheduledReads } from './scheduler'
 
 describe('所看轮作用域', () => {
@@ -53,4 +53,12 @@ describe('合并式回读调度', () => {
     await third
     expect(started).toBe(2)
   })
+})
+
+it('所看来源键包含账号空间调查Run版本',()=>{
+  const first=scopedRunKey('account:team','case',{runId:'r',version:1})
+  const loader=createScopedLoader(),token=loader.issue(first)
+  expect(loader.isCurrent(token,scopedRunKey('account:team','case',{runId:'r',version:2}))).toBe(false)
+  expect(loader.isCurrent(token,scopedRunKey('other:team','case',{runId:'r',version:1}))).toBe(false)
+  expect(loader.isCurrent(token,first)).toBe(true)
 })

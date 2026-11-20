@@ -28,6 +28,29 @@ public interface GeneralReasoner {
 
     String name();
 
+    default boolean supportsAnswerReview() { return false; }
+    default int deliveryReviewVersion() { return 1; }
+
+    default io.devicetruth.core.contract.AnswerReview.Review reviewDelivery(
+            io.devicetruth.core.contract.AgentTaskInput input, List<Reference> references,
+            ActionProposal.Answer draft, java.util.function.Supplier<String> abortCode,
+            java.util.function.LongSupplier remainingMillis) {
+        return reviewAnswer(input, references, draft, abortCode, remainingMillis);
+    }
+
+    default io.devicetruth.core.contract.AnswerReview.Review reviewAnswer(
+            io.devicetruth.core.contract.AgentTaskInput input, List<Reference> references,
+            ActionProposal.Answer draft, java.util.function.Supplier<String> abortCode,
+            java.util.function.LongSupplier remainingMillis) {
+        throw new UnsupportedOperationException("Semantic review is not configured");
+    }
+
+    default ActionProposal.Answer correctAnswer(Context context, ActionProposal.Answer draft,
+            io.devicetruth.core.contract.AnswerReview.Review review,
+            java.util.function.Supplier<String> abortCode, java.util.function.LongSupplier remainingMillis) {
+        throw new UnsupportedOperationException("Targeted correction is not configured");
+    }
+
     /** 取出并清空本轮尝试记录（模型调用成败），供运行事件审计。 */
     default List<Reasoner.Attempt> drainAttempts() { return List.of(); }
 

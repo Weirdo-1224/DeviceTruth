@@ -181,11 +181,11 @@ class PersistentConversationTest {
 
         String cursor = first.path("nextCursor").asText();
         String decodedCursor = new String(java.util.Base64.getUrlDecoder().decode(cursor), java.nio.charset.StandardCharsets.UTF_8);
-        String[] cursorParts = decodedCursor.split(":", 3);
+        String[] cursorParts = decodedCursor.split(":", -1);
         var directSecond = new io.devicetruth.adapter.persistence.ConversationRepository(jdbc).summaries(
                 new io.devicetruth.application.agent.GeneralAgentService.ServerIdentity("owner-a", "project-a"), "TARGET-", null, null,
                 new io.devicetruth.adapter.persistence.ConversationRepository.SummaryCursor(Integer.parseInt(cursorParts[0]),
-                        java.time.Instant.ofEpochMilli(Long.parseLong(cursorParts[1])), UUID.fromString(cursorParts[2])), 20);
+                        java.time.Instant.ofEpochSecond(Long.parseLong(cursorParts[1]), Integer.parseInt(cursorParts[2])), UUID.fromString(cursorParts[3])), 20);
         assertThat(directSecond.items()).hasSize(2);
         var second = Json.MAPPER.readTree(rest.getForObject(
                 base + "/api/conversations/summaries?limit=20&q=TARGET-&cursor=" + cursor, String.class));

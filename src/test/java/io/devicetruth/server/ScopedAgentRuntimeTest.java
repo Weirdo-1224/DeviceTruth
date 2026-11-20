@@ -49,6 +49,22 @@ class ScopedAgentRuntimeTest {
         assertThat(entered.await(5,TimeUnit.SECONDS)).isTrue();jdbc.update("UPDATE dt_workspace_member SET role='VIEWER' WHERE workspace_id=?",a.workspaceId());release.countDown();
         var terminal=await(scoped,run.runId(),"FAILED");assertThat(terminal.failureCode()).isEqualTo("AUTHORIZATION_REVOKED");assertThat(terminal.pendingQuestion()).isNull();
     }
+    @Test void cursorsPreserveMicrosecondsAndReadLegacyMillisecondTokens() {
+        var scoped=service(false,this::ask).forScope(a);
+        for(int i=0;i<3;i++) scoped.submit(scoped.create().conversationId(),UUID.randomUUID(),input("微秒分页"+i));
+        jdbc.update("UPDATE dt_conversation SET updated_at='2026-11-20T00:00:00.123456Z' WHERE workspace_id=?",a.workspaceId());
+        var first=scoped.summaries(null,null,null,null,2);
+        var second=scoped.summaries(null,null,null,first.nextCursor(),2);
+        assertThat(first.items()).hasSize(2);assertThat(second.items()).hasSize(1);
+        assertThat(second.items().getFirst().conversationId()).isNotIn(first.items().stream().map(GeneralAgentService.ConversationSummary::conversationId).toList());
+        jdbc.update("UPDATE dt_conversation SET updated_at='2026-11-20T00:00:00.123Z' WHERE workspace_id=?",a.workspaceId());
+        first=scoped.summaries(null,null,null,null,2);
+        var last=first.items().getLast();
+        String legacy="0:"+last.updatedAt().toEpochMilli()+":"+last.conversationId();
+        String inner=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(legacy.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String outer=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(io.devicetruth.adapter.Json.write(java.util.Map.of("workspace",a.workspaceId().toString(),"query","","asset","","status","","cursor",inner)).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertThat(scoped.summaries(null,null,null,outer,2).items()).hasSize(1);
+    }
     @Test void cursorsAndSkillInstallationsRemainBoundToStorageScope() {
         var root=service(false,this::ask);var aa=root.forScope(a);var bb=root.forScope(b);
         for(int i=0;i<2;i++)aa.submit(aa.create().conversationId(),UUID.randomUUID(),input("任务"+i));

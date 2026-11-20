@@ -82,9 +82,12 @@ public final class AgentScopeStep {
         var messages = List.of(
                 Msg.builder().name("protocol").role(MsgRole.SYSTEM).textContent(system).build(),
                 Msg.builder().name("snapshot").role(MsgRole.USER).textContent(input).build());
-        var responses = model.stream(messages, List.of(), GenerateOptions.builder()
-                .temperature(0.0).responseFormat(ResponseFormat.jsonObject())
-                .executionConfig(ExecutionConfig.builder().timeout(requestTimeout).maxAttempts(1).build()).build())
+        var options = GenerateOptions.builder().temperature(0.0).responseFormat(ResponseFormat.jsonObject())
+                .executionConfig(ExecutionConfig.builder().timeout(requestTimeout).maxAttempts(1).build());
+        // Flash 默认思考可耗尽整个单步期限；受控 JSON 单步显式使用非思考模式，不影响其他供应商。
+        if ("deepseek-flash".equals(model.getModelName()))
+            options.additionalBodyParam("thinking", java.util.Map.of("type", "disabled"));
+        var responses = model.stream(messages, List.of(), options.build())
                 .collectList().block(requestTimeout);
         if (responses == null) throw new IllegalStateException("Model returned no response");
         String text = responses.stream().flatMap(r -> r.getContent().stream())

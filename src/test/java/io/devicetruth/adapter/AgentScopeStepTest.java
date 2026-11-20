@@ -22,6 +22,27 @@ import reactor.core.publisher.Flux;
 import static org.assertj.core.api.Assertions.*;
 
 class AgentScopeStepTest {
+    @Test void flashJsonStepsDisableThinkingWithoutChangingOtherModels() throws Exception {
+        var requests = new java.util.ArrayList<com.fasterxml.jackson.databind.JsonNode>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            requests.add(Json.MAPPER.readTree(exchange.getRequestBody().readAllBytes()));
+            byte[] body = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"{}\"},\"finish_reason\":\"stop\"}]}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            for (String model : List.of("deepseek-flash", "other-compatible-model"))
+                AgentScopeStep.openai("test-key", "http://127.0.0.1:" + server.getAddress().getPort(), model)
+                        .complete("JSON", "test");
+            assertThat(requests.get(0).path("thinking").path("type").asText()).isEqualTo("disabled");
+            assertThat(requests.get(1).has("thinking")).isFalse();
+            assertThat(requests).allSatisfy(request -> assertThat(request.path("stream").asBoolean()).isFalse());
+        } finally { server.stop(0); }
+    }
     @Test void oneSubscriptionReturnsOneJsonProposalWithoutExecutingTools() throws Exception {
         AtomicInteger calls = new AtomicInteger();
         Model model = new Model() {

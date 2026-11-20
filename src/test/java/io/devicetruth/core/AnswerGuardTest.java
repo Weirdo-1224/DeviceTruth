@@ -20,6 +20,37 @@ import static org.assertj.core.api.Assertions.*;
 class AnswerGuardTest {
     private final AnswerGuard guard = new AnswerGuard();
 
+    /** 构造的旧合同复现，不是 c96da39d Run 未保留的模型草案。 */
+    @Test void legacyGuardRejectsDocumentAndHistoryAlongsideCurrentDefect() {
+        var document = new Reference("r-version", "KNOWLEDGE_DOCUMENT", "manual", "2026.1", "version",
+                "模拟手册", null, "适用范围", "本手册版本已确认为 2026.1。", "SIMULATED");
+        var history = new Reference("r-history", "KNOWLEDGE_DOCUMENT", "history", "1", "repair",
+                "模拟历史记录", null, "2025 年维修记录", "2025 年控制器已经损坏并更换。", "SIMULATED");
+        // 资料明确转述和历史完成时态也命中旧正文分支，即使 certainty 仅为 SUPPORTED。
+        for (var ref : List.of(document, history)) {
+            var verdict = guard.review(input(null), List.of(ref), answer("KNOWLEDGE", "资料转述",
+                    List.of(new Claim(ref.excerpt(), List.of(ref.referenceId()), Certainty.SUPPORTED)),
+                    List.of(ref.referenceId())));
+            assertThat(verdict.code()).as(ref.section()).isEqualTo("UNCONFIRMED_FINDING");
+            assertThat(verdict.answer()).isNull();
+            assertThat(verdict.issues()).extracting(AnswerGuard.Issue::unitId).containsOnly("claims.0");
+            assertThat(verdict.issues()).extracting(AnswerGuard.Issue::rule).containsExactly(
+                    ref == document ? "LEGACY_CONFIRMATION_WORDING" : "LEGACY_DEVICE_DEFECT_WORDING");
+        }
+        // 同一资料不能证明当前设备故障；换类别或降低模型自报 certainty 不能获得依据。
+        for (var category : List.of("KNOWLEDGE", "POSSIBLE_CAUSES")) {
+            var verdict = guard.review(input(null), List.of(document), answer(category,
+                    "当前设备控制器已经损坏。", List.of(), List.of(document.referenceId())));
+            assertThat(verdict.code()).as(category).isEqualTo("UNCONFIRMED_FINDING");
+            assertThat(verdict.answer()).isNull();
+        }
+        var neutral = guard.review(input(null), List.of(document), answer("KNOWLEDGE",
+                "手册版本为 2026.1。", List.of(), List.of(document.referenceId())));
+        assertThat(neutral.allowed()).isTrue();
+        assertThat(neutral.answer().referenceIds()).containsExactly(document.referenceId());
+        assertThat(neutral.answer().dataNature()).isEqualTo("SIMULATED");
+    }
+
     private static Reference reference(String id, String dataNature) {
         return new Reference(id, "KNOWLEDGE_DOCUMENT", "doc-" + id, "2026.1", "chunk-" + id,
                 "充电系统检修手册（演示资料）", null, "3 直流快充中断", "直流快充中断通常发生在通信超时之后。", dataNature);

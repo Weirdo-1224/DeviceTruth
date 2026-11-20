@@ -52,3 +52,8 @@ export function mergeRunList<Run extends { runId: string; status: string; versio
   })
   return [...merged, ...known.values()]
 }
+
+/** HTTP身份与持久版本共同界定所看轮；同ID新版本不能接收旧来源读取。 */
+export function scopedRunKey(context: string, conversationId: string, run: {runId: string; version: number} | null): string {
+  return [context, conversationId, run?.runId ?? '', run?.version ?? ''].join('|')
+}

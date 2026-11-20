@@ -57,6 +57,9 @@ export interface RunPermissions {
 }
 
 export function runPermissions(input: {
+  readOnly?: boolean
+  actorUserId?: string
+  administrator?: boolean
   viewed: RunView | null
   activeRuns: readonly RunView[]
   active: RunView | null
@@ -66,15 +69,17 @@ export function runPermissions(input: {
   hasReplyDraft: boolean
   investigationEnabled: boolean
 }): RunPermissions {
+  const writable = !input.readOnly
+  const mayCancel = input.administrator || input.actorUserId === undefined || input.active?.executionActorUserId === input.actorUserId
   const multiple = input.activeRuns.length > 1
-  const blocked = input.busy ? '正在提交上一项操作' : multiple ? '存在多个未决轮，请先逐轮定位' : ''
+  const blocked = !writable ? '当前为只读成员' : input.busy ? '正在提交上一项操作' : multiple ? '存在多个未决轮，请先逐轮定位' : ''
   const sendBlockedReason = blocked
   return {
     canSend: sendBlockedReason === '' && input.activeRuns.length === 0 && input.hasDraft,
     sendBlockedReason,
     canInvestigate: sendBlockedReason === '' && input.activeRuns.length === 0 && input.viewed?.status === 'COMPLETED'
       && input.investigationEnabled,
-    canCancel: !input.busy && input.active !== null,
-    canReply: !input.busy && Boolean(input.waiting?.pendingQuestion) && input.hasReplyDraft
+    canCancel: writable && mayCancel && !input.busy && input.active !== null,
+    canReply: writable && !input.busy && Boolean(input.waiting?.pendingQuestion) && input.hasReplyDraft
   }
 }

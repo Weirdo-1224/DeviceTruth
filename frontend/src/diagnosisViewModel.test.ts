@@ -346,3 +346,21 @@ describe('调查导航短预览', () => {
     expect(model.suggestions.length).toBe(1)
   })
 })
+
+describe('团队接续与材料报告回归',()=>{
+  it('换执行人不改变持久排查对象，保留分组与前三项之外的建议',()=>{
+    const model=buildDiagnosisViewModel({run:run({executionActorUserId:'colleague',investigatedAssetId:'CAR-A',assetResolution:'CONFIRMED',result:result({
+      subjectAssetId:'CAR-A',assetResolution:'CONFIRMED',suggestions:['一','二','三','四'],claims:[
+        {text:'待核验候选',kind:'CAUSE',relevance:'DIRECT',certainty:'POSSIBLE',referenceIds:[]},
+        {text:'背景观测',kind:'OBSERVATION',relevance:'CONTEXT',certainty:'POSSIBLE',referenceIds:[]},
+        {text:'未知判断',kind:'UNKNOWN',relevance:'UNKNOWN',certainty:'POSSIBLE',referenceIds:[]}
+      ]})})})
+    expect(model.selectedAssetId).toBe('CAR-A');expect(model.directCauses).toHaveLength(1);expect(model.contextClaims).toHaveLength(1);expect(model.otherClaims).toHaveLength(1)
+    expect(model.nextActions).toEqual(['一','二','三']);expect(model.suggestions).toEqual(['一','二','三','四'])
+  })
+  it('COMPLETED有限结果仍明确待人工核验，不制造候选或来源',()=>{
+    const stored=run({result:result({category:'HUMAN_REVIEW',claims:[],references:[],review:{version:2,units:[],decisions:[],limited:true}})})
+    const model=buildDiagnosisViewModel({run:stored})
+    expect(stored.status).toBe('COMPLETED');expect(model.shortConclusion).toContain('人工');expect(model.claims).toEqual([]);expect(model.review?.limited).toBe(true)
+  })
+})

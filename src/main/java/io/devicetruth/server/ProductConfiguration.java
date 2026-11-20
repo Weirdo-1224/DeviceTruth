@@ -89,16 +89,27 @@ public class ProductConfiguration {
             @Value("${devicetruth.agent.worker-enabled:true}") boolean workerEnabled,
             @Value("${devicetruth.agent.lease-seconds:60}") long leaseSeconds,
             @Value("${devicetruth.agent.max-recovery-attempts:3}") int maxRecoveryAttempts,
-            @Value("${devicetruth.agent.recovery-scan-limit:50}") int recoveryScanLimit) {
+            @Value("${devicetruth.agent.recovery-scan-limit:50}") int recoveryScanLimit,
+            org.springframework.beans.factory.ObjectProvider<io.devicetruth.adapter.StructuredAgentReasoner.ProtocolObserver> observers) {
         var jdbc = new JdbcTemplate(source);
         var transactions = new TransactionTemplate(new DataSourceTransactionManager(source));
         return new GeneralAgentService(new ConversationRepository(jdbc),
                 new AgentRunRepository(jdbc, environment.getProperty("devicetruth.agent.max-active-duration-ms",
                         Long.class, 120_000L), transactions),
                 transactions,
-                identity, gateway, agentReasoners(agentReasonerName(environment, reasonerName)), maxConcurrentRuns,
+                identity, gateway, observedReasoners(agentReasoners(agentReasonerName(environment, reasonerName)), observers.getIfAvailable()), maxConcurrentRuns,
                 maxQueue, workerEnabled, fileUploadService, leaseSeconds, maxRecoveryAttempts, skills,
                 runEventStreamService::publish, recoveryScanLimit);
+    }
+
+    private static Supplier<GeneralReasoner> observedReasoners(Supplier<GeneralReasoner> factory,
+            io.devicetruth.adapter.StructuredAgentReasoner.ProtocolObserver observer) {
+        if (observer == null) return factory;
+        return () -> {
+            var reasoner = factory.get();
+            return reasoner instanceof io.devicetruth.adapter.StructuredAgentReasoner structured
+                    ? structured.observing(observer) : reasoner;
+        };
     }
 
     /**

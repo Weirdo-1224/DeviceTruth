@@ -8,13 +8,27 @@ import java.util.UUID;
 /** 已完成的执行进度。Run 行中的预算还可能包含执行中断的模型步骤。 */
 public record AgentExecutionCheckpoint(int schemaVersion, UUID runId, int step, List<String> attemptedTools,
                                        Set<String> successfulCalls, List<ToolResult> toolResults,
-                                       String feedback, int rejections, int noProgress, boolean finalizing) {
+                                       String feedback, int rejections, int noProgress, boolean finalizing,
+                                       AnswerReviewProgress answerReview) {
+    public AgentExecutionCheckpoint(int schemaVersion, UUID runId, int step, List<String> attemptedTools,
+                                    Set<String> successfulCalls, List<ToolResult> toolResults,
+                                    String feedback, int rejections, int noProgress, boolean finalizing) {
+        this(schemaVersion, runId, step, attemptedTools, successfulCalls, toolResults, feedback,
+                rejections, noProgress, finalizing, AnswerReviewProgress.empty());
+    }
+    public AgentExecutionCheckpoint withAnswerReview(AnswerReviewProgress progress) {
+        return new AgentExecutionCheckpoint(schemaVersion, runId, step, attemptedTools, successfulCalls,
+                toolResults, feedback, rejections, noProgress, finalizing, progress);
+    }
     public AgentExecutionCheckpoint(int schemaVersion, UUID runId, int step, List<String> attemptedTools,
                                     Set<String> successfulCalls, List<ToolResult> toolResults,
                                     String feedback, int rejections) {
         this(schemaVersion, runId, step, attemptedTools, successfulCalls, toolResults, feedback, rejections, 0, false);
     }
     public AgentExecutionCheckpoint {
+        if (answerReview == null) answerReview = AnswerReviewProgress.empty();
+        if (answerReview.reviews() + answerReview.corrections() > step)
+            throw new IllegalArgumentException("Review exceeds reserved budget");
         if (schemaVersion != 1 || runId == null || step < 0 || rejections < 0 || rejections > step
                 || noProgress < 0 || noProgress > step)
             throw new IllegalArgumentException("Invalid execution checkpoint");

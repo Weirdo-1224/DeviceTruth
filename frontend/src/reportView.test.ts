@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { canRetryReportReferences, REPORT_STATUS_LABELS, reportReferenceNumbers } from './reportView'
 import { toReferenceView } from './diagnosisViewModel'
 import type { Reference } from './api'
@@ -27,4 +27,16 @@ describe('独立报告投影', () => {
     expect(canRetryReportReferences('notFound')).toBe(true)
     expect(canRetryReportReferences('ready')).toBe(false)
   })
+})
+
+it('历史报告使用原引用版本与性质，不读取新发布内容或再次请求模型',()=>{
+  const fetch=vi.fn(()=>{throw new Error('report must be local projection')});vi.stubGlobal('fetch',fetch)
+  try {
+    const old=toReferenceView(reference('old-ref'))
+    const published=toReferenceView({...reference('new-ref'),sourceVersion:'2.0',title:'后来发布的资料'})
+    expect(reportReferenceNumbers([old]).get('old-ref')).toBe(1)
+    expect(reportReferenceNumbers([published]).get('old-ref')).toBeUndefined()
+    expect(old.sourceVersion).toBe('1.0');expect(old.dataNature).toBe('SIMULATED');expect(old.title).toBe('维修手册')
+    expect(fetch).not.toHaveBeenCalled()
+  } finally { vi.unstubAllGlobals() }
 })

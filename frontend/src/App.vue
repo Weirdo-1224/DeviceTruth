@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
+  accessContextKey,
   ApiError,
   cancelRun as cancelRunRequest,
   createConversation,
@@ -15,7 +16,7 @@ import {
   replyToQuestion,
   retryFile,
   sendMessage,
-  uploadMarkdown,
+  uploadInvestigationAttachment,
   waitForFile,
   waitForRun,
   type ConversationSummary,
@@ -26,6 +27,7 @@ import {
   type RunView,
   type SkillSelection
 } from './api'
+import InvestigationCollaboration from './components/InvestigationCollaboration.vue'
 import RunTimeline from './components/RunTimeline.vue'
 import DiagnosisReport from './components/DiagnosisReport.vue'
 import RecentInvestigations from './components/RecentInvestigations.vue'
@@ -36,14 +38,21 @@ import UiIcon from './components/UiIcon.vue'
 import { createRunTimelineController } from './timeline'
 import { buildInvestigationMessage, buildDiagnosisViewModel, toReferenceView, type ReferenceView } from './diagnosisViewModel'
 import { resolveRunTargets, runPermissions, UNSETTLED_STATUSES } from './runTargets'
-import { createScopedLoader, mergeRunList, mergeRunView } from './scope'
+import { createScopedLoader, mergeRunList, mergeRunView, scopedRunKey } from './scope'
 import { appendConversationPage, conversationBadge } from './history'
 import { ensureConversation } from './draftSubmission'
+import { draftKey, usePrivateDraft, writeDraft, listDrafts } from './privateDrafts'
 import { createScheduledReads, TERMINAL_EVENT_STATUSES } from './scheduler'
 
-const STORAGE_KEY = 'devicetruth.conversation-id'
+const props = defineProps<{ readOnly?: boolean; actorId?: string; administrator?: boolean; memberNames?: Record<string, string> }>()
+const STORAGE_KEY = 'devicetruth.conversation-id:' + accessContextKey()
 
 const conversation = ref<ConversationView | null>(null)
+const quoteDraft = usePrivateDraft(computed(() => draftKey(accessContextKey(), conversation.value?.conversationId ?? null, 'quotes')))
+const discussionQuotes = computed<{discussionId: string; version: number; content: string; authorName: string}[]>({
+  get: () => { try { return JSON.parse(quoteDraft.value || '[]') } catch { return [] } },
+  set: value => { quoteDraft.value = JSON.stringify(value) }
+})
 const conversations = ref<ConversationSummary[]>([])
 const historyLoaded = ref(false)
 const historyError = ref('')
@@ -86,20 +95,41 @@ const activeLabel = computed(() => {
   return statusLabels[current.status] ?? current.status
 })
 
-const draft = ref('')
+const draft = usePrivateDraft(computed(() => draftKey(accessContextKey(), conversation.value?.conversationId ?? null)))
 const composeMode = ref<'free' | 'investigate' | 'observation'>('free')
-const investigationDrafts = ref<Record<string, string>>({})
-const investigationDraftKey = computed(() => run.value?.runId + ':' + selectedClaimIndex.value)
-const replyDraft = ref('')
+const replyDraftStorageKey = computed(() => draftKey(accessContextKey(), conversation.value?.conversationId ?? null, 'reply:' + (waitingRun.value?.runId ?? 'none') + ':' + (waitingRun.value?.pendingQuestion?.pendingQuestionId ?? '') + ':' + (waitingRun.value?.pendingQuestion?.questionVersion ?? '')))
+const replyDraft = usePrivateDraft(replyDraftStorageKey)
+const discardedDraftRevision = ref(0)
+const oldReplyDrafts = computed(() => {
+  void runs.value; void replyDraft.value; void discardedDraftRevision.value
+  return listDrafts(draftKey(accessContextKey(), conversation.value?.conversationId ?? null, 'reply:')).filter(item => item.key !== replyDraftStorageKey.value && !item.key.includes(':reply:none:'))
+})
+function discardOldReply(key: string) { writeDraft(key, ''); discardedDraftRevision.value++ }
 /** 补答草稿所属的等待目标：切换目标时清空，避免草稿串用。 */
 const replyDraftOwner = ref<string | null>(null)
 const busy = ref(false)
 const resumingRunId = ref<string | null>(null)
 const uploading = ref(false)
 const errorText = ref('')
+const stagedFile = ref<File | null>(null)
 const uploadedFile = ref<FileView | null>(null)
 const selectedSkill = ref<SkillSelection | null>(null)
 const cancelling = ref(false)
+const pendingCancellation = ref<RunView | null>(null)
+const cancelDialog = ref<HTMLDialogElement | null>(null)
+let cancelTrigger: HTMLElement | null = null
+watch(pendingCancellation, async target => {
+  await nextTick()
+  if (target) { cancelDialog.value?.showModal(); document.getElementById('confirm-run-cancel')?.focus() }
+  else if (cancelTrigger?.isConnected) cancelTrigger.focus()
+  else document.querySelector<HTMLElement>('.pro-task-title')?.focus()
+})
+function requestCancellation(): void {
+  if (!canCancel.value || !activeRun.value) return
+  cancelTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  pendingCancellation.value = activeRun.value
+  void nextTick(() => document.getElementById('confirm-run-cancel')?.focus())
+}
 const recordDrawerOpen = ref(false)
 const reportOpen = ref(false)
 let reportReturnFocus: HTMLElement | null = null
@@ -134,6 +164,7 @@ const pollControllers = new Map<string, AbortController>()
 let sceneGeneration = 0
 
 const sceneKey = computed(() => conversation.value?.conversationId ?? '')
+const viewedScopeKey = computed(() => scopedRunKey(accessContextKey(), sceneKey.value, run.value))
 
 /** 所看轮的目标消息：只按该轮自己的 goalMessageId 匹配，不跟随输入框资产。 */
 const goalMessage = computed(() => messages.value.find(message => message.messageId === run.value?.goalMessageId) ?? null)
@@ -155,12 +186,13 @@ const diagnosisModel = computed(() => buildDiagnosisViewModel({
 
 /** 判断选中：只切换查看焦点，零请求；换轮或结果替换时回到第一条。 */
 const selectedClaimIndex = ref<number | null>(null)
+const investigationDraft = usePrivateDraft(computed(() => draftKey(accessContextKey(), conversation.value?.conversationId ?? null, 'investigate:' + run.value?.runId + ':' + selectedClaimIndex.value)))
 const selectedClaimOfPage = computed(() =>
   selectedClaimIndex.value === null ? null : diagnosisModel.value.claims[selectedClaimIndex.value] ?? null)
 const composerText = computed({
-  get: () => composeMode.value === 'investigate' ? investigationDrafts.value[investigationDraftKey.value] ?? '' : draft.value,
+  get: () => composeMode.value === 'investigate' ? investigationDraft.value : draft.value,
   set: value => {
-    if (composeMode.value === 'investigate') investigationDrafts.value[investigationDraftKey.value] = value
+    if (composeMode.value === 'investigate') investigationDraft.value = value
     else draft.value = value
   }
 })
@@ -195,16 +227,16 @@ const openedReference = computed<ReferenceView | null>(() => {
 })
 
 async function loadRegisteredReferences(runId: string): Promise<void> {
-  const token = referenceReads.issue(runId)
+  const token = referenceReads.issue(viewedScopeKey.value)
   referencesState.value = 'loading'
   referencesNote.value = referencesNoteOf('loading')
   try {
     const loaded = await readReferences(runId)
-    if (!referenceReads.isCurrent(token, run.value?.runId)) return
+    if (!referenceReads.isCurrent(token, viewedScopeKey.value)) return
     registeredSources.value = [...new Map(loaded.map(reference => [reference.referenceId, reference])).values()]
     referencesState.value = registeredReferences.value.length ? 'ready' : 'empty'
   } catch (error) {
-    if (!referenceReads.isCurrent(token, run.value?.runId)) return
+    if (!referenceReads.isCurrent(token, viewedScopeKey.value)) return
     if (error instanceof ApiError && (error.status === 401 || error.status === 403)) referencesState.value = 'denied'
     else if (error instanceof ApiError && (error.status === 404 || error.code === 'NOT_FOUND_OR_DENIED')) referencesState.value = 'notFound'
     else referencesState.value = 'error'
@@ -240,7 +272,7 @@ function restoreFocusAfterEvidence(restoreOrigin = true): void {
 
 // 切轮：旧轮来源与证据同步退出，再按所看轮读取（结果自带引用优先，否则读已登记来源）
 watch(
-  [sceneKey, () => run.value?.runId, () => run.value?.status],
+  [viewedScopeKey, () => run.value?.status],
   () => {
     referenceReads.issue('')
     registeredSources.value = []
@@ -409,7 +441,13 @@ async function refresh(): Promise<void> {
   if (!conversationId) return
   const generation = sceneGeneration
   const token = sessionReads.issue('detail|' + conversationId)
-  const detail = await readConversation(conversationId)
+  let detail
+  try { detail = await readConversation(conversationId) } catch(e) {
+    if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
+      startNewConversation(); window.dispatchEvent(new Event('devicetruth-access-revoked'))
+    }
+    throw e
+  }
   if (!isCurrentScene(conversationId, generation) || !sessionReads.isCurrent(token, 'detail|' + conversationId)) return
   applyDetail(detail.runs, detail.messages, detail.conversation)
 }
@@ -425,10 +463,9 @@ function applyDetail(nextRuns: RunView[], nextMessages: MessageView[], nextConve
     pinnedRunId.value = null
     preferredActiveRunId.value = null
     uploadedFile.value = null
+    stagedFile.value = null
     uploading.value = false
     composeMode.value = 'free'
-    investigationDrafts.value = {}
-    draft.value = ''
   }
   if (!sameScene || nextConversation.version >= previous.version) {
     conversation.value = nextConversation
@@ -506,6 +543,7 @@ async function track(runId: string): Promise<void> {
 }
 
 const permissions = computed(() => runPermissions({
+  readOnly: props.readOnly, actorUserId: props.actorId, administrator: props.administrator,
   viewed: run.value,
   activeRuns: targets.value.activeRuns,
   active: activeRun.value,
@@ -557,6 +595,10 @@ async function openConversation(conversationId: string): Promise<void> {
     recordDrawerOpen.value = false
   } catch (error) {
     errorText.value = describeError(error)
+    if (error instanceof ApiError && error.status === 409) {
+      try { await refresh(); errorText.value = '调查状态已变化，草稿已保留。请查看最新状态后重新确认提交。' }
+      catch { errorText.value = '提交未被接受，草稿已保留；最新状态读取失败，请点击刷新后再确认。' }
+    }
   } finally {
     busy.value = false
   }
@@ -575,11 +617,9 @@ function startNewConversation(): void {
   preferredActiveRunId.value = null
   selectedClaimIndex.value = null
   uploadedFile.value = null
+  stagedFile.value = null
   uploading.value = false
   composeMode.value = 'free'
-  investigationDrafts.value = {}
-  draft.value = ''
-  replyDraft.value = ''
   errorText.value = ''
   reportOpen.value = false
   try {
@@ -680,13 +720,14 @@ function focusWaitingRun(): void {
 async function upload(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
+  if (!file || props.readOnly) return
   input.value = ''
-  if (!file.name.toLowerCase().endsWith('.md') || !file.size || file.size > 1_000_000) {
-    errorText.value = '请选择不超过 1,000,000 字节的非空 Markdown（.md）文件。'
+  if (!(/\.(md|txt)$/i.test(file.name)) || !file.size || file.size > 1_000_000) {
+    errorText.value = '请选择不超过 1,000,000 字节的非空 MD/TXT 文件。'
     return
   }
-  await importAttachment(async () => (await uploadMarkdown(file)).fileId)
+  if (!conversation.value) { stagedFile.value = file; return }
+  await importAttachment(async () => (await uploadInvestigationAttachment(conversation.value!.conversationId, file)).fileId)
 }
 
 async function importAttachment(start: () => Promise<string>): Promise<void> {
@@ -740,32 +781,53 @@ async function submit(): Promise<void> {
   busy.value = true
   errorText.value = ''
   try {
-    const attachments = uploadedFile.value?.parseStatus === 'PARSED' ? [uploadedFile.value.fileId] : []
+    let attachments = uploadedFile.value?.parseStatus === 'PARSED' ? [uploadedFile.value.fileId] : []
+    const submittedDraftKey = draftKey(accessContextKey(), conversation.value?.conversationId ?? null)
+    const submittedDraft = draft.value
     const current = await ensureConversation(conversation.value, createConversation)
     conversation.value = current
+    draft.value = submittedDraft
     rememberConversation(current.conversationId)
+    if (stagedFile.value) {
+      uploading.value = true
+      const uploaded = await uploadInvestigationAttachment(current.conversationId, stagedFile.value)
+      uploadedFile.value = await waitForFile(uploaded.fileId)
+      if (uploadedFile.value.parseStatus !== 'PARSED') throw new ApiError(uploadedFile.value.failureCode ?? 'FILE_NOT_READY', 409, '附件尚未解析成功，请处理附件后再提交')
+      attachments = [uploaded.fileId]
+      stagedFile.value = null
+      uploading.value = false
+    }
     const accepted = await sendMessage(
       current.conversationId,
       composeMode.value === 'observation' ? '现场观察（用户报告，未经核实）：\n' + draft.value : draft.value,
       undefined,
       attachments,
-      selectedAssetId.value || null
+      selectedAssetId.value || null,
+      [],
+      current.version,
+      discussionQuotes.value.map(({discussionId, version}) => ({discussionId, version}))
     )
     draft.value = ''
+    writeDraft(submittedDraftKey, '')
+    discussionQuotes.value = []
     uploadedFile.value = null
     composeMode.value = 'free'
     enterNewRun(accepted)
   } catch (error) {
     errorText.value = describeError(error)
+    if (error instanceof ApiError && error.status === 409) {
+      try { await refresh(); errorText.value = '调查状态已变化，草稿已保留。请查看最新状态后重新确认提交。' }
+      catch { errorText.value = '提交未被接受，草稿已保留；最新状态读取失败，请点击刷新后再确认。' }
+    }
   } finally {
     busy.value = false
+    uploading.value = false
   }
 }
 
 async function investigateCurrent(): Promise<void> {
   const plan = investigationPlan.value
   if (!canInvestigate.value || !conversation.value || !plan || !composerText.value.trim()) return
-  const draftKey = investigationDraftKey.value
   busy.value = true
   errorText.value = ''
   try {
@@ -775,13 +837,20 @@ async function investigateCurrent(): Promise<void> {
       undefined,
       [],
       plan.selectedAssetId,
-      plan.contextRefs
+      plan.contextRefs,
+      conversation.value.version,
+      discussionQuotes.value.map(({discussionId, version}) => ({discussionId, version}))
     )
-    delete investigationDrafts.value[draftKey]
+    investigationDraft.value = ''
+    discussionQuotes.value = []
     composeMode.value = 'free'
     enterNewRun(accepted)
   } catch (error) {
     errorText.value = describeError(error)
+    if (error instanceof ApiError && error.status === 409) {
+      try { await refresh(); errorText.value = '调查状态已变化，草稿已保留。请查看最新状态后重新确认提交。' }
+      catch { errorText.value = '提交未被接受，草稿已保留；最新状态读取失败，请点击刷新后再确认。' }
+    }
   } finally {
     busy.value = false
   }
@@ -801,9 +870,12 @@ async function answerQuestion(): Promise<void> {
     const accepted = await replyToQuestion(
       conversation.value.conversationId,
       { runId: target.runId, pendingQuestionId: question.pendingQuestionId, questionVersion: question.questionVersion },
-      replyDraft.value
+      replyDraft.value,
+      undefined,
+      discussionQuotes.value.map(({discussionId, version}) => ({discussionId, version}))
     )
     replyDraft.value = ''
+    discussionQuotes.value = []
     replyDraftOwner.value = null
     preferredActiveRunId.value = accepted.runId
     enterNewRun(accepted)
@@ -824,14 +896,18 @@ async function answerQuestion(): Promise<void> {
 }
 
 async function cancelActive(): Promise<void> {
-  const current = activeRun.value
-  if (!current || !canCancel.value || cancelling.value) return
+  const current = pendingCancellation.value
+  if (!current || cancelling.value) return
+  if (!canCancel.value || activeRun.value?.runId !== current.runId) {
+    pendingCancellation.value = null; errorText.value = '活动轮或权限已变化，请重新核对取消目标'; return
+  }
   cancelling.value = true
   errorText.value = ''
   try {
     const updated = await cancelRunRequest(current.runId)
     upsertRun(updated)
     await refresh()
+    void refreshHistory()
   } catch (error) {
     // 终态竞争：409 后以持久状态为准回读，不假设取消成功
     if (error instanceof ApiError && error.status === 409) {
@@ -846,6 +922,7 @@ async function cancelActive(): Promise<void> {
     }
   } finally {
     cancelling.value = false
+    pendingCancellation.value = null
   }
 }
 
@@ -879,8 +956,7 @@ function focusFieldNote(): void {
 function focusInvestigation(): void {
   const plan = investigationPlan.value
   if (!canInvestigate.value || !plan) return
-  const key = investigationDraftKey.value
-  investigationDrafts.value[key] ??= buildInvestigationMessage(plan.claimText, plan.category as never)
+  if (!investigationDraft.value) investigationDraft.value = buildInvestigationMessage(plan.claimText, plan.category as never)
   composeMode.value = 'investigate'
   void nextTick(() => draftInput.value?.focus())
 }
@@ -924,7 +1000,6 @@ watch(
   () => waitingRun.value?.runId ?? null,
   (runId) => {
     if (replyDraftOwner.value !== runId) {
-      replyDraft.value = ''
       replyDraftOwner.value = runId
     }
   }
@@ -937,11 +1012,20 @@ watch(
 )
 
 const onKeydown = (event: KeyboardEvent): void => {
+  if (event.key === 'Escape') pendingCancellation.value = null
   if (event.key === 'Escape' && recordDrawerOpen.value && !openedReferenceId.value) recordDrawerOpen.value = false
 }
 const onLayoutChange = (event: MediaQueryListEvent): void => { smallScreen.value = event.matches }
 
+let collaborationSync: ReturnType<typeof setInterval> | undefined
+let syncingCollaboration = false
 onMounted(async () => {
+  collaborationSync = setInterval(async () => {
+    if (!conversation.value || busy.value || syncingCollaboration) return
+    syncingCollaboration = true
+    try { const version = conversation.value.version; await refresh(); if (conversation.value?.version !== version) void refreshHistory() } catch (e) { errorText.value = describeError(e) }
+    finally { syncingCollaboration = false }
+  }, 5000)
   narrowLayout.addEventListener('change', onLayoutChange)
   window.addEventListener('keydown', onKeydown)
   try {
@@ -968,6 +1052,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  clearInterval(collaborationSync)
   sceneGeneration += 1
   narrowLayout.removeEventListener('change', onLayoutChange)
   window.removeEventListener('keydown', onKeydown)
@@ -1008,7 +1093,7 @@ onUnmounted(() => {
       <span v-if="activeRunCount > 1" class="pro-status waiting" role="alert" data-testid="multiple-active">
         存在 {{ activeRunCount }} 个未决轮，请逐轮定位
       </span>
-        <button v-if="activeRun" class="secondary" :disabled="!canCancel || cancelling" @click="cancelActive">
+        <button v-if="activeRun" class="secondary" :disabled="!canCancel || cancelling" @click="requestCancellation">
           {{ cancelling ? '正在取消…' : '取消调查' }}
         </button>
         <button v-if="!busy && conversation" class="secondary" aria-label="刷新" title="刷新" @click="manualSync">
@@ -1026,20 +1111,12 @@ onUnmounted(() => {
 
     <div class="pro-shell">
       <!-- 桌面常驻「近期调查」；窄屏由顶部“查看调查记录”打开同一列表 -->
-      <RecentInvestigations v-if="!smallScreen" :items="historyItems" :current-id="sceneKey" :busy="busy || cancelling" :history-loaded="historyLoaded"
+      <RecentInvestigations :read-only="props.readOnly" v-if="!smallScreen" :items="historyItems" :current-id="sceneKey" :busy="busy || cancelling" :history-loaded="historyLoaded"
                             :history-error="historyError" :query="historyQuery" :status="historyStatus" :next-cursor="historyNextCursor"
                             :loading-more="historyLoadingMore"
                             @create="startNewConversation" @retry="refreshHistory" @select="openConversation"
                             @search="searchHistory" @filter="filterHistory" @load-more="loadMoreHistory">
-        <template #workspace>
-          <nav class="pro-side-nav" aria-label="工作空间">
-            <h2 class="side-label">工作空间</h2>
-            <a href="#pro-workspace" aria-current="page"><UiIcon name="target" /> 诊断工作台</a>
-            <button type="button" @click="openRecord('pro-assets')"><UiIcon name="layers" /> 设备事实</button>
-            <button type="button" @click="openRecord('pro-events')"><UiIcon name="activity" /> 调查过程</button>
-            <button type="button" @click="showReport"><UiIcon name="file" /> 报告与历史</button>
-          </nav>
-        </template>
+
       </RecentInvestigations>
 
       <section id="pro-workspace" class="pro-main">
@@ -1083,23 +1160,27 @@ onUnmounted(() => {
           <p v-if="waitingRun.pendingQuestion.requestedFields.length" class="hint">
             需要：{{ waitingRun.pendingQuestion.requestedFields.join('、') }}
           </p>
-          <textarea ref="questionField" v-model="replyDraft" rows="3" aria-label="补充信息" placeholder="按问题补充信息"
+          <textarea ref="questionField" v-model="replyDraft" :disabled="props.readOnly || busy" rows="3" aria-label="补充信息" placeholder="按问题补充信息"
                     @keydown.enter="submitOnEnter($event, answerQuestion)"></textarea>
           <button class="primary" :disabled="!permissions.canReply" @click="answerQuestion">提交补充信息</button>
         </section>
 
+        <section v-if="oldReplyDrafts.length" class="pro-card old-reply-drafts"><h3>未提交的旧追问草稿</h3><p>追问已被其他成员处理或已变化。以下内容仍是你的私人草稿，不会自动改成新分析。</p><article v-for="item in oldReplyDrafts" :key="item.key"><label>旧追问草稿<textarea :value="item.text" readonly rows="3" aria-label="未提交的旧追问草稿"></textarea></label><button type="button" @click="discardOldReply(item.key)">丢弃这份草稿</button></article></section>
+        <InvestigationCollaboration v-if="conversation" :key="conversation.conversationId" :conversation-id="conversation.conversationId" :read-only="!!props.readOnly" :member-names="props.memberNames" :refresh-token="uploadedFile?.fileId + (uploadedFile?.parseStatus ?? '')" @quote="q => { if (!discussionQuotes.some(item => item.discussionId === q.discussionId) && discussionQuotes.length < 10) discussionQuotes = [...discussionQuotes, q] }" />
+        <section v-if="discussionQuotes.length" aria-label="待提交讨论引用"><h3>待提交的讨论（未核实）</h3><article v-for="q in discussionQuotes" :key="q.discussionId"><strong>{{ q.authorName }}</strong><p>{{ q.content }}</p><button @click="discussionQuotes = discussionQuotes.filter(item => item.discussionId !== q.discussionId)">移除引用</button></article></section>
+        <p v-if="props.readOnly" role="status">当前为只读成员，可查看调查与报告。</p>
         <!-- 底部操作栏：深入调查 / 补充现场观察 / 追加调查要求 -->
         <footer id="pro-composer" class="pro-action-wrap pro-card">
           <form class="pro-action-bar composer" @submit.prevent="submit">
             <div class="pro-compose-head">
-              <h3>继续调查</h3>
+              <h3>继续调查</h3><span v-if="activeRun?.executionActorUserId" class="hint">本轮发起人：{{ activeRun.executionActorUserId === props.actorId ? '我' : props.memberNames?.[activeRun.executionActorUserId] ?? activeRun.executionActorUserId }}</span>
               <div class="pro-compose-modes" role="group" aria-label="输入模式">
-              <button type="button" :aria-pressed="composeMode === 'free'" @click="composeMode = 'free'">自由提问</button>
+              <button type="button" :disabled="props.readOnly" :aria-pressed="composeMode === 'free'" @click="composeMode = 'free'">自由提问</button>
             <button type="button" :aria-pressed="composeMode === 'investigate'" :disabled="!canInvestigate" :title="investigateTitle"
                     @click="focusInvestigation">
               <UiIcon name="target" /> 深入调查
             </button>
-            <button type="button" :aria-pressed="composeMode === 'observation'" title="以未核实的用户报告开启新一轮调查"
+            <button type="button" :disabled="props.readOnly" :aria-pressed="composeMode === 'observation'" title="以未核实的用户报告开启新一轮调查"
                     @click="focusFieldNote">
               <UiIcon name="chat" /> 补充现场观察
             </button>
@@ -1107,7 +1188,7 @@ onUnmounted(() => {
             </div>
             <div class="pro-action-input">
               <textarea ref="draftInput" v-model="composerText" rows="3" maxlength="7980"
-                        :disabled="busy || unsettledActive"
+                        :disabled="busy || props.readOnly"
                         aria-label="向 Agent 追加调查要求"
                         :placeholder="composeMode === 'observation' ? '描述新增观察、读数和获取时间…' : '记录设备现象，或补充你希望调查的问题…'"
                         @keydown.enter="submitOnEnter($event, submit)"></textarea>
@@ -1115,12 +1196,12 @@ onUnmounted(() => {
             <div class="pro-compose-actions">
             <label class="upload-label" :class="{ disabled: uploading || composeMode === 'investigate' }" title="添加 Markdown 资料">
               <input class="visually-hidden" type="file" aria-label="添加 Markdown 资料"
-                     accept=".md,text/markdown" :disabled="uploading || busy || composeMode === 'investigate'" @change="upload" />
+                     accept=".md,.txt,text/markdown,text/plain" :disabled="props.readOnly || uploading || busy || composeMode === 'investigate'" @change="upload" />
               <UiIcon name="attach" /> 添加附件
             </label>
             <label class="pro-asset-chip" title="关联设备（仅用于新的普通提交）">
               <UiIcon name="layers" />
-              <select id="asset" v-model="selectedAssetId" :disabled="busy || composeMode === 'investigate'" aria-label="关联设备">
+              <select id="asset" v-model="selectedAssetId" :disabled="props.readOnly || busy || composeMode === 'investigate'" aria-label="关联设备">
                 <option value="">不指定设备</option>
                 <option v-for="asset in assets" :key="asset" :value="asset">{{ asset }}</option>
               </select>
@@ -1136,6 +1217,7 @@ onUnmounted(() => {
             {{ sendHint }}
             <template v-if="resumingRunId && resumingRunId === activeRun?.runId">正在恢复调查…</template>
           </p>
+          <p v-if="stagedFile" class="pro-action-hint" role="status">待发送附件：{{ stagedFile.name }}（首次提交时上传，仅用于本调查）<button type="button" @click="stagedFile = null">移除待发送附件</button></p>
           <p v-if="uploading" class="pro-action-hint" role="status">正在上传并导入，请稍候。</p>
           <p v-if="uploadedFile?.parseStatus === 'PARSED'" class="pro-action-hint" role="status">
             <span class="attachment-chip"><UiIcon name="file" /> {{ uploadedFile.originalName }}（仅自由提问或观察时随附）</span>
@@ -1174,13 +1256,13 @@ onUnmounted(() => {
         <button class="secondary" :disabled="busy" aria-label="刷新记录" @click="manualSync">
           <UiIcon name="refresh" />
         </button>
-        <button v-if="!smallScreen" class="secondary" :disabled="busy" @click="startNewConversation"><UiIcon name="plus" /> 新调查</button>
+        <button v-if="!smallScreen" class="secondary" :disabled="props.readOnly || busy" @click="startNewConversation"><UiIcon name="plus" /> 新调查</button>
         <button class="icon-button" aria-label="关闭调查记录" @click="recordDrawerOpen = false">
           <UiIcon name="close" />
         </button>
       </div>
       <div class="pro-drawer-body">
-        <RecentInvestigations v-if="smallScreen" :items="historyItems" :current-id="sceneKey" :busy="busy || cancelling" :history-loaded="historyLoaded"
+        <RecentInvestigations :read-only="props.readOnly" v-if="smallScreen" :items="historyItems" :current-id="sceneKey" :busy="busy || cancelling" :history-loaded="historyLoaded"
                             :history-error="historyError" :query="historyQuery" :status="historyStatus" :next-cursor="historyNextCursor"
                             :loading-more="historyLoadingMore"
                             @create="startNewConversation" @retry="refreshHistory" @select="openConversation"
@@ -1213,10 +1295,10 @@ onUnmounted(() => {
           <h3>会话消息</h3>
           <div v-if="!messages.length" class="hint">暂无消息。</div>
           <article v-for="message in messages" :key="message.messageId" class="message">
-            <strong>{{ message.role === 'USER' ? '我（用户报告）' : 'DeviceTruth Agent' }}</strong>
+            <strong>{{ message.role === 'USER' ? (message.actorUserId === props.actorId ? '我' : message.actorUserId ? props.memberNames?.[message.actorUserId] ?? '成员 ' + message.actorUserId.slice(0, 8) : '历史作者未知') + '（用户报告，未核实）' : 'DeviceTruth Agent' }}</strong>
             <time :datetime="message.requestedAt">{{ shortTime.format(new Date(message.requestedAt)) }}</time>
             <p v-if="message.role === 'USER'" class="bubble">{{ message.content }}</p>
-            <p v-else>{{ message.content }}</p>
+            <p v-else>{{ message.content }}</p><blockquote v-for="quote in message.discussionQuotes" :key="quote.discussionId"><strong>{{ quote.authorName }}</strong> · {{ quote.createdAt }} · 未核实讨论<p>{{ quote.content }}</p></blockquote>
           </article>
 
           <h3 id="pro-events" tabindex="-1">运行时间线</h3>
@@ -1238,6 +1320,10 @@ onUnmounted(() => {
       </div>
     </aside>
 
+    <dialog ref="cancelDialog" v-if="pendingCancellation" class="cancel-confirm" aria-labelledby="cancel-dialog-title" @cancel.prevent="!cancelling && (pendingCancellation = null)">
+      <h2 id="cancel-dialog-title">确认取消此轮调查？</h2><p>目标 Run：{{ pendingCancellation.runId }}</p><p>取消后保留已有输入、来源与历史，不会自动提交草稿。</p>
+      <button id="confirm-run-cancel" type="button" :disabled="cancelling" @click="cancelActive">{{ cancelling ? '正在取消…' : '确认取消此轮' }}</button><button type="button" :disabled="cancelling" @click="pendingCancellation = null">保留运行</button>
+    </dialog>
     <!-- 证据模态抽屉：三种终态共用，挂载在状态分支之外 -->
     <EvidenceModal :open="openedReferenceId !== null && !!openedReference" :reference="openedReference"
                    :origin-key="openReferenceKey"
@@ -1246,3 +1332,8 @@ onUnmounted(() => {
 </template>
 
 <style src="./pro.css"></style>
+
+<style scoped>
+.old-reply-drafts { padding:18px; margin:14px 0; } .old-reply-drafts textarea { width:100%; font:inherit; }
+.cancel-confirm { position:fixed; z-index:1000; inset:30% max(16px,calc((100vw - 520px)/2)) auto; padding:24px; background:white; border:1px solid #cbd5e1; border-radius:12px;  overflow-wrap:anywhere; } .cancel-confirm::backdrop { background:#12203366; } .cancel-confirm button { margin:8px; padding:10px; font:inherit; }
+</style>

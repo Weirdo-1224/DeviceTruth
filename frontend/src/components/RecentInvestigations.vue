@@ -6,6 +6,7 @@ import { USER_REPORT_NOTE } from '../diagnosisViewModel'
 const props = defineProps<{
   items: { conversationId: string; title: string; assetId: string | null; runCount: number; time: string; badge: string }[]
   currentId: string
+  readOnly?: boolean
   busy: boolean
   historyLoaded: boolean
   historyError: string
@@ -28,7 +29,7 @@ watch(() => props.query, value => { searchText.value = value })
 
 <template>
   <aside class="pro-sidebar" aria-label="近期调查">
-    <button type="button" class="primary new-conversation" :disabled="busy" @click="emit('create')">
+    <button type="button" class="primary new-conversation" :disabled="busy || readOnly" @click="emit('create')">
       <UiIcon name="plus" /> 新调查
     </button>
     <h2 class="side-label">近期调查</h2>
@@ -51,7 +52,7 @@ watch(() => props.query, value => { searchText.value = value })
       读取失败：{{ historyError }}
       <button type="button" class="text-button" @click="emit('retry')">重试</button>
     </p>
-    <p v-else-if="!items.length" class="hint side-state">还没有历史会话。</p>
+    <p v-else-if="!items.length" class="hint side-state">{{ query || status ? '没有符合条件的调查。' : '还没有历史会话。' }}</p>
     <nav v-else class="history-list" aria-label="近期调查列表">
       <button v-for="item in items" :key="item.conversationId" type="button" class="conversation-link"
               :data-conversation-id="item.conversationId"

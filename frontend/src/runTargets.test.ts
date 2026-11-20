@@ -111,3 +111,16 @@ describe('查看轮与活动目标分离', () => {
     expect(pickActiveRun(runs, 'missing')?.runId).toBe('a')
   })
 })
+
+describe('团队按钮与处理函数共用角色许可',()=>{
+  const active = {runId:'active',status:'WAITING_FOR_USER',executionActorUserId:'initiator',pendingQuestion:{pendingQuestionId:'q',questionVersion:1}} as RunView
+  const input={viewed:active,activeRuns:[active],active,waiting:active,busy:false,hasDraft:true,hasReplyDraft:true,investigationEnabled:false}
+  it('只读即使存在草稿也不可发送、补答、取消',()=>{
+    expect(runPermissions({...input,readOnly:true,actorUserId:'initiator'})).toMatchObject({canSend:false,canReply:false,canCancel:false,canInvestigate:false})
+  })
+  it('普通同事可补答但不能取消他人轮，管理员可取消',()=>{
+    expect(runPermissions({...input,actorUserId:'colleague'})).toMatchObject({canReply:true,canCancel:false})
+    expect(runPermissions({...input,actorUserId:'colleague',administrator:true}).canCancel).toBe(true)
+    expect(runPermissions({...input,actorUserId:'initiator'}).canCancel).toBe(true)
+  })
+})

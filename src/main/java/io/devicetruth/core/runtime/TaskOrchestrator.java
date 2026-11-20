@@ -8,6 +8,7 @@ import io.devicetruth.core.capability.ToolContext;
 import io.devicetruth.core.contract.AgentResult;
 import io.devicetruth.core.contract.AgentResult.Reference;
 import io.devicetruth.core.contract.AgentTaskInput;
+import io.devicetruth.core.contract.AnswerReview.Review;
 import io.devicetruth.core.contract.Checks;
 import io.devicetruth.core.contract.Models.*;
 import io.devicetruth.core.decision.AnswerGuard;
@@ -319,17 +320,21 @@ public final class TaskOrchestrator {
         int rejections = checkpoint == null ? 0 : checkpoint.rejections();
         int noProgress = checkpoint == null ? 0 : checkpoint.noProgress();
         boolean finalizing = checkpoint != null && checkpoint.finalizing();
+        var reviewProgress = checkpoint == null ? AnswerReviewProgress.empty() : checkpoint.answerReview();
         while (true) {
             // 协作式取消/总时限：模型每步之间检查，终态由持久层 CAS 收口
             String abort = abortCode == null ? null : abortCode.get();
-            if (abort != null) return abortedOrLimited(input, messages, references, events, steps, abort, attemptedTools, toolResults, progress);
-            if (!finalizing && (noProgress >= 2 || steps >= input.maxSteps() - 1
+            boolean timedOutWithReview = "TOTAL_TIMEOUT".equals(abort) && reviewProgress.review() != null;
+            if (abort != null && !timedOutWithReview)
+                return abortedOrLimited(input, messages, references, events, steps, abort, attemptedTools, toolResults, progress);
+            int answerStepReserve = reasoner.supportsAnswerReview() ? 4 : 1;
+            if (!finalizing && (noProgress >= 2 || steps >= Math.max(0, input.maxSteps() - answerStepReserve)
                     || remainingMillis.getAsLong() <= finalReserveMillis)) {
                 finalizing = true;
                 event(events, "RUN_PHASE", input.runVersion(), Map.of("phase", "FINALIZING",
                         "reason", noProgress >= 2 ? "NO_PROGRESS" : "BUDGET_RESERVE"), progress);
             }
-            if (steps >= input.maxSteps()) {
+            if (steps >= input.maxSteps() && reviewProgress.phase() == AnswerReviewProgress.Phase.NONE) {
                 var limited = limitedOutcome(input, messages, references, events, steps, "BUDGET_EXHAUSTED",
                         attemptedTools, toolResults, progress);
                 if (limited != null) return limited;
@@ -349,10 +354,12 @@ public final class TaskOrchestrator {
             event(events, "REASON_INPUT", input.runVersion(),
                     Map.of("stepsUsed", steps, "tools", context.tools().size(), "references", context.references().size()),
                     progress);
-            reserveStep.accept(++steps);
+            boolean resumeAnswer = reviewProgress.phase() != AnswerReviewProgress.Phase.NONE;
+            if (!resumeAnswer) reserveStep.accept(++steps);
             ActionProposal action;
             try {
-                action = reasoner.propose(context, abortCode == null ? () -> null : abortCode, remainingMillis);
+                action = resumeAnswer ? reviewProgress.candidate()
+                        : reasoner.propose(context, abortCode == null ? () -> null : abortCode, remainingMillis);
                 if (action == null) throw new IllegalArgumentException("Reasoner returned null proposal");
             } catch (RuntimeException e) {
                 // 无调查记录时保留技术失败；已有调查时转为带原原因码的有限结果
@@ -372,7 +379,7 @@ public final class TaskOrchestrator {
                 event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt), progress);
             // 单次模型请求可能跨过总时限，不能将迟到的工具、追问或答案交给后续处理。
             abort = abortCode == null ? null : abortCode.get();
-            if (abort != null) {
+            if (abort != null && !("TOTAL_TIMEOUT".equals(abort) && resumeAnswer && reviewProgress.review() != null)) {
                 event(events, "RUN_LATE_RESPONSE", input.runVersion(), Map.of("code", abort), progress);
                 return abortedOrLimited(input, messages, references, events, steps, abort, attemptedTools, toolResults, progress);
             }
@@ -388,7 +395,7 @@ public final class TaskOrchestrator {
             var authorizedStep = skillStep.get();
             var authorizedContext = authorizedStep.toolContext();
             abort = abortCode == null ? null : abortCode.get();
-            if (abort != null) {
+            if (abort != null && !("TOTAL_TIMEOUT".equals(abort) && resumeAnswer && reviewProgress.review() != null)) {
                 event(events, "RUN_LATE_RESPONSE", input.runVersion(), Map.of("code", abort), progress);
                 return abortedOrLimited(input, messages, references, events, steps, abort, attemptedTools, toolResults, progress);
             }
@@ -487,7 +494,33 @@ public final class TaskOrchestrator {
             }
             if (action instanceof Answer draft) {
                 var accessedAssetIds = accessedAssets(toolResults);
-                var verdict = answerGuard.review(input, List.copyOf(references.values()), draft, false, accessedAssetIds);
+                AnswerGuard.Verdict verdict;
+                if (reasoner.supportsAnswerReview()) {
+                    int rejected = rejections;
+                    int stagnant = noProgress;
+                    boolean answerPhase = finalizing;
+                    String currentFeedback = feedback;
+                    var reviewed = reviewAgentAnswer(input, List.copyOf(references.values()), draft, reviewProgress,
+                            steps, reasoner, context, accessedAssetIds, abortCode == null ? () -> null : abortCode,
+                            remainingMillis, () -> skillStep.get(), reserveStep,
+                            (step, state) -> saveCheckpoint.accept(checkpoint(input, step, attemptedTools, toolResults,
+                                    currentFeedback, rejected, stagnant, answerPhase).withAnswerReview(state)), events, progress);
+                    steps = reviewed.steps();
+                    abort = abortCode == null ? null : abortCode.get();
+                    if (abort != null && !"TOTAL_TIMEOUT".equals(abort))
+                        return abortedOrLimited(input, messages, references, events, steps, abort, attemptedTools, toolResults, progress);
+                    verdict = reviewed.verdict();
+                    if (verdict == null || !verdict.allowed()) {
+                        String code = verdict == null ? reviewed.failure() : verdict.code();
+                        var limited = limitedOutcome(input, messages, references, events, steps, code,
+                                attemptedTools, toolResults, progress);
+                        if (limited != null) return limited;
+                        return new AgentRunOutcome(AgentStatus.FAILED, null, null, messages,
+                                List.copyOf(references.values()), events, steps, code);
+                    }
+                } else {
+                    verdict = answerGuard.review(input, List.copyOf(references.values()), draft, false, accessedAssetIds);
+                }
                 if (!verdict.allowed()) {
                     // 有界修正：只给模型一次重答机会，仍不合法就按失败结束，不伪装成答案
                     rejections++;
@@ -496,7 +529,9 @@ public final class TaskOrchestrator {
                         case "UNCONFIRMED_FINDING" -> "：不得声称已确诊或当前设备的确定性故障，只能给出带来源的可能原因";
                         default -> "";
                     };
-                    event(events, "ANSWER_REJECTED", input.runVersion(), Map.of("code", verdict.code()), progress);
+                    event(events, "ANSWER_REJECTED", input.runVersion(), Map.of("code", verdict.code(),
+                            "unitIds", verdict.issues().stream().map(AnswerGuard.Issue::unitId).distinct().toList(),
+                            "rules", verdict.issues().stream().map(AnswerGuard.Issue::rule).distinct().toList()), progress);
                     if (finalizing || rejections > 1) {
                         var limited = limitedOutcome(input, messages, references, events, steps, verdict.code(),
                                 attemptedTools, toolResults, progress);
@@ -511,13 +546,17 @@ public final class TaskOrchestrator {
                             feedback, rejections, noProgress, finalizing));
                     continue;
                 }
+                if (verdict.answer().review() != null && verdict.answer().review().limited())
+                    event(events, "RUN_DEGRADED", input.runVersion(), Map.of("code", "PARTIAL_ANSWER",
+                            "references", verdict.answer().references().size()), progress);
                 messages.add(new AgentTaskInput.Message("ASSISTANT", verdict.answer().summary()));
                 event(events, "ANSWER", input.runVersion(), Map.of(
                         "category", verdict.answer().category().name(),
                         "riskLevel", verdict.answer().riskLevel().name(),
                         "references", verdict.answer().references().size()), progress);
                 return new AgentRunOutcome(AgentStatus.COMPLETED, verdict.answer(), null, messages,
-                        List.copyOf(references.values()), events, steps, "ANSWERED");
+                        List.copyOf(references.values()), events, steps, "ANSWERED",
+                        verdict.answer().review() != null && verdict.answer().review().limited());
             }
             // legacy 动作或未知类型：不执行，计数后要求模型纠正
             rejections++;
@@ -537,6 +576,114 @@ public final class TaskOrchestrator {
             List<GeneralReasoner.ToolResult> results, String feedback,
             int rejections) {
         return checkpoint(input, steps, attemptedTools, results, feedback, rejections, 0, false);
+    }
+
+    private record ReviewedAnswer(AnswerGuard.Verdict verdict, int steps, String failure) {}
+
+    /** v2一次复核/一次修正；v1历史检查点保留原上限，每次先预占并持久化。 */
+    private ReviewedAnswer reviewAgentAnswer(AgentTaskInput input, List<Reference> references, Answer draft,
+            AnswerReviewProgress prior, int steps, GeneralReasoner reasoner, GeneralReasoner.Context context,
+            Set<String> assets, java.util.function.Supplier<String> abort,
+            java.util.function.LongSupplier remaining, Runnable authorize,
+            java.util.function.IntConsumer reserve,
+            java.util.function.BiConsumer<Integer, AnswerReviewProgress> save,
+            List<RunEvent> events, java.util.function.Consumer<RunEvent> progress) {
+        if (prior.phase() == AnswerReviewProgress.Phase.NONE && reasoner.deliveryReviewVersion() == 2) {
+            var hard = answerGuard.acceptDelivery(input, references, draft, assets);
+            if (!hard.allowed()) return new ReviewedAnswer(hard, steps, hard.code());
+        }
+        if (prior.protocolVersion() == 2 && prior.phase() == AnswerReviewProgress.Phase.REVIEWING && prior.reviews() > 0)
+            return new ReviewedAnswer(null, steps, "DELIVERY_REVIEW_INTERRUPTED");
+        var state = prior.phase() == AnswerReviewProgress.Phase.NONE
+                ? new AnswerReviewProgress(0, 0, AnswerReviewProgress.Phase.REVIEWING, draft, null, null, reasoner.deliveryReviewVersion()) : prior;
+        String failure = null;
+        // CORRECTING 表示调用可能已发出，崩溃后不重复该次修正，采用之前已复核的独立内容。
+        boolean interruptedCorrection = state.phase() == AnswerReviewProgress.Phase.CORRECTING;
+        if (!interruptedCorrection && state.phase() != AnswerReviewProgress.Phase.REVIEWED
+                && state.phase() != AnswerReviewProgress.Phase.FINISHED && state.reviews() < 2
+                && steps < input.maxSteps() && remaining.getAsLong() > 0) {
+            authorize.run();
+            String stop = abort.get();
+            if (stop != null) return new ReviewedAnswer(null, steps, stop);
+            reserve.accept(++steps);
+            state = new AnswerReviewProgress(state.reviews() + 1, state.corrections(),
+                    AnswerReviewProgress.Phase.REVIEWING, state.candidate(), state.reviewedDraft(), state.review(), state.protocolVersion());
+            save.accept(steps, state);
+            event(events, "RUN_PHASE", input.runVersion(), Map.of("phase", "REVIEWING", "reason", "ANSWER_EVIDENCE"), progress);
+            try {
+                var review = state.protocolVersion() == 2
+                        ? reasoner.reviewDelivery(input, references, state.candidate(), abort, remaining)
+                        : reasoner.reviewAnswer(input, references, state.candidate(), abort, remaining);
+                authorize.run();
+                stop = abort.get();
+                if ("TOTAL_TIMEOUT".equals(stop)) throw new ReasonerFailure(stop);
+                if (stop != null) return new ReviewedAnswer(null, steps, stop);
+                state = new AnswerReviewProgress(state.reviews(), state.corrections(),
+                        AnswerReviewProgress.Phase.REVIEWED, state.candidate(), state.candidate(), review, review.version());
+                save.accept(steps, state);
+            } catch (ReasonerFailure error) {
+                failure = error.code();
+            } finally {
+                for (var attempt : reasoner.drainAttempts())
+                    event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt), progress);
+            }
+        }
+        if (failure == null && !interruptedCorrection && state.review() != null && state.review().limited()
+                && state.phase() != AnswerReviewProgress.Phase.FINISHED
+                && state.corrections() == 0 && state.reviews() < 2 && steps + (state.protocolVersion() == 2 ? 1 : 2) <= input.maxSteps()
+                && remaining.getAsLong() > 0 && !"TOTAL_TIMEOUT".equals(abort.get())) {
+            authorize.run();
+            String stop = abort.get();
+            if (stop != null) return new ReviewedAnswer(null, steps, stop);
+            reserve.accept(++steps);
+            state = new AnswerReviewProgress(state.reviews(), 1, AnswerReviewProgress.Phase.CORRECTING,
+                    state.candidate(), state.reviewedDraft(), state.review(), state.protocolVersion());
+            save.accept(steps, state);
+            event(events, "RUN_PHASE", input.runVersion(), Map.of("phase", "CORRECTING", "reason", "UNIT_REVIEW"), progress);
+            try {
+                var corrected = reasoner.correctAnswer(context, state.candidate(), state.review(), abort, remaining);
+                authorize.run();
+                stop = abort.get();
+                if ("TOTAL_TIMEOUT".equals(stop)) throw new ReasonerFailure(stop);
+                if (stop != null) return new ReviewedAnswer(null, steps, stop);
+                state = new AnswerReviewProgress(state.reviews(), 1,
+                        state.protocolVersion() == 2 ? AnswerReviewProgress.Phase.REVIEWED : AnswerReviewProgress.Phase.REVIEWING,
+                        corrected, state.protocolVersion() == 2 ? corrected : state.reviewedDraft(), state.review(), state.protocolVersion());
+                save.accept(steps, state);
+            } catch (ReasonerFailure error) {
+                failure = error.code();
+            } finally {
+                for (var attempt : reasoner.drainAttempts())
+                    event(events, "MODEL_ATTEMPT", input.runVersion(), modelAttempt(reasoner, attempt), progress);
+            }
+            if (failure == null) {
+                // 再进入同一有界阶段，持久计数保证不会再次修正或突破两次复核。
+                return reviewAgentAnswer(input, references, state.candidate(), state, steps, reasoner, context,
+                        assets, abort, remaining, authorize, reserve, save, events, progress);
+            }
+        }
+        authorize.run();
+        String stop = abort.get();
+        if (stop != null && !"TOTAL_TIMEOUT".equals(stop)) return new ReviewedAnswer(null, steps, stop);
+        if (state.review() == null) return new ReviewedAnswer(null, steps,
+                failure == null ? "REVIEW_BUDGET_EXHAUSTED" : failure);
+        if (state.protocolVersion() == 2 && state.review().version() == 2 && state.review().limited()
+                && (failure != null || interruptedCorrection || state.corrections() == 0))
+            return new ReviewedAnswer(null, steps, failure == null ? "DELIVERY_REVIEW_UNRESOLVED" : failure);
+        var verdict = state.review().version() == 2
+                ? answerGuard.acceptDelivery(input, references, state.reviewedDraft(), assets)
+                : answerGuard.acceptReviewed(input, references, state.reviewedDraft(), state.review(), assets,
+                        failure != null || "TOTAL_TIMEOUT".equals(stop));
+        state = new AnswerReviewProgress(state.reviews(), state.corrections(), AnswerReviewProgress.Phase.FINISHED,
+                state.candidate(), state.reviewedDraft(), state.review(), state.protocolVersion());
+        save.accept(steps, state);
+        event(events, "ANSWER_REVIEWED", input.runVersion(), Map.of("reviews", state.reviews(),
+                "corrections", state.corrections(), "code", verdict.code(),
+                "unitIds", state.review().version() == 2 ? state.review().issues().stream().map(value -> value.location()).toList()
+                        : state.review().decisions().stream().map(value -> value.unitId()).toList(),
+                "rules", state.review().version() == 2 ? state.review().issues().stream().map(value -> value.code()).distinct().toList()
+                        : state.review().decisions().stream().map(value -> value.rule()).distinct().toList()), progress);
+        return new ReviewedAnswer(verdict, steps, failure);
     }
 
     private static AgentExecutionCheckpoint checkpoint(AgentTaskInput input, int steps, List<String> attemptedTools,

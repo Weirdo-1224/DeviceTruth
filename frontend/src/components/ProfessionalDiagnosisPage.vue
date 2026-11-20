@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import UiIcon from './UiIcon.vue'
+import AnswerReviewPanel from './AnswerReviewPanel.vue'
 import ClaimList from './ClaimList.vue'
 import ClaimDetail from './ClaimDetail.vue'
 import type { ClaimView, DiagnosisViewModel, ReferenceView } from '../diagnosisViewModel'
@@ -164,6 +165,7 @@ const claimGroups = computed(() => [
         </div>
         <p v-if="model.safetyNotice" class="safety" role="note">{{ model.safetyNotice }}</p>
         <p v-if="model.dataNatureNote" class="hint">{{ model.dataNatureNote }}</p>
+        <AnswerReviewPanel v-if="run?.result" :review="model.review" @open-reference="emit('openReference', $event)" />
 
         <div class="pro-round-fields">
           <div v-for="field in roundFields" :key="field.title" class="round-field">
@@ -219,10 +221,10 @@ const claimGroups = computed(() => [
       <h3 id="pro-evidence-context">证据与上下文 <span>{{ registeredReferences.length }} 条来源</span></h3>
       <p class="hint">来源可追溯，不等同于现场核验。</p>
       <section v-if="terminal" data-testid="registered-sources">
-      <p class="hint">{{ referencesNote }}</p>
+      <p v-if="referencesNote" class="hint">{{ referencesNote }}</p>
       <button v-if="referencesState === 'error' || referencesState === 'notFound'" type="button" class="text-button"
               @click="emit('retryReferences')">重试读取来源</button>
-      <p v-if="referencesState === 'empty'" class="hint">本轮没有已登记来源。</p>
+      <p v-if="referencesState === 'empty' && !referencesNote" class="hint">本轮没有已登记来源。</p>
       <template v-if="directReferences.length">
         <h5>该焦点直接引用（{{ directReferences.length }}）</h5>
         <button v-for="reference in directReferences" :key="reference.referenceId" type="button"

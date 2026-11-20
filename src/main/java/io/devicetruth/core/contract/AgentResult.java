@@ -11,7 +11,15 @@ import java.util.Set;
 public record AgentResult(String summary, Category category, List<Claim> claims,
                           List<String> suggestions, List<String> uncertainties, List<String> limitations,
                           List<Reference> references, RiskLevel riskLevel, String safetyDisposition,
-                          String dataNature, String subjectAssetId, String assetResolution) {
+                          String dataNature, String subjectAssetId, String assetResolution,
+                          AnswerReview.Review review) {
+    public AgentResult(String summary, Category category, List<Claim> claims,
+                       List<String> suggestions, List<String> uncertainties, List<String> limitations,
+                       List<Reference> references, RiskLevel riskLevel, String safetyDisposition,
+                       String dataNature, String subjectAssetId, String assetResolution) {
+        this(summary, category, claims, suggestions, uncertainties, limitations, references, riskLevel,
+                safetyDisposition, dataNature, subjectAssetId, assetResolution, null);
+    }
     public AgentResult(String summary, Category category, List<Claim> claims,
                        List<String> suggestions, List<String> uncertainties, List<String> limitations,
                        List<Reference> references, RiskLevel riskLevel, String safetyDisposition, String dataNature) {

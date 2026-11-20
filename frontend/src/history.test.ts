@@ -30,3 +30,9 @@ describe('会话发现投影', () => {
     expect(appendConversationPage(merged.items, { items: [], nextCursor: null }).nextCursor).toBeNull()
   })
 })
+
+it('空间切换后使用新列表，不拼接旧空间游标', () => {
+  const page = appendConversationPage([], {items:[summary({conversationId:'team-b',title:'B团队调查'})],nextCursor:null})
+  expect(page.items.map(item=>item.conversationId)).toEqual(['team-b'])
+  expect(page.nextCursor).toBeNull()
+})

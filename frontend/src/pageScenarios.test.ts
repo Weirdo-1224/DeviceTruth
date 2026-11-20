@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  loadCsrf,
   cancelRun,
   createConversation,
   listConversations,
@@ -318,4 +319,15 @@ describe('页面交互场景（协议样本）', () => {
     // 侧栏渲染只用列表与当前会话数据：没有逐条 readConversation
     expect(calls.filter((call) => call.url === `/api/conversations/${SCENE}`)).toHaveLength(1)
   })
+})
+beforeEach(async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => json({ headerName: 'X-CSRF-TOKEN', token: 'test-csrf' })))
+  await loadCsrf()
+})
+
+it('团队正式补充把讨论引用与知识引用分开，仍保留原单消息协议',async()=>{
+  const posted:Record<string,unknown>[]=[]
+  vi.stubGlobal('fetch',vi.fn(async(_path,init)=>{posted.push(JSON.parse(String(init.body)));return json(run('quoted','QUEUED'),202)}))
+  await sendMessage(SCENE,'明确引用后分析','key',[],null,['knowledge-ref'],4,[{discussionId:'discussion',version:1}])
+  expect(posted).toEqual([{schemaVersion:1,userMessage:'明确引用后分析',expectedConversationVersion:4,contextRefs:[{referenceId:'knowledge-ref'}],discussionQuotes:[{discussionId:'discussion',version:1}]}])
 })

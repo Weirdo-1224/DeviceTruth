@@ -4,6 +4,8 @@ import io.devicetruth.core.contract.AgentResult;
 import io.devicetruth.core.contract.AgentResult.Claim;
 import io.devicetruth.core.contract.AgentResult.Reference;
 import io.devicetruth.core.contract.AgentTaskInput;
+import io.devicetruth.core.contract.AnswerReview;
+import io.devicetruth.core.contract.AnswerReview.*;
 import io.devicetruth.core.reasoning.ActionProposal.Answer;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -69,7 +71,13 @@ public final class AnswerGuard {
             "已粘连", "已经短路", "已短路", "故障原因是", "原因就是", "确定是", "必然是", "一定是");
 
     /** 校验结论：拒绝时只带稳定错误码，不把草稿正文回传。 */
-    public record Verdict(boolean allowed, String code, AgentResult answer) {
+    public record Issue(String unitId, String rule) {}
+
+    public record Verdict(boolean allowed, String code, AgentResult answer, List<Issue> issues) {
+        public Verdict(boolean allowed, String code, AgentResult answer) {
+            this(allowed, code, answer, List.of());
+        }
+        public Verdict { issues = List.copyOf(issues); }
         public static Verdict rejected(String code) { return new Verdict(false, code, null); }
         public static Verdict accepted(AgentResult answer) { return new Verdict(true, "OK", answer); }
     }
@@ -89,6 +97,49 @@ public final class AnswerGuard {
 
     public Verdict review(AgentTaskInput input, List<Reference> collected, Answer draft, boolean fieldVerified,
                           Set<String> accessedAssetIds) {
+        return reviewInternal(input, collected, draft, fieldVerified, accessedAssetIds, false);
+    }
+
+    private Verdict reviewInternal(AgentTaskInput input, List<Reference> collected, Answer draft, boolean fieldVerified,
+                                   Set<String> accessedAssetIds, boolean semanticReviewed) {
+        return reviewInternal(input, collected, draft, fieldVerified, accessedAssetIds, semanticReviewed, false);
+    }
+
+    /** 新版交付只执行程序可确定的硬边界，语义问题由整体复核处理，不走关键词裁决。 */
+    public Verdict acceptDelivery(AgentTaskInput input, List<Reference> collected, Answer draft, Set<String> accessedAssetIds) {
+        // 存量CONFIRMED仍表示现场核验，不把新版免逐句引用解释为允许伪造核验状态。
+        for (var claim : draft.claims()) {
+            if (claim.certainty() == AgentResult.Certainty.CONFIRMED && collected.stream().noneMatch(reference ->
+                    claim.referenceIds().contains(reference.referenceId())
+                            && "FIELD_VERIFICATION".equals(reference.sourceType())
+                            && !"SIMULATED".equals(reference.dataNature())))
+                return Verdict.rejected("UNCONFIRMED_FINDING");
+        }
+        var plain = new Answer(draft.category(), draft.summary(), draft.claims(), draft.suggestions(),
+                draft.uncertainties(), draft.limitations(), draft.referenceIds(), draft.subjectAssetId());
+        var verdict = reviewInternal(input, collected, plain, false, accessedAssetIds, true, true);
+        if (!verdict.allowed()) return verdict;
+        var result = verdict.answer();
+        return Verdict.accepted(new AgentResult(result.summary(), result.category(), result.claims(), result.suggestions(),
+                result.uncertainties(), result.limitations(), result.references(), result.riskLevel(), result.safetyDisposition(),
+                result.dataNature(), result.subjectAssetId(), result.assetResolution(), new Review(2, List.of(), List.of(), false)));
+    }
+
+    private Verdict reviewInternal(AgentTaskInput input, List<Reference> collected, Answer draft, boolean fieldVerified,
+                                   Set<String> accessedAssetIds, boolean semanticReviewed, boolean delivery) {
+        if (draft.reviewVersion() != null) {
+            AnswerEvidenceResolver.Resolved resolved;
+            try {
+                resolved = new AnswerEvidenceResolver().resolve(input, collected, draft);
+            } catch (IllegalArgumentException failure) {
+                return Verdict.rejected("INVALID_REVIEW");
+            }
+            if (!resolved.hardDecisions().isEmpty()) {
+                var decisions = resolved.hardDecisions();
+                return new Verdict(false, decisions.getFirst().rule(), null,
+                        decisions.stream().map(decision -> new Issue(decision.unitId(), decision.rule())).toList());
+            }
+        }
         var known = new LinkedHashMap<String, Reference>();
         for (Reference reference : collected) known.put(reference.referenceId(), reference);
         // 1) 引用必须是本 run 已取回集合的子集：伪造或跨 run 的引用直接拒绝，草稿与 claim 都查
@@ -97,7 +148,7 @@ public final class AnswerGuard {
         for (Claim claim : draft.claims()) {
             for (String referenceId : claim.referenceIds())
                 if (!known.containsKey(referenceId)) return Verdict.rejected("INVALID_CITATION");
-            if (claim.certainty() != AgentResult.Certainty.POSSIBLE && claim.referenceIds().isEmpty())
+            if (!delivery && claim.certainty() != AgentResult.Certainty.POSSIBLE && claim.referenceIds().isEmpty())
                 return Verdict.rejected("INVALID_CITATION");
         }
         // 2) 类别必须是冻结枚举之一，未知类别不猜测
@@ -107,6 +158,9 @@ public final class AnswerGuard {
         } catch (IllegalArgumentException e) {
             return Verdict.rejected("INVALID_ANSWER");
         }
+        if (delivery && category == AgentResult.Category.CONFIRMED_FINDING
+                && input.selectedAssetId() == null && accessedAssetIds.isEmpty())
+            return Verdict.rejected("UNCONFIRMED_FINDING");
         // 3) 分类只影响展示：未知的直接相关性降为 UNKNOWN，非安全分类组合不否决整份答案
         List<Claim> claims = draft.claims().stream().map(claim ->
                 claim.kind() == Claim.Kind.UNKNOWN && claim.relevance() == Claim.Relevance.DIRECT
@@ -129,26 +183,29 @@ public final class AnswerGuard {
             assetResolution = "AMBIGUOUS";
         }
         // 5) 危险执行建议：逐句逐子句判断，含动作的句子只允许禁止性提示或资质边界声明
-        if (recommendsControlAction(draft.summary()) || claims.stream().anyMatch(claim -> recommendsControlAction(claim.text()))
+        if (!delivery && (recommendsControlAction(draft.summary()) || claims.stream().anyMatch(claim -> recommendsControlAction(claim.text()))
                 || draft.suggestions().stream().anyMatch(AnswerGuard::recommendsControlAction)
                 || draft.uncertainties().stream().anyMatch(AnswerGuard::recommendsControlAction)
-                || draft.limitations().stream().anyMatch(AnswerGuard::recommendsControlAction))
+                || draft.limitations().stream().anyMatch(AnswerGuard::recommendsControlAction)))
             return Verdict.rejected("UNSAFE_ANSWER");
         // 6) 没有服务器判定的现场核验时，确诊路径一律关闭：CONFIRMED 枚举、完成时态确诊表述、
         //    以及针对当前设备的确定性故障断言都拒绝，模型只能给出带引用的可能原因
-        if (!fieldVerified && (category == AgentResult.Category.CONFIRMED_FINDING
-                || claims.stream().anyMatch(claim -> claim.certainty() == AgentResult.Certainty.CONFIRMED)
-                || assertsConfirmedFinding(draft.summary())
-                || claims.stream().anyMatch(claim -> assertsConfirmedFinding(claim.text()))
-                || draft.suggestions().stream().anyMatch(AnswerGuard::assertsConfirmedFinding)
-                || draft.uncertainties().stream().anyMatch(AnswerGuard::assertsConfirmedFinding)
-                || draft.limitations().stream().anyMatch(AnswerGuard::assertsConfirmedFinding)
-                || assertsDeviceDefect(draft.summary())
-                || claims.stream().anyMatch(claim -> assertsDeviceDefect(claim.text()))
-                || draft.suggestions().stream().anyMatch(AnswerGuard::assertsDeviceDefect)
-                || draft.uncertainties().stream().anyMatch(AnswerGuard::assertsDeviceDefect)
-                || draft.limitations().stream().anyMatch(AnswerGuard::assertsDeviceDefect)))
-            return Verdict.rejected("UNCONFIRMED_FINDING");
+        if (!fieldVerified && !semanticReviewed) {
+            var issues = new ArrayList<Issue>();
+            if (category == AgentResult.Category.CONFIRMED_FINDING)
+                issues.add(new Issue("category", "LEGACY_CONFIRMED_CATEGORY"));
+            locateFinding(issues, "summary", draft.summary());
+            for (int index = 0; index < claims.size(); index++) {
+                var claim = claims.get(index);
+                if (claim.certainty() == AgentResult.Certainty.CONFIRMED)
+                    issues.add(new Issue("claims." + index, "LEGACY_CONFIRMED_CERTAINTY"));
+                locateFinding(issues, "claims." + index, claim.text());
+            }
+            locateFindings(issues, "suggestions", draft.suggestions());
+            locateFindings(issues, "uncertainties", draft.uncertainties());
+            locateFindings(issues, "limitations", draft.limitations());
+            if (!issues.isEmpty()) return new Verdict(false, "UNCONFIRMED_FINDING", null, issues);
+        }
         String text = draft.summary() + " " + claims.stream().map(Claim::text).toList() + " "
                 + String.join(" ", draft.suggestions());
         // 7) 风险由服务器判定：模型自报的“低风险”不作数
@@ -172,6 +229,101 @@ public final class AnswerGuard {
         return Verdict.accepted(new AgentResult(draft.summary(), category, claims, draft.suggestions(),
                 draft.uncertainties(), limitations, used, risk, disposition, dataNature,
                 subjectAssetId, assetResolution));
+    }
+
+    /** 只供宿主已取得的批量复核调用；重新校验证据，不采信草案附带的复核字段。 */
+    public Verdict acceptReviewed(AgentTaskInput input, List<Reference> collected, Answer draft,
+                                  Review review, Set<String> accessedAssetIds) {
+        return acceptReviewed(input, collected, draft, review, accessedAssetIds, false);
+    }
+
+    public Verdict acceptReviewed(AgentTaskInput input, List<Reference> collected, Answer draft,
+                                  Review review, Set<String> accessedAssetIds, boolean forceLimited) {
+        var candidate = new Answer(draft.category(), draft.summary(), draft.claims(), draft.suggestions(),
+                draft.uncertainties(), draft.limitations(), draft.referenceIds(), draft.subjectAssetId(), 1, review.units());
+        AnswerEvidenceResolver.Resolved resolved;
+        try {
+            resolved = new AnswerEvidenceResolver().resolve(input, collected, candidate);
+        } catch (IllegalArgumentException failure) {
+            return Verdict.rejected("INVALID_REVIEW");
+        }
+        review = new Review(review.version(), resolved.units(), review.decisions(), review.limited());
+        var decisions = new LinkedHashMap<String, Decision>();
+        for (var decision : review.decisions()) decisions.put(decision.unitId(), decision);
+        for (var decision : resolved.hardDecisions()) decisions.put(decision.unitId(), decision);
+        for (var unit : review.units()) {
+            var decision = decisions.get(unit.unitId());
+            if (decision.disposition() == Disposition.RETAINED && decision.sourceIds().isEmpty())
+                decisions.put(unit.unitId(), new Decision(unit.unitId(), Disposition.PENDING, "EVIDENCE_REQUIRED", List.of()));
+            if (decisions.get(unit.unitId()).disposition() == Disposition.RETAINED
+                    && recommendsControlAction(unit.text()))
+                decisions.put(unit.unitId(), new Decision(unit.unitId(), Disposition.PENDING, "PROCEDURE_REQUIRED", List.of()));
+        }
+        var closed = AnswerEvidenceResolver.closeDependencies(review.units(), List.copyOf(decisions.values()));
+        var retained = closed.stream().filter(value -> value.disposition() == Disposition.RETAINED)
+                .map(Decision::unitId).collect(java.util.stream.Collectors.toSet());
+        var units = review.units().stream().filter(unit -> retained.contains(unit.unitId())).toList();
+        if (units.isEmpty()) return Verdict.rejected(closed.stream().anyMatch(value -> "INVALID_CITATION".equals(value.rule()))
+                ? "INVALID_CITATION" : "NO_SUPPORTED_CONTENT");
+        var known = new LinkedHashMap<String, Reference>();
+        for (var ref : collected) known.put(ref.referenceId(), ref);
+        var usedIds = new LinkedHashSet<String>();
+        for (var unit : units) for (var support : unit.supports())
+            if (known.containsKey(support.sourceId())) usedIds.add(support.sourceId());
+        var claims = new ArrayList<Claim>();
+        for (var unit : units) if (unit.position() == Position.CLAIM) {
+            var old = draft.claims().get(unit.index());
+            var ids = unit.supports().stream().map(Support::sourceId).filter(known::containsKey).distinct().toList();
+            claims.add(new Claim(unit.text(), ids, ids.isEmpty() ? AgentResult.Certainty.POSSIBLE
+                    : unit.nature() == Nature.INDEPENDENT_VERIFICATION ? AgentResult.Certainty.CONFIRMED
+                    : AgentResult.Certainty.SUPPORTED, old.kind(), old.relevance()));
+        }
+        String summary = units.stream().filter(unit -> unit.position() == Position.SUMMARY)
+                .map(Unit::text).findFirst().orElseGet(() -> units.stream()
+                        .filter(unit -> unit.position() == Position.CLAIM).map(Unit::text)
+                        .collect(java.util.stream.Collectors.joining("；")));
+        if (summary.isBlank()) summary = "本次仅保留有依据的资料说明与建议，其他内容待确认。";
+        if (summary.codePointCount(0, summary.length()) > 8000)
+            summary = "已保留以下有依据的判断，其他内容待确认。";
+        boolean limited = forceLimited || review.limited()
+                || closed.stream().anyMatch(value -> value.disposition() != Disposition.RETAINED);
+        var uncertainties = new ArrayList<>(texts(units, Position.UNCERTAINTY));
+        if (limited) uncertainties.add("部分内容因依据或前提不足未采纳，请查看逐项复核状态。");
+        String category = draft.category();
+        if ("CONFIRMED_FINDING".equalsIgnoreCase(category) && units.stream()
+                .noneMatch(unit -> unit.nature() == Nature.INDEPENDENT_VERIFICATION))
+            category = units.stream().anyMatch(unit -> unit.nature() == Nature.DEVICE_INFERENCE)
+                    ? "POSSIBLE_CAUSES" : "KNOWLEDGE";
+        var projected = new Answer(category, summary, claims, texts(units, Position.SUGGESTION),
+                uncertainties, texts(units, Position.LIMITATION), List.copyOf(usedIds), draft.subjectAssetId());
+        var verdict = reviewInternal(input, collected, projected, false, accessedAssetIds, true);
+        if (!verdict.allowed()) return verdict;
+        // 被移除的原文不进入公开结果；只保留定位、类型和处置，原草案只留内部检查点。
+        var safeUnits = review.units().stream().map(unit -> retained.contains(unit.unitId()) ? unit
+                : new Unit(unit.unitId(), unit.position(), unit.index(), "该项内容未采纳", unit.nature(),
+                        null, null, List.of(), unit.dependsOn())).toList();
+        var safeDecisions = closed.stream().map(decision -> retained.contains(decision.unitId()) ? decision
+                : new Decision(decision.unitId(), decision.disposition(), decision.rule(), List.of())).toList();
+        var result = verdict.answer();
+        return Verdict.accepted(new AgentResult(result.summary(), result.category(), result.claims(), result.suggestions(),
+                result.uncertainties(), result.limitations(), result.references(), result.riskLevel(), result.safetyDisposition(),
+                result.dataNature(), result.subjectAssetId(), result.assetResolution(),
+                new Review(1, safeUnits, safeDecisions, limited)));
+    }
+
+    private static List<String> texts(List<Unit> units, Position position) {
+        return units.stream().filter(unit -> unit.position() == position)
+                .sorted(java.util.Comparator.comparingInt(Unit::index)).map(Unit::text).toList();
+    }
+
+    private static void locateFindings(List<Issue> issues, String field, List<String> values) {
+        for (int index = 0; index < values.size(); index++)
+            locateFinding(issues, field + "." + index, values.get(index));
+    }
+
+    private static void locateFinding(List<Issue> issues, String unitId, String text) {
+        if (assertsConfirmedFinding(text)) issues.add(new Issue(unitId, "LEGACY_CONFIRMATION_WORDING"));
+        if (assertsDeviceDefect(text)) issues.add(new Issue(unitId, "LEGACY_DEVICE_DEFECT_WORDING"));
     }
 
     /** 引用并集：先草稿声明、后断言声明，按出现顺序去重，只保留本 run 已取回的对象。 */

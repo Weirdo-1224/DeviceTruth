@@ -3,6 +3,7 @@
  * 纯函数：无 fetch、无模型调用、无数据库写入；不生成概率/评分，不推导已执行检查，
  * 不把建议/不确定点/限制关联到单条判断；AUTHORIZED 只说明来源已授权，不代表现场已核验。
  */
+import { answerReviewView, type AnswerReviewView } from './answerReviewView'
 import type {
   AgentResult,
   AnswerCategory,
@@ -104,6 +105,7 @@ export interface RunEventView {
 }
 
 export interface DiagnosisViewModel {
+  review: AnswerReviewView
   runId: string | null
   status: RunStatus | null
   failureCode: string | null
@@ -277,6 +279,7 @@ export function buildDiagnosisViewModel(input: DiagnosisViewModelInput): Diagnos
   const otherClaims = claims.filter(claim => !directCauses.includes(claim) && !contextSet.has(claim))
   return {
     runId: run?.runId ?? null,
+    review: answerReviewView(result?.review, [...availableReferences.keys()]),
     status: run?.status ?? null,
     failureCode: run?.failureCode ?? null,
     taskQuestion: input.goalMessage?.content ?? null,

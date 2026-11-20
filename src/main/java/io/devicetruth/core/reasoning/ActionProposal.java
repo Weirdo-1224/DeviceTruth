@@ -116,7 +116,14 @@ public sealed interface ActionProposal {
     /** 提交答案草稿：引用必须指向本 run 已取回集合，风险等级由服务器重新判定。 */
     record Answer(String category, String summary, List<AgentResult.Claim> claims, List<String> suggestions,
                   List<String> uncertainties, List<String> limitations, List<String> referenceIds,
-                  String subjectAssetId) implements ActionProposal {
+                  String subjectAssetId, Integer reviewVersion,
+                  List<io.devicetruth.core.contract.AnswerReview.Unit> units) implements ActionProposal {
+        public Answer(String category, String summary, List<AgentResult.Claim> claims, List<String> suggestions,
+                      List<String> uncertainties, List<String> limitations, List<String> referenceIds,
+                      String subjectAssetId) {
+            this(category, summary, claims, suggestions, uncertainties, limitations, referenceIds, subjectAssetId,
+                    null, List.of());
+        }
         public Answer(String category, String summary, List<AgentResult.Claim> claims, List<String> suggestions,
                       List<String> uncertainties, List<String> limitations, List<String> referenceIds) {
             this(category, summary, claims, suggestions, uncertainties, limitations, referenceIds, null);
@@ -130,6 +137,10 @@ public sealed interface ActionProposal {
             limitations = Checks.list(limitations);
             referenceIds = Checks.list(referenceIds);
             if (subjectAssetId != null) Checks.id(subjectAssetId, "subjectAssetId");
+            units = Checks.list(units);
+            if (reviewVersion != null && reviewVersion != 1 || reviewVersion == null && !units.isEmpty())
+                throw new IllegalArgumentException("Invalid review version");
+            io.devicetruth.core.contract.AnswerReview.validateUnits(units);
         }
     }
 }

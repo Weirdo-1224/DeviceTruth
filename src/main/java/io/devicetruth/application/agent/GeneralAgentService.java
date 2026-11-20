@@ -295,18 +295,24 @@ public final class GeneralAgentService {
         if (value == null || value.isBlank()) return null;
         try {
             String decoded = new String(java.util.Base64.getUrlDecoder().decode(value), java.nio.charset.StandardCharsets.UTF_8);
-            String[] parts = decoded.split(":", 3);
+            String[] parts = decoded.split(":", -1);
             int waiting = Integer.parseInt(parts[0]);
-            if (parts.length != 3 || waiting < 0 || waiting > 1) throw new IllegalArgumentException();
-            return new ConversationRepository.SummaryCursor(waiting,
-                    Instant.ofEpochMilli(Long.parseLong(parts[1])), UUID.fromString(parts[2]));
+            if ((parts.length != 3 && parts.length != 4) || waiting < 0 || waiting > 1) throw new IllegalArgumentException();
+            // 新游标保留 PG 微秒；旧毫秒游标仍可读取，不改变已有调用入口。
+            Instant updatedAt;
+            if (parts.length == 4) {
+                int nanos = Integer.parseInt(parts[2]);
+                if (nanos < 0 || nanos > 999999999) throw new IllegalArgumentException();
+                updatedAt = Instant.ofEpochSecond(Long.parseLong(parts[1]), nanos);
+            } else updatedAt = Instant.ofEpochMilli(Long.parseLong(parts[1]));
+            return new ConversationRepository.SummaryCursor(waiting, updatedAt, UUID.fromString(parts[parts.length - 1]));
         } catch (RuntimeException e) {
             throw new RequestFailure("INVALID_CURSOR", 400);
         }
     }
 
     private static String encodeCursor(ConversationRepository.SummaryCursor cursor) {
-        String value = cursor.waitingPriority() + ":" + cursor.updatedAt().toEpochMilli() + ":" + cursor.conversationId();
+        String value = cursor.waitingPriority() + ":" + cursor.updatedAt().getEpochSecond() + ":" + cursor.updatedAt().getNano() + ":" + cursor.conversationId();
         return java.util.Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
@@ -780,6 +786,8 @@ public final class GeneralAgentService {
                 appendProgress(run, "RUN_MODEL", modelEventPayload(event.data()));
             if ("RUN_PHASE".equals(event.type()) || "RUN_DEGRADED".equals(event.type()))
                 appendProgress(run, event.type(), event.data());
+            if ("ANSWER_REJECTED".equals(event.type()) || "ANSWER_REVIEWED".equals(event.type()))
+                appendProgress(run, "RUN_ANSWER_REVIEW", event.data());
         };
     }
 
