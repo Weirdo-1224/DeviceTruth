@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appendConversationPage, conversationBadge } from './history'
+import { appendConversationPage, conversationBadge, investigationTabs } from './history'
 import type { ConversationSummary } from './api'
 
 function summary(overrides: Partial<ConversationSummary> = {}): ConversationSummary {
@@ -9,6 +9,13 @@ function summary(overrides: Partial<ConversationSummary> = {}): ConversationSumm
     updatedAt: '2026-11-18T00:00:00Z', ...overrides
   }
 }
+
+describe('原型调查标签', () => {
+  it('团队保留四类独立内容，个人空间不显示团队讨论', () => {
+    expect(investigationTabs(true).map(tab => tab.label)).toEqual(['调查概览', '团队讨论', '分析记录', '调查过程'])
+    expect(investigationTabs(false).map(tab => tab.id)).toEqual(['overview', 'records', 'process'])
+  })
+})
 
 describe('会话发现投影', () => {
   it('非当前会话也按服务端计数显示待答、进行中及终态', () => {

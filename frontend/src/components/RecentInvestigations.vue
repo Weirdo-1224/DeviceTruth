@@ -14,6 +14,7 @@ const props = defineProps<{
   status: string
   nextCursor: string | null
   loadingMore: boolean
+  showCreate?: boolean
 }>()
 const emit = defineEmits<{
   create: []
@@ -29,7 +30,7 @@ watch(() => props.query, value => { searchText.value = value })
 
 <template>
   <aside class="pro-sidebar" aria-label="近期调查">
-    <button type="button" class="primary new-conversation" :disabled="busy || readOnly" @click="emit('create')">
+    <button v-if="showCreate !== false" type="button" class="primary new-conversation" :disabled="busy || readOnly" @click="emit('create')">
       <UiIcon name="plus" /> 新调查
     </button>
     <h2 class="side-label">近期调查</h2>

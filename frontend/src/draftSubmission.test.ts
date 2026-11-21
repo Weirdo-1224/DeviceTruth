@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ensureConversation } from './draftSubmission'
+import { ensureConversation, initialMessage } from './draftSubmission'
 import { createConversation, loadCsrf, sendMessage, setAccessContext, type ConversationView } from './api'
 
 const created: ConversationView = {
@@ -8,6 +8,10 @@ const created: ConversationView = {
 }
 
 describe('新调查首次提交', () => {
+  it('标题与首条问题一起提交，空标题不添加额外行', () => {
+    expect(initialMessage(' 座舱空调不转 ', '送风没有反应')).toBe('座舱空调不转\n送风没有反应')
+    expect(initialMessage(' ', '送风没有反应')).toBe('送风没有反应')
+  })
   it('空草稿不创建会话，首次提交才创建一次', async () => {
     const factory = vi.fn(async () => created)
     expect(factory).not.toHaveBeenCalled()

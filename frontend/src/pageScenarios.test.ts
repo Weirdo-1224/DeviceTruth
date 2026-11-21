@@ -331,3 +331,10 @@ it('团队正式补充把讨论引用与知识引用分开，仍保留原单消�
   await sendMessage(SCENE,'明确引用后分析','key',[],null,['knowledge-ref'],4,[{discussionId:'discussion',version:1}])
   expect(posted).toEqual([{schemaVersion:1,userMessage:'明确引用后分析',expectedConversationVersion:4,contextRefs:[{referenceId:'knowledge-ref'}],discussionQuotes:[{discussionId:'discussion',version:1}]}])
 })
+
+it('讨论引用补答仍恢复原 Run，不被页面标签重组为普通新 Run',async()=>{
+  const posted:Record<string,unknown>[]=[]
+  vi.stubGlobal('fetch',vi.fn(async(_path,init)=>{posted.push(JSON.parse(String(init.body)));return json(run('same-run','RUNNING'),202)}))
+  await replyToQuestion(SCENE,{runId:'same-run',pendingQuestionId:'question',questionVersion:3},'补充现场情况','reply-key',[{discussionId:'discussion',version:1}])
+  expect(posted).toEqual([{schemaVersion:1,userMessage:'补充现场情况',discussionQuotes:[{discussionId:'discussion',version:1}],replyTo:{runId:'same-run',pendingQuestionId:'question',questionVersion:3}}])
+})

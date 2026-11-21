@@ -19,18 +19,24 @@ import {
   uploadInvestigationAttachment,
   waitForFile,
   waitForRun,
+  type AccountView,
   type ConversationSummary,
   type ConversationView,
   type FileView,
   type MessageView,
   type RunEvent,
   type RunView,
-  type SkillSelection
+  type SkillSelection,
+  type WorkspaceView
 } from './api'
 import InvestigationCollaboration from './components/InvestigationCollaboration.vue'
 import RunTimeline from './components/RunTimeline.vue'
 import DiagnosisReport from './components/DiagnosisReport.vue'
-import RecentInvestigations from './components/RecentInvestigations.vue'
+import WorkspaceShell, { type WorkspacePage } from './components/WorkspaceShell.vue'
+import DeviceArchivePage from './components/DeviceArchivePage.vue'
+import KnowledgeLibraryPage from './components/KnowledgeLibraryPage.vue'
+import TeamMembersPage from './components/TeamMembersPage.vue'
+import CreateTeamPage from './components/CreateTeamPage.vue'
 import ProfessionalDiagnosisPage from './components/ProfessionalDiagnosisPage.vue'
 import EvidenceComparison from './components/EvidenceComparison.vue'
 import EvidenceModal from './components/EvidenceModal.vue'
@@ -39,12 +45,31 @@ import { createRunTimelineController } from './timeline'
 import { buildInvestigationMessage, buildDiagnosisViewModel, toReferenceView, type ReferenceView } from './diagnosisViewModel'
 import { resolveRunTargets, runPermissions, UNSETTLED_STATUSES } from './runTargets'
 import { createScopedLoader, mergeRunList, mergeRunView, scopedRunKey } from './scope'
-import { appendConversationPage, conversationBadge } from './history'
-import { ensureConversation } from './draftSubmission'
+import { appendConversationPage, conversationBadge, investigationTabs } from './history'
+import { ensureConversation, initialMessage } from './draftSubmission'
 import { draftKey, usePrivateDraft, writeDraft, listDrafts } from './privateDrafts'
 import { createScheduledReads, TERMINAL_EVENT_STATUSES } from './scheduler'
 
-const props = defineProps<{ readOnly?: boolean; actorId?: string; administrator?: boolean; memberNames?: Record<string, string> }>()
+const props = defineProps<{
+  readOnly?: boolean
+  actorId?: string
+  administrator?: boolean
+  memberNames?: Record<string, string>
+  account: AccountView
+  space: WorkspaceView
+  spaces: WorkspaceView[]
+  globalError?: string
+  notice?: string
+  invitationToken?: string | null
+}>()
+const emit = defineEmits<{
+  selectSpace: [workspaceId: string]
+  logout: []
+  acceptInvitation: []
+  members: [names: Record<string, string>]
+  changed: []
+  workspaceCreated: [space: WorkspaceView]
+}>()
 const STORAGE_KEY = 'devicetruth.conversation-id:' + accessContextKey()
 
 const conversation = ref<ConversationView | null>(null)
@@ -80,15 +105,6 @@ const activeRunCount = computed(() => targets.value.activeRuns.length)
 const viewedIndex = computed(() => runs.value.findIndex((item) => item.runId === run.value?.runId))
 const viewedIsActive = computed(() => activeRun.value?.runId === run.value?.runId)
 const unsettledActive = computed(() => targets.value.activeRuns.some((item) => UNSETTLED_STATUSES.includes(item.status)))
-/** 活动目标状态徽章：只有真实非终态轮才显示为“活动”。 */
-const viewedStatusClass = computed(() => {
-  const status = run.value?.status ?? ''
-  if (UNSETTLED_STATUSES.includes(status)) return 'active'
-  if (status === 'WAITING_FOR_USER') return 'waiting'
-  if (status === 'FAILED') return 'failed'
-  if (status === 'CANCELLED') return 'cancelled'
-  return ''
-})
 const activeLabel = computed(() => {
   const current = activeRun.value
   if (!current) return ''
@@ -96,6 +112,7 @@ const activeLabel = computed(() => {
 })
 
 const draft = usePrivateDraft(computed(() => draftKey(accessContextKey(), conversation.value?.conversationId ?? null)))
+const newTitle = usePrivateDraft(computed(() => draftKey(accessContextKey(), conversation.value?.conversationId ?? null, 'title')))
 const composeMode = ref<'free' | 'investigate' | 'observation'>('free')
 const replyDraftStorageKey = computed(() => draftKey(accessContextKey(), conversation.value?.conversationId ?? null, 'reply:' + (waitingRun.value?.runId ?? 'none') + ':' + (waitingRun.value?.pendingQuestion?.pendingQuestionId ?? '') + ':' + (waitingRun.value?.pendingQuestion?.questionVersion ?? '')))
 const replyDraft = usePrivateDraft(replyDraftStorageKey)
@@ -130,10 +147,13 @@ function requestCancellation(): void {
   pendingCancellation.value = activeRun.value
   void nextTick(() => document.getElementById('confirm-run-cancel')?.focus())
 }
-const recordDrawerOpen = ref(false)
 const reportOpen = ref(false)
+const currentPage = ref<WorkspacePage>('investigation')
+const activeTab = ref<'overview' | 'discussion' | 'records' | 'process'>('overview')
+const tabs = computed(() => investigationTabs(props.space.kind === 'TEAM'))
+const materialDrawer = ref<'sources' | 'attachments' | 'asset' | null>(null)
 let reportReturnFocus: HTMLElement | null = null
-const narrowLayout = window.matchMedia('(max-width: 1100px)')
+const narrowLayout = window.matchMedia('(max-width: 600px)')
 const smallScreen = ref(narrowLayout.matches)
 /** 深入调查载荷：由专业页按所看轮选中判断给出（选择动作零提交）。 */
 const investigationPlan = ref<{ claimText: string; category: string; contextRefs: string[]; selectedAssetId: string | null } | null>(null)
@@ -148,7 +168,6 @@ const statusLabels: Record<string, string> = {
   FAILED: '执行失败',
   CANCELLED: '已取消'
 }
-const shortTime = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
 const dateTime = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
 function formatTime(value: string): string {
   const parsed = new Date(value)
@@ -555,7 +574,7 @@ const permissions = computed(() => runPermissions({
 }))
 const canSend = computed(() => composeMode.value === 'investigate'
   ? permissions.value.canInvestigate && composerText.value.trim().length > 0
-  : permissions.value.canSend && !uploading.value)
+  : permissions.value.canSend && !uploading.value && (!!conversation.value || !!newTitle.value.trim()))
 const canInvestigate = computed(() => permissions.value.canInvestigate)
 const canCancel = computed(() => permissions.value.canCancel)
 
@@ -583,7 +602,6 @@ function describeError(error: unknown): string {
 async function openConversation(conversationId: string): Promise<void> {
   if (busy.value || cancelling.value) return
   if (!conversationId || conversationId === conversation.value?.conversationId) {
-    recordDrawerOpen.value = false
     return
   }
   busy.value = true
@@ -592,7 +610,10 @@ async function openConversation(conversationId: string): Promise<void> {
     const detail = await readConversation(conversationId)
     applyDetail(detail.runs, detail.messages, detail.conversation)
     rememberConversation(detail.conversation.conversationId)
-    recordDrawerOpen.value = false
+    currentPage.value = 'investigation'
+    activeTab.value = 'overview'
+    materialDrawer.value = null
+    void nextTick(() => window.scrollTo({top: 0}))
   } catch (error) {
     errorText.value = describeError(error)
     if (error instanceof ApiError && error.status === 409) {
@@ -622,12 +643,15 @@ function startNewConversation(): void {
   composeMode.value = 'free'
   errorText.value = ''
   reportOpen.value = false
+  currentPage.value = 'investigation'
+  activeTab.value = 'overview'
+  materialDrawer.value = null
+  void nextTick(() => window.scrollTo({top: 0}))
   try {
     window.localStorage.removeItem(STORAGE_KEY)
   } catch {
     // 本地存储不可用时只影响下次自动找回，不影响本次草稿
   }
-  recordDrawerOpen.value = false
 }
 
 function abortAllTracking(): void {
@@ -701,15 +725,27 @@ const historyItems = computed(() => conversations.value.map(item => ({
   time: dateTime.format(new Date(item.updatedAt)),
   badge: conversationBadge(item)
 })))
+const currentTitle = computed(() => messages.value.find(message => message.role === 'USER')?.content.split('\n')[0]
+  ?? conversations.value.find(item => item.conversationId === sceneKey.value)?.title
+  ?? (newTitle.value.trim() || '新建调查'))
+const currentCreator = computed(() => {
+  const author = messages.value.find(message => message.role === 'USER')?.actorUserId
+  return author ? author === props.actorId ? props.account.displayName : props.memberNames?.[author] ?? author : '历史作者未知'
+})
+const currentRound = computed(() => viewedIndex.value >= 0 ? viewedIndex.value + 1 : '—')
+const activeActorName = computed(() => {
+  const actor = activeRun.value?.executionActorUserId
+  return actor ? actor === props.actorId ? props.account.displayName : props.memberNames?.[actor] ?? actor : '历史作者未知'
+})
 
 function selectViewedRun(runId: string): void {
   if (runId !== run.value?.runId) composeMode.value = 'free'
   pinnedRunId.value = runId
   if (targets.value.activeRuns.some(item => item.runId === runId)) preferredActiveRunId.value = runId
-  recordDrawerOpen.value = false
 }
 function goToActiveRun(): void {
   if (activeRun.value) selectViewedRun(activeRun.value.runId)
+  activeTab.value = 'overview'
 }
 function focusWaitingRun(): void {
   if (waitingRun.value) selectViewedRun(waitingRun.value.runId)
@@ -783,7 +819,9 @@ async function submit(): Promise<void> {
   try {
     let attachments = uploadedFile.value?.parseStatus === 'PARSED' ? [uploadedFile.value.fileId] : []
     const submittedDraftKey = draftKey(accessContextKey(), conversation.value?.conversationId ?? null)
+    const submittedTitleKey = draftKey(accessContextKey(), conversation.value?.conversationId ?? null, 'title')
     const submittedDraft = draft.value
+    const initialTitle = conversation.value ? '' : newTitle.value.trim()
     const current = await ensureConversation(conversation.value, createConversation)
     conversation.value = current
     draft.value = submittedDraft
@@ -797,9 +835,10 @@ async function submit(): Promise<void> {
       stagedFile.value = null
       uploading.value = false
     }
+    const messageText = composeMode.value === 'observation' ? '现场观察（用户报告，未经核实）：\n' + draft.value : draft.value
     const accepted = await sendMessage(
       current.conversationId,
-      composeMode.value === 'observation' ? '现场观察（用户报告，未经核实）：\n' + draft.value : draft.value,
+      initialMessage(initialTitle, messageText),
       undefined,
       attachments,
       selectedAssetId.value || null,
@@ -808,6 +847,8 @@ async function submit(): Promise<void> {
       discussionQuotes.value.map(({discussionId, version}) => ({discussionId, version}))
     )
     draft.value = ''
+    newTitle.value = ''
+    writeDraft(submittedTitleKey, '')
     writeDraft(submittedDraftKey, '')
     discussionQuotes.value = []
     uploadedFile.value = null
@@ -961,19 +1002,48 @@ function focusInvestigation(): void {
   void nextTick(() => draftInput.value?.focus())
 }
 
-function openRecord(section?: string): void {
-  recordDrawerOpen.value = true
-  if (section) void nextTick(() => document.getElementById(section)?.focus())
+function openRecord(): void {
+  currentPage.value = 'investigation'
+  activeTab.value = 'records'
+  reportOpen.value = false
+}
+function navigate(page: WorkspacePage): void {
+  currentPage.value = page
+  reportOpen.value = false
+  materialDrawer.value = null
+  void nextTick(() => window.scrollTo({top: 0}))
+}
+function showRun(runId: string, tab: 'overview' | 'process' = 'overview'): void {
+  selectViewedRun(runId)
+  activeTab.value = tab
+  reportOpen.value = false
+}
+function toggleMaterialDrawer(drawer: 'sources' | 'attachments' | 'asset'): void {
+  materialDrawer.value = materialDrawer.value === drawer ? null : drawer
+}
+function investigateAsset(assetId: string): void {
+  selectedAssetId.value = assetId
+  startNewConversation()
+}
+function quoteForAnalysis(quote: {discussionId: string; version: number; content: string; authorName: string}): void {
+  if (props.readOnly) return
+  if (!discussionQuotes.value.some(item => item.discussionId === quote.discussionId) && discussionQuotes.value.length < 10) {
+    discussionQuotes.value = [...discussionQuotes.value, quote]
+  }
+  activeTab.value = 'overview'
+  materialDrawer.value = null
+  void nextTick(() => (waitingRun.value ? questionField.value : draftInput.value)?.focus())
 }
 
 function showReport(): void {
   if (!run.value) {
-    openRecord('pro-history')
+    openRecord()
     return
   }
   reportReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  currentPage.value = 'investigation'
+  materialDrawer.value = null
   reportOpen.value = true
-  recordDrawerOpen.value = false
   void nextTick(() => document.getElementById('diagnosis-report-title')?.focus())
 }
 
@@ -1013,7 +1083,7 @@ watch(
 
 const onKeydown = (event: KeyboardEvent): void => {
   if (event.key === 'Escape') pendingCancellation.value = null
-  if (event.key === 'Escape' && recordDrawerOpen.value && !openedReferenceId.value) recordDrawerOpen.value = false
+  if (event.key === 'Escape' && materialDrawer.value && !openedReferenceId.value) materialDrawer.value = null
 }
 const onLayoutChange = (event: MediaQueryListEvent): void => { smallScreen.value = event.matches }
 
@@ -1062,272 +1132,146 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="pro-light">
-    <div v-if="smallScreen && recordDrawerOpen" class="pro-drawer-scrim" @click="recordDrawerOpen = false"></div>
-
-    <!-- 顶栏：品牌 / 模式 / 任务标题 / 查看轮与活动轮 / 操作 -->
-    <header class="pro-topbar">
-      <div class="pro-brand">
-        <span class="brand-mark"><UiIcon name="spark" /></span>
-        <span>DeviceTruth</span>
-      </div>
-      <span class="pro-mode-chip">专业工作台</span>
-      <nav class="pro-topnav" aria-label="专业工作台导航">
-        <a href="#pro-workspace" aria-current="page">诊断工作台</a>
-        <button type="button" @click="openRecord('pro-assets')">设备资料</button>
-        <button type="button" @click="openRecord('pro-events')">调查过程</button>
-        <button type="button" @click="showReport">报告与历史</button>
-      </nav>
-      <div class="pro-top-actions">
-      <span class="pro-status" :class="viewedStatusClass" data-testid="viewed-status">
-        <span class="dot"></span>{{ run ? statusLabels[run.status] ?? run.status : '未开始' }}
-        <template v-if="run && viewedIndex >= 0"> · 所看第 {{ viewedIndex + 1 }} 轮</template>
-      </span>
-      <span v-if="activeRun" class="pro-status active" data-testid="active-status">
-        <span class="dot"></span>
-        活动第 {{ runs.findIndex(item => item.runId === activeRun?.runId) + 1 }} 轮 · {{ activeLabel }}
-      </span>
-      <button v-if="activeRun && !viewedIsActive" type="button" class="secondary" @click="goToActiveRun">
-        <UiIcon name="target" /> 回到活动轮
-      </button>
-      <span v-if="activeRunCount > 1" class="pro-status waiting" role="alert" data-testid="multiple-active">
-        存在 {{ activeRunCount }} 个未决轮，请逐轮定位
-      </span>
-        <button v-if="activeRun" class="secondary" :disabled="!canCancel || cancelling" @click="requestCancellation">
-          {{ cancelling ? '正在取消…' : '取消调查' }}
-        </button>
-        <button v-if="!busy && conversation" class="secondary" aria-label="刷新" title="刷新" @click="manualSync">
-          <UiIcon name="refresh" />
-        </button>
-        <button class="secondary" :aria-expanded="recordDrawerOpen" @click="recordDrawerOpen = !recordDrawerOpen">
-          <UiIcon name="menu" /> 查看调查记录
-        </button>
-        <button v-if="run" type="button" class="pro-outline pro-mobile-report" @click="showReport"><UiIcon name="file" /> 报告</button>
-        <a class="pro-outline pro-mobile-compose" :href="waitingRun ? '#pending-question-title' : '#pro-composer'">
-          <UiIcon name="chat" /> 继续调查
-        </a>
-      </div>
-    </header>
-
-    <div class="pro-shell">
-      <!-- 桌面常驻「近期调查」；窄屏由顶部“查看调查记录”打开同一列表 -->
-      <RecentInvestigations :read-only="props.readOnly" v-if="!smallScreen" :items="historyItems" :current-id="sceneKey" :busy="busy || cancelling" :history-loaded="historyLoaded"
-                            :history-error="historyError" :query="historyQuery" :status="historyStatus" :next-cursor="historyNextCursor"
-                            :loading-more="historyLoadingMore"
-                            @create="startNewConversation" @retry="refreshHistory" @select="openConversation"
-                            @search="searchHistory" @filter="filterHistory" @load-more="loadMoreHistory">
-
-      </RecentInvestigations>
-
-      <section id="pro-workspace" class="pro-main">
-        <div class="main-scroll">
-          <p v-if="errorText" class="error" role="alert">
-            {{ errorText }}
-            <button type="button" class="text-button" @click="retrySync">重新同步</button>
-          </p>
-          <ProfessionalDiagnosisPage v-if="!reportOpen" :run="run"
-                                     :model="diagnosisModel"
-                                     :selected-claim="selectedClaimOfPage"
-                                     :selected-index="selectedClaimIndex"
-                                     :registered-references="registeredReferences"
-                                     :references-state="referencesState === 'idle' ? 'loading' : referencesState"
-                                     :references-note="referencesNote"
-                                     :skill-label="skillLabel"
-                                     :failure-text="describeFailure(run?.failureCode)"
-                                     @select="selectClaim"
-                                     @open-reference="openReference"
-                                     @history="openRecord('pro-history')"
-                                     @asset="openRecord('pro-assets')"
-                                     @retry-references="run && loadRegisteredReferences(run.runId)">
-            <template #empty>
-          <div class="empty pro-card">
-            <div class="empty-icon"><UiIcon name="spark" /></div>
-            <h1 class="pro-title" tabindex="-1">开始一次新调查</h1>
-            <p>在下方输入设备现象，助手会查找资料并整理可核验的线索。</p>
+  <main class="pro-light team-app">
+    <WorkspaceShell :account="props.account" :space="props.space" :spaces="props.spaces" :page="currentPage"
+      :current-id="sceneKey" :read-only="!!props.readOnly" :busy="busy || cancelling" :items="historyItems"
+      :history-loaded="historyLoaded" :history-error="historyError" :query="historyQuery" :status="historyStatus"
+      :next-cursor="historyNextCursor" :loading-more="historyLoadingMore" :compact="smallScreen"
+      :global-error="props.globalError" :notice="props.notice"
+      @navigate="navigate" @select-space="emit('selectSpace', $event)" @logout="emit('logout')" @create="startNewConversation"
+      @select="openConversation" @retry="refreshHistory" @search="searchHistory" @filter="filterHistory" @load-more="loadMoreHistory">
+      <section v-if="props.invitationToken" class="dt-run-banner" aria-label="团队邀请确认">
+        请确认以 {{ props.account.email }} 接受邮箱邀请。<button type="button" class="dt-button" @click="emit('acceptInvitation')">确认加入团队</button>
+      </section>
+      <DeviceArchivePage v-if="currentPage === 'devices'" :space="props.space" :assets="assets" :loading="!historyLoaded" @investigate="investigateAsset" />
+      <KnowledgeLibraryPage v-else-if="currentPage === 'knowledge'" :key="'knowledge:' + props.space.workspaceId" :space="props.space" :member-names="props.memberNames ?? {}" />
+      <TeamMembersPage v-else-if="currentPage === 'members'" :key="'members:' + props.space.workspaceId + ':' + props.space.role" :space="props.space"
+        @members="emit('members', $event)" @changed="emit('changed')" />
+      <CreateTeamPage v-else-if="currentPage === 'create-team'" @created="emit('workspaceCreated', $event)" @cancel="navigate('investigation')" />
+      <section v-else class="dt-investigation">
+        <header class="dt-pagehead dt-investigation-head">
+          <p class="dt-crumb">{{ props.space.name }} / {{ props.space.kind === 'TEAM' ? '团队调查' : '我的调查' }}</p>
+          <div class="dt-title-row"><h1 class="pro-task-title" tabindex="-1">{{ currentTitle }}</h1><button v-if="conversation" type="button" class="dt-button" @click="showReport">查看报告</button></div>
+          <div class="dt-meta">
+            <button v-if="viewedAssetId" type="button" class="dt-link" @click="toggleMaterialDrawer('asset')">{{ viewedAssetId }}</button><span v-else>未指定设备</span>
+            <span>第 {{ currentRound }} 轮</span><span v-if="conversation">{{ currentCreator }}创建</span>
+            <span v-if="run?.dataNature" class="dt-tag">{{ run.dataNature }}</span>
+            <span v-if="props.space.kind === 'TEAM'" class="dt-people">{{ Object.keys(props.memberNames ?? {}).length }} 位团队成员</span>
+            <span v-if="activeRun" class="dt-tag dt-warning">活动轮：{{ activeLabel }}</span>
+            <button v-if="activeRun && !viewedIsActive" type="button" class="dt-link" @click="goToActiveRun">回到活动轮</button>
+            <button v-if="conversation" type="button" class="dt-link" @click="manualSync">刷新</button>
           </div>
+        </header>
+        <div v-if="conversation && !reportOpen" class="dt-tabbar">
+          <div class="dt-tabs" role="tablist" aria-label="调查内容">
+            <button v-for="tab in tabs" :key="tab.id" type="button" role="tab" :id="'dt-tab-' + tab.id" aria-controls="dt-active-panel" :aria-selected="activeTab === tab.id" @click="activeTab = tab.id">{{ tab.label }}</button>
+          </div>
+          <button type="button" class="dt-link" :aria-expanded="!!materialDrawer" @click="toggleMaterialDrawer('sources')">资料与证据 <span class="dt-tag">{{ registeredReferences.length }}</span></button>
+        </div>
+        <div class="dt-content-grid" :class="{'dt-drawer-open': materialDrawer && !reportOpen}">
+          <main class="dt-main" id="dt-active-panel" role="tabpanel">
+            <p v-if="errorText" class="error" role="alert">{{ errorText }} <button type="button" class="dt-link" @click="retrySync">重新同步</button></p>
+            <p v-if="props.readOnly" class="dt-readonly">你以只读成员身份查看：可阅读调查、讨论、资料和报告，不能提交信息或发起分析。</p>
+            <p v-if="activeRunCount > 1" class="dt-readonly" role="alert">存在 {{ activeRunCount }} 个未决轮，请先在分析记录中逐轮定位。</p>
+            <DiagnosisReport v-if="reportOpen && run" :run="run" :model="diagnosisModel" :references="registeredReferences"
+              :references-state="referencesState === 'idle' ? 'loading' : referencesState" :references-note="referencesNote"
+              :failure-text="describeFailure(run.failureCode)" @close="closeReport" @print="printReport"
+              @open-reference="openReference" @retry-references="loadRegisteredReferences(run.runId)" />
+            <template v-else>
+              <section v-if="!conversation || activeTab === 'overview'" class="dt-overview" aria-labelledby="dt-tab-overview">
+                <div v-if="activeRun" class="dt-run-banner">
+                  <div class="dt-section-head"><strong>{{ activeActorName }}正在发起第 {{ viewedIndex + 1 }} 轮分析</strong><span class="dt-tag">{{ activeLabel }}</span></div>
+                  <p>{{ activeRun.status === 'WAITING_FOR_USER' ? '请在下方提交补答，将继续同一轮调查，不创建并行分析。' : '你仍可讨论、查资料和准备草稿。本轮结束后，请先查看结果，再确认提交；草稿不会自动排队。' }}</p>
+                  <button v-if="canCancel" type="button" class="dt-link" :disabled="cancelling" @click="requestCancellation">取消本轮</button>
+                </div>
+                <ProfessionalDiagnosisPage embedded :run="run" :model="diagnosisModel" :selected-claim="selectedClaimOfPage"
+                  :selected-index="selectedClaimIndex" :registered-references="registeredReferences"
+                  :references-state="referencesState === 'idle' ? 'loading' : referencesState" :references-note="referencesNote"
+                  :skill-label="skillLabel" :failure-text="describeFailure(run?.failureCode)"
+                  @select="selectClaim" @open-reference="openReference" @history="openRecord"
+                  @asset="toggleMaterialDrawer('asset')" @retry-references="run && loadRegisteredReferences(run.runId)">
+                  <template #empty><div class="dt-page-card"><h2>从设备现象开始</h2><p class="dt-help">归属：{{ props.space.name }} · {{ props.space.kind === 'TEAM' ? '团队成员可见' : '仅自己可见' }}。首次有效提交才创建调查。</p></div></template>
+                  <template #composer>
+                    <section class="dt-composer" aria-label="补充调查信息">
+                      <div class="dt-section-head"><h3>{{ waitingRun ? '回答本轮问题' : '补充调查信息' }}</h3><span>{{ props.account.displayName }}提交 · {{ props.space.kind === 'TEAM' ? '团队可见' : '仅自己可见' }}</span></div>
+                      <p class="dt-help">明确提交给 Agent 的现场描述、检查结果或问题；不会自动读取团队讨论。</p>
+                      <div v-if="discussionQuotes.length" aria-label="待提交讨论引用">
+                        <article v-for="quote in discussionQuotes" :key="quote.discussionId" class="dt-quote"><div class="dt-section-head"><strong>引用 {{ quote.authorName }} 的讨论</strong><button type="button" class="dt-link" @click="discussionQuotes = discussionQuotes.filter(item => item.discussionId !== quote.discussionId)">移除引用</button></div><p>{{ quote.content }}</p><span>用户讨论 · 未现场核实</span></article>
+                      </div>
+                      <section v-if="waitingRun?.pendingQuestion" class="question" data-testid="pending-question" :data-run-id="waitingRun.runId" aria-label="需要补充信息">
+                        <h2 id="pending-question-title"><UiIcon name="warning" /> 需要补充信息</h2>
+                        <p class="question-owner">待答 Run：{{ waitingRun.runId }}<template v-if="waitingRun.runId !== run?.runId">（当前正在查看其他轮次）</template></p>
+                        <p class="question-text">{{ waitingRun.pendingQuestion.question }}</p>
+                        <p v-if="waitingRun.pendingQuestion.requestedFields.length" class="hint">需要：{{ waitingRun.pendingQuestion.requestedFields.join('、') }}</p>
+                        <textarea ref="questionField" v-model="replyDraft" :disabled="props.readOnly || busy" rows="3" aria-label="补充信息" placeholder="按问题补充信息" @keydown.enter="submitOnEnter($event, answerQuestion)"></textarea>
+                        <button type="button" class="dt-button dt-primary" :disabled="!permissions.canReply" @click="answerQuestion">提交补答并继续</button>
+                      </section>
+                      <form v-else @submit.prevent="submit">
+                        <label v-if="!conversation" class="dt-field">调查标题<input v-model="newTitle" required maxlength="200" :disabled="busy || props.readOnly" placeholder="例如：车载座舱空调不转"></label>
+                        <div v-if="conversation" class="dt-actions" role="group" aria-label="输入模式">
+                          <button type="button" class="dt-button" :disabled="props.readOnly" :aria-pressed="composeMode === 'free'" @click="composeMode = 'free'">自由提问</button>
+                          <button type="button" class="dt-button" :aria-pressed="composeMode === 'investigate'" :disabled="!canInvestigate" :title="investigateTitle" @click="focusInvestigation">深入调查</button>
+                          <button type="button" class="dt-button" :disabled="props.readOnly" :aria-pressed="composeMode === 'observation'" @click="focusFieldNote">补充现场观察</button>
+                        </div>
+                        <label class="dt-field">{{ composeMode === 'observation' ? '现场观察（未核实）' : '问题描述或补充' }}<textarea ref="draftInput" v-model="composerText" rows="3" maxlength="7980" :disabled="busy || props.readOnly" aria-label="向 Agent 追加调查要求" placeholder="描述出现条件、已有检查结果，或你希望继续调查的问题…" @keydown.enter="submitOnEnter($event, submit)"></textarea></label>
+                        <div class="dt-input-footer">
+                          <label class="dt-link">添加附件<input class="visually-hidden" type="file" aria-label="添加 Markdown 资料" accept=".md,.txt,text/markdown,text/plain" :disabled="props.readOnly || uploading || busy || composeMode === 'investigate'" @change="upload"></label>
+                          <label>排查设备（可选）<select v-model="selectedAssetId" :disabled="props.readOnly || busy || composeMode === 'investigate'" aria-label="关联设备"><option value="">暂不指定设备</option><option v-for="asset in assets" :key="asset" :value="asset">{{ asset }}</option></select></label>
+                          <span>{{ activeRun ? '草稿仅自己可见，不加入正在运行的分析' : '提交后发起新一轮分析' }}</span>
+                          <button type="submit" class="dt-button dt-primary" :disabled="!canSend">{{ composeMode === 'observation' ? '提交观察' : conversation ? '提交并继续分析' : '创建并开始调查' }}</button>
+                        </div>
+                      </form>
+                      <section v-if="oldReplyDrafts.length" class="dt-page-card dt-section"><h3>未提交的旧追问草稿</h3><p class="dt-help">追问已被其他成员处理或已变化。以下内容仍是你的私人草稿，不会自动改成新分析。</p><article v-for="item in oldReplyDrafts" :key="item.key"><label class="dt-field">旧追问草稿<textarea :value="item.text" readonly rows="3"></textarea></label><button type="button" class="dt-link" @click="discardOldReply(item.key)">丢弃这份草稿</button></article></section>
+                      <p v-if="composeMode === 'investigate'" class="dt-help">{{ investigateTitle }}。不随附此输入区中的文件。</p>
+                      <p v-if="sendHint" class="dt-help" role="status">{{ sendHint }}<template v-if="resumingRunId && resumingRunId === activeRun?.runId">正在恢复调查…</template></p>
+                      <p v-if="stagedFile" class="dt-help" role="status">待发送附件：{{ stagedFile.name }}（首次提交时上传，仅用于本调查）<button type="button" class="dt-link" @click="stagedFile = null">移除待发送附件</button></p>
+                      <p v-if="uploading" class="dt-help" role="status">正在上传并导入，请稍候。</p>
+                      <p v-if="uploadedFile" class="dt-help" role="status">{{ uploadedFile.originalName }}：{{ uploadedFile.parseStatus }}<span v-if="uploadedFile.failureCode">（{{ uploadedFile.failureCode }}）</span><button v-if="uploadedFile.parseStatus === 'FAILED'" type="button" class="dt-link" :disabled="uploading || busy" @click="retryAttachment">重试导入</button><button v-if="uploadedFile.parseStatus === 'PARSED'" type="button" class="dt-link" :disabled="uploading || busy" @click="uploadedFile = null">移除附件</button></p>
+                      <div class="dt-section-head dt-section"><h3>资料与信息缺口</h3><button type="button" class="dt-link" @click="toggleMaterialDrawer('sources')">查看来源</button></div>
+                      <p class="dt-help">{{ registeredReferences.length ? `本轮已登记 ${registeredReferences.length} 条来源。` : '尚未取得工具来源。' }}来源登记不等于现场核实。<button v-if="conversation" type="button" class="dt-link" @click="toggleMaterialDrawer('attachments')">管理调查附件</button></p>
+                      <p class="dt-help">回答可能包含 SIMULATED 演示数据。知识引用仅反映资料记载，设备现状需现场核验。</p>
+                    </section>
+                  </template>
+                </ProfessionalDiagnosisPage>
+              </section>
+              <section v-else-if="activeTab === 'discussion'" aria-labelledby="dt-tab-discussion">
+                <InvestigationCollaboration v-if="conversation" :key="'discussion:' + conversation.conversationId" mode="discussion" :conversation-id="conversation.conversationId" :read-only="!!props.readOnly" :member-names="props.memberNames" @quote="quoteForAnalysis" />
+              </section>
+              <section v-else-if="activeTab === 'records'" aria-labelledby="dt-tab-records">
+                <div class="dt-section-head"><h2>正式提交与分析结果</h2><span>团队讨论不计入此处</span></div>
+                <article v-for="message in messages" :key="message.messageId" class="dt-record">
+                  <div class="dt-section-head"><strong>{{ message.role === 'USER' ? (message.actorUserId === props.actorId ? '我' : message.actorUserId ? props.memberNames?.[message.actorUserId] ?? message.actorUserId : '历史作者未知') + '提交补充' : 'DeviceTruth Agent' }}</strong><time>{{ formatTime(message.requestedAt) }}</time></div>
+                  <p>{{ message.content }}</p><span v-if="message.role === 'USER'" class="dt-tag">用户提供 · 未现场核实</span>
+                  <blockquote v-for="quote in message.discussionQuotes" :key="quote.discussionId" class="dt-quote"><strong>{{ quote.authorName }}</strong> · {{ quote.createdAt }} · 未核实讨论<p>{{ quote.content }}</p></blockquote>
+                </article>
+                <p v-if="!messages.length" class="dt-empty">还没有正式提交。</p>
+                <div class="dt-section-head dt-section"><h2>调查轮次</h2><span>{{ runs.length }} 轮</span></div>
+                <article v-for="(item, index) in runs" :key="item.runId" class="dt-record"><div class="dt-section-head"><strong>第 {{ index + 1 }} 轮 · {{ statusLabels[item.status] ?? item.status }}</strong><small>{{ item.executionActorUserId ? (props.memberNames?.[item.executionActorUserId] ?? item.executionActorUserId) : '历史作者未知' }}发起 · {{ formatTime(item.requestedAt) }}</small></div><p>Run：{{ item.runId }}</p><button type="button" class="dt-link" @click="showRun(item.runId)">查看这一轮结果</button></article>
+              </section>
+              <section v-else aria-labelledby="dt-tab-process">
+                <div class="dt-section-head"><h2>调查过程</h2><span class="dt-tag">{{ activeRun ? '有运行进行中' : '当前无运行' }}</span></div>
+                <nav class="dt-run-picker" aria-label="选择过程轮次"><button v-for="(item, index) in runs" :key="item.runId" type="button" :aria-pressed="item.runId === run?.runId" @click="showRun(item.runId, 'process')">第 {{ index + 1 }} 轮 · {{ statusLabels[item.status] ?? item.status }}</button></nav>
+                <div v-if="run" class="dt-process"><p>Run：{{ run.runId }}</p><p>业务时点：{{ formatTime(run.asOf) }}<template v-if="run.activeDurationMs != null"> · 耗时 {{ Math.round(run.activeDurationMs / 1000) }} 秒</template></p><RunTimeline v-if="timelineEvents.length" :events="timelineEvents" :live="timelineLive" :status="statusLabels[run.status] ?? run.status" :duration="''" /><p v-else class="dt-empty">暂无运行事件。</p><details class="dt-technical"><summary>技术详情与原始原因码</summary><p>状态：{{ run.status }} · 原因码：{{ run.failureCode ?? '无' }}</p><p>数据性质：{{ run.dataNature }}</p><p>执行结束与故障查清分别表达，保留调查来源与记录。</p></details></div><p v-else class="dt-empty">尚无调查过程。</p>
+              </section>
             </template>
-            <template #composer>
-
-        <!-- 待答正文：始终展示持久 pendingQuestion，与消息记录/展开状态无关 -->
-        <section v-if="waitingRun?.pendingQuestion" ref="waitingNotice" class="question" data-testid="pending-question"
-                 :data-run-id="waitingRun.runId" role="region" aria-label="需要补充信息">
-          <h2 id="pending-question-title"><UiIcon name="warning" /> 需要补充信息</h2>
-          <p class="question-owner">
-             待答轮：第 {{ runs.findIndex(item => item.runId === waitingRun?.runId) + 1 }} 轮
-            <template v-if="waitingRun?.runId !== run?.runId">（当前正在查看其他轮次）</template>
-          </p>
-          <p class="question-text">{{ waitingRun.pendingQuestion.question }}</p>
-          <p v-if="waitingRun.pendingQuestion.requestedFields.length" class="hint">
-            需要：{{ waitingRun.pendingQuestion.requestedFields.join('、') }}
-          </p>
-          <textarea ref="questionField" v-model="replyDraft" :disabled="props.readOnly || busy" rows="3" aria-label="补充信息" placeholder="按问题补充信息"
-                    @keydown.enter="submitOnEnter($event, answerQuestion)"></textarea>
-          <button class="primary" :disabled="!permissions.canReply" @click="answerQuestion">提交补充信息</button>
-        </section>
-
-        <section v-if="oldReplyDrafts.length" class="pro-card old-reply-drafts"><h3>未提交的旧追问草稿</h3><p>追问已被其他成员处理或已变化。以下内容仍是你的私人草稿，不会自动改成新分析。</p><article v-for="item in oldReplyDrafts" :key="item.key"><label>旧追问草稿<textarea :value="item.text" readonly rows="3" aria-label="未提交的旧追问草稿"></textarea></label><button type="button" @click="discardOldReply(item.key)">丢弃这份草稿</button></article></section>
-        <InvestigationCollaboration v-if="conversation" :key="conversation.conversationId" :conversation-id="conversation.conversationId" :read-only="!!props.readOnly" :member-names="props.memberNames" :refresh-token="uploadedFile?.fileId + (uploadedFile?.parseStatus ?? '')" @quote="q => { if (!discussionQuotes.some(item => item.discussionId === q.discussionId) && discussionQuotes.length < 10) discussionQuotes = [...discussionQuotes, q] }" />
-        <section v-if="discussionQuotes.length" aria-label="待提交讨论引用"><h3>待提交的讨论（未核实）</h3><article v-for="q in discussionQuotes" :key="q.discussionId"><strong>{{ q.authorName }}</strong><p>{{ q.content }}</p><button @click="discussionQuotes = discussionQuotes.filter(item => item.discussionId !== q.discussionId)">移除引用</button></article></section>
-        <p v-if="props.readOnly" role="status">当前为只读成员，可查看调查与报告。</p>
-        <!-- 底部操作栏：深入调查 / 补充现场观察 / 追加调查要求 -->
-        <footer id="pro-composer" class="pro-action-wrap pro-card">
-          <form class="pro-action-bar composer" @submit.prevent="submit">
-            <div class="pro-compose-head">
-              <h3>继续调查</h3><span v-if="activeRun?.executionActorUserId" class="hint">本轮发起人：{{ activeRun.executionActorUserId === props.actorId ? '我' : props.memberNames?.[activeRun.executionActorUserId] ?? activeRun.executionActorUserId }}</span>
-              <div class="pro-compose-modes" role="group" aria-label="输入模式">
-              <button type="button" :disabled="props.readOnly" :aria-pressed="composeMode === 'free'" @click="composeMode = 'free'">自由提问</button>
-            <button type="button" :aria-pressed="composeMode === 'investigate'" :disabled="!canInvestigate" :title="investigateTitle"
-                    @click="focusInvestigation">
-              <UiIcon name="target" /> 深入调查
-            </button>
-            <button type="button" :disabled="props.readOnly" :aria-pressed="composeMode === 'observation'" title="以未核实的用户报告开启新一轮调查"
-                    @click="focusFieldNote">
-              <UiIcon name="chat" /> 补充现场观察
-            </button>
-              </div>
-            </div>
-            <div class="pro-action-input">
-              <textarea ref="draftInput" v-model="composerText" rows="3" maxlength="7980"
-                        :disabled="busy || props.readOnly"
-                        aria-label="向 Agent 追加调查要求"
-                        :placeholder="composeMode === 'observation' ? '描述新增观察、读数和获取时间…' : '记录设备现象，或补充你希望调查的问题…'"
-                        @keydown.enter="submitOnEnter($event, submit)"></textarea>
-            </div>
-            <div class="pro-compose-actions">
-            <label class="upload-label" :class="{ disabled: uploading || composeMode === 'investigate' }" title="添加 Markdown 资料">
-              <input class="visually-hidden" type="file" aria-label="添加 Markdown 资料"
-                     accept=".md,.txt,text/markdown,text/plain" :disabled="props.readOnly || uploading || busy || composeMode === 'investigate'" @change="upload" />
-              <UiIcon name="attach" /> 添加附件
-            </label>
-            <label class="pro-asset-chip" title="关联设备（仅用于新的普通提交）">
-              <UiIcon name="layers" />
-              <select id="asset" v-model="selectedAssetId" :disabled="props.readOnly || busy || composeMode === 'investigate'" aria-label="关联设备">
-                <option value="">不指定设备</option>
-                <option v-for="asset in assets" :key="asset" :value="asset">{{ asset }}</option>
-              </select>
-            </label>
-            <button type="submit" class="pro-send" :disabled="!canSend" aria-label="发送">
-              <UiIcon name="send" /> {{ composeMode === 'observation' ? '提交观察' : '提交调查' }}
-            </button>
-            </div>
-          </form>
-          <p v-if="composeMode === 'observation'" class="pro-action-hint">作为未核实的用户报告开启新一轮，不写入设备事实。可随附已导入资料。</p>
-          <p v-if="composeMode === 'investigate'" class="pro-action-hint">{{ investigateTitle }}。不随附此输入区中的文件。</p>
-          <p v-if="sendHint" class="pro-action-hint" role="status">
-            {{ sendHint }}
-            <template v-if="resumingRunId && resumingRunId === activeRun?.runId">正在恢复调查…</template>
-          </p>
-          <p v-if="stagedFile" class="pro-action-hint" role="status">待发送附件：{{ stagedFile.name }}（首次提交时上传，仅用于本调查）<button type="button" @click="stagedFile = null">移除待发送附件</button></p>
-          <p v-if="uploading" class="pro-action-hint" role="status">正在上传并导入，请稍候。</p>
-          <p v-if="uploadedFile?.parseStatus === 'PARSED'" class="pro-action-hint" role="status">
-            <span class="attachment-chip"><UiIcon name="file" /> {{ uploadedFile.originalName }}（仅自由提问或观察时随附）</span>
-            <button type="button" class="text-button" :disabled="uploading || busy" @click="uploadedFile = null">移除附件</button>
-          </p>
-          <p v-if="uploadedFile && uploadedFile.parseStatus !== 'PARSED'" class="pro-action-hint" role="status">
-            {{ uploadedFile.originalName }}：{{ uploadedFile.parseStatus }}
-            <span v-if="uploadedFile.failureCode">（{{ uploadedFile.failureCode }}）</span>
-            <button v-if="uploadedFile.parseStatus === 'FAILED'" type="button" class="text-button" :disabled="uploading || busy" @click="retryAttachment">重试导入</button>
-          </p>
-          <p class="pro-disclaimer">回答可能包含 SIMULATED 演示数据。知识引用仅反映资料记载，设备现状需现场核验。</p>
-        </footer>
+          </main>
+          <aside v-if="conversation && materialDrawer && !reportOpen" class="dt-material-drawer" aria-label="资料与证据">
+            <div class="dt-drawer-head"><h2>{{ materialDrawer === 'sources' ? '资料与证据' : materialDrawer === 'attachments' ? '调查附件' : '排查设备' }}</h2><button type="button" class="dt-link" @click="materialDrawer = null">收起</button></div>
+            <template v-if="materialDrawer === 'sources'">
+              <p class="dt-help">第 {{ currentRound }} 轮 · 已登记 {{ registeredReferences.length }} 条工具来源</p><p class="dt-help">{{ referencesNote }}</p><button v-if="referencesState === 'error' || referencesState === 'notFound'" type="button" class="dt-link" @click="run && loadRegisteredReferences(run.runId)">重试读取来源</button>
+              <button v-for="reference in registeredReferences" :key="reference.referenceId" type="button" class="dt-source-button" :data-evidence-id="reference.referenceId" @click="openReference(reference.referenceId)">《{{ reference.title }}》<small>{{ reference.sourceTypeLabel }} · 版本 {{ reference.sourceVersion }} · {{ reference.dataNature }}</small></button>
+              <p v-if="!registeredReferences.length" class="dt-empty">当前没有已登记的工具来源。</p><div class="dt-section-head dt-section"><h3>本次调查附件</h3><button type="button" class="dt-link" @click="materialDrawer = 'attachments'">管理附件</button></div><p class="dt-help">讨论和用户附件不会因出现在界面里就变成已核实的现场证据。</p>
             </template>
-            <template #timeline>
-              <details v-if="run" class="pro-process pro-card" :key="run.runId">
-                <summary><UiIcon name="clock" /> 本轮 Agent 调查过程 <span>{{ timelineEvents.length }} 条事件</span></summary>
-                <RunTimeline v-if="timelineEvents.length" :events="timelineEvents" :live="timelineLive"
-                             :status="statusLabels[run.status] ?? run.status" :duration="''" />
-                <p v-else class="hint">暂无运行事件。</p>
-              </details>
-            </template>
-          </ProfessionalDiagnosisPage>
-          <DiagnosisReport v-else-if="run" :run="run" :model="diagnosisModel" :references="registeredReferences"
-                           :references-state="referencesState === 'idle' ? 'loading' : referencesState"
-                           :references-note="referencesNote" :failure-text="describeFailure(run.failureCode)"
-                           @close="closeReport" @print="printReport" @open-reference="openReference"
-                           @retry-references="loadRegisteredReferences(run.runId)" />
+            <InvestigationCollaboration v-else-if="materialDrawer === 'attachments'" :key="'materials:' + conversation.conversationId" mode="materials" :conversation-id="conversation.conversationId" :read-only="!!props.readOnly" :member-names="props.memberNames" :refresh-token="uploadedFile?.fileId + (uploadedFile?.parseStatus ?? '')" />
+            <template v-else><h3>{{ viewedAssetId ?? '未指定设备' }}</h3><p class="dt-help">业务时点 {{ viewedAsOf ? formatTime(viewedAsOf) : '未返回' }}。该轮按此资产与时点查询，底部选择只影响新提交。</p><EvidenceComparison v-if="viewedAssetId" :key="(run?.runId ?? '') + '|' + viewedAssetId + '|' + (viewedAsOf ?? '')" :asset-id="viewedAssetId" :as-of="viewedAsOf" /><p v-else class="dt-empty">该轮未关联设备。</p></template>
+          </aside>
         </div>
       </section>
-    </div>
-
-    <!-- 调查记录抽屉：会话 / 轮次 / 消息 / 时间线 / 设备快照 / 已登记来源 -->
-    <aside v-if="recordDrawerOpen" class="pro-drawer open" role="complementary" aria-label="调查记录">
-      <div class="pro-drawer-head">
-        <h2><UiIcon name="menu" /> 调查记录</h2>
-        <button class="secondary" :disabled="busy" aria-label="刷新记录" @click="manualSync">
-          <UiIcon name="refresh" />
-        </button>
-        <button v-if="!smallScreen" class="secondary" :disabled="props.readOnly || busy" @click="startNewConversation"><UiIcon name="plus" /> 新调查</button>
-        <button class="icon-button" aria-label="关闭调查记录" @click="recordDrawerOpen = false">
-          <UiIcon name="close" />
-        </button>
-      </div>
-      <div class="pro-drawer-body">
-        <RecentInvestigations :read-only="props.readOnly" v-if="smallScreen" :items="historyItems" :current-id="sceneKey" :busy="busy || cancelling" :history-loaded="historyLoaded"
-                            :history-error="historyError" :query="historyQuery" :status="historyStatus" :next-cursor="historyNextCursor"
-                            :loading-more="historyLoadingMore"
-                            @create="startNewConversation" @retry="refreshHistory" @select="openConversation"
-                            @search="searchHistory" @filter="filterHistory" @load-more="loadMoreHistory" />
-        <template v-if="run">
-          <h3 id="pro-history" tabindex="-1">调查轮次</h3>
-          <p v-if="!runs.length" class="hint">本会话还没有调查轮次。</p>
-          <nav v-else class="run-picker" aria-label="调查轮次">
-            <button v-for="(item, index) in runs" :key="item.runId" type="button" class="run-chip"
-                    :class="{ active: item.runId === run?.runId, activity: item.runId === activeRun?.runId }"
-                    :aria-pressed="item.runId === run?.runId"
-                    @click="selectViewedRun(item.runId)">
-              第 {{ index + 1 }} 轮 · {{ statusLabels[item.status] ?? item.status }}
-              <template v-if="item.runId === activeRun?.runId"> · 活动</template>
-              <template v-else-if="item.runId !== run?.runId"> · 查看</template>
-            </button>
-          </nav>
-          <p v-if="waitingRun" class="hint">
-            <button type="button" class="text-button" @click="focusWaitingRun">
-              <UiIcon name="warning" /> 定位待答轮（第 {{ runs.findIndex(item => item.runId === waitingRun?.runId) + 1 }} 轮）
-            </button>
-          </p>
-          <p class="hint">
-            所看轮目标：{{ goalMessage?.content ?? '（不可用）' }}
-            <template v-if="viewedAssetId"> · 设备 {{ viewedAssetId }}</template>
-            · {{ formatTime(run.requestedAt) }}
-            <template v-if="run.activeDurationMs != null"> · 耗时 {{ Math.round(run.activeDurationMs / 1000) }} 秒</template>
-          </p>
-
-          <h3>会话消息</h3>
-          <div v-if="!messages.length" class="hint">暂无消息。</div>
-          <article v-for="message in messages" :key="message.messageId" class="message">
-            <strong>{{ message.role === 'USER' ? (message.actorUserId === props.actorId ? '我' : message.actorUserId ? props.memberNames?.[message.actorUserId] ?? '成员 ' + message.actorUserId.slice(0, 8) : '历史作者未知') + '（用户报告，未核实）' : 'DeviceTruth Agent' }}</strong>
-            <time :datetime="message.requestedAt">{{ shortTime.format(new Date(message.requestedAt)) }}</time>
-            <p v-if="message.role === 'USER'" class="bubble">{{ message.content }}</p>
-            <p v-else>{{ message.content }}</p><blockquote v-for="quote in message.discussionQuotes" :key="quote.discussionId"><strong>{{ quote.authorName }}</strong> · {{ quote.createdAt }} · 未核实讨论<p>{{ quote.content }}</p></blockquote>
-          </article>
-
-          <h3 id="pro-events" tabindex="-1">运行时间线</h3>
-          <RunTimeline v-if="timelineEvents.length" :events="timelineEvents" :live="timelineLive"
-                       :status="run ? statusLabels[run.status] ?? run.status : ''" :duration="''" />
-          <p v-else class="hint">暂无运行事件。</p>
-
-          <h3 id="pro-assets" tabindex="-1">设备快照（所看轮：{{ viewedAssetId ?? '未关联' }}）</h3>
-          <p class="hint">业务时点 {{ viewedAsOf ? formatTime(viewedAsOf) : '未返回' }}；该轮按此资产与时点查询，底部选择只影响新提交。</p>
-          <EvidenceComparison v-if="viewedAssetId" :key="(run?.runId ?? '') + '|' + viewedAssetId + '|' + (viewedAsOf ?? '')"
-                              :asset-id="viewedAssetId" :as-of="viewedAsOf" />
-          <p v-else class="hint">该轮未关联设备。</p>
-
-          <h3>本轮已登记来源（{{ registeredReferences.length }}）</h3>
-          <p class="hint">{{ referencesNote }}</p>
-          <p v-if="referencesState === 'empty'" class="hint">本轮没有已登记来源。</p>
-        </template>
-        <p v-else id="pro-history" tabindex="-1" class="hint">当前会话还没有调查轮次。</p>
-      </div>
-    </aside>
-
+    </WorkspaceShell>
     <dialog ref="cancelDialog" v-if="pendingCancellation" class="cancel-confirm" aria-labelledby="cancel-dialog-title" @cancel.prevent="!cancelling && (pendingCancellation = null)">
-      <h2 id="cancel-dialog-title">确认取消此轮调查？</h2><p>目标 Run：{{ pendingCancellation.runId }}</p><p>取消后保留已有输入、来源与历史，不会自动提交草稿。</p>
-      <button id="confirm-run-cancel" type="button" :disabled="cancelling" @click="cancelActive">{{ cancelling ? '正在取消…' : '确认取消此轮' }}</button><button type="button" :disabled="cancelling" @click="pendingCancellation = null">保留运行</button>
+      <h2 id="cancel-dialog-title">确认取消此轮调查？</h2><p>目标 Run：{{ pendingCancellation.runId }}</p><p>取消后保留已有输入、来源与历史，不会自动提交草稿。</p><button id="confirm-run-cancel" type="button" :disabled="cancelling" @click="cancelActive">{{ cancelling ? '正在取消…' : '确认取消此轮' }}</button><button type="button" :disabled="cancelling" @click="pendingCancellation = null">保留运行</button>
     </dialog>
-    <!-- 证据模态抽屉：三种终态共用，挂载在状态分支之外 -->
-    <EvidenceModal :open="openedReferenceId !== null && !!openedReference" :reference="openedReference"
-                   :origin-key="openReferenceKey"
-                   @close="closeReference(); restoreFocusAfterEvidence()" />
+    <EvidenceModal :open="openedReferenceId !== null && !!openedReference" :reference="openedReference" :origin-key="openReferenceKey" @close="closeReference(); restoreFocusAfterEvidence()" />
   </main>
 </template>
 

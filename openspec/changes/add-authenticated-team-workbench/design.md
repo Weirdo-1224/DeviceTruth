@@ -164,5 +164,5 @@ SMTP 使用环境配置及有界连接/读取超时。记录 PENDING、ACCEPTED_
 - 复用 `GeneralAgentApiTest`、`ResourceAuthorizationTest`、`AgentLifecycleTest`、`AgentStreamTest`、`RunRecoveryTest`、`KnowledgeSearchTest` 及现有上传测试；新增针对 auth/workspace/discussion/material 的明确断言，不建设独立测试平台。
 - 真实 PG 测两用户/两团队/个人隔离、并发普通提交、同三元组补答竞争、最后管理员并发、索引/发布失败、重启恢复和撤权中的 SSE/worker。协议替身测试状态机，不能当作真实模型结果。
 - 前端沿用 Vitest、类型检查、构建及既有浏览器恢复脚本；浏览器使用两个独立账号上下文，覆盖权限失效、旧空间晚到、讨论引用、原轮补答、无候选和候选结果、报告打印及草稿保留。
-- 真实产品验收默认外部模型，记录模型名、Run ID、实际引用、DB/embedding/资料性质；邮件用实际收件测试，HTTPS/Cookie/CSRF 独立检查。缺任一实际环境只阻塞对应验收，不改用模拟并标通过。
+- 真实产品验收默认外部模型，记录模型名、Run ID、实际引用、DB/embedding/资料性质；邮件使用真实 SMTP 核对服务接受/失败与链接生成，邀请和重置协议流程在隔离环境验证，实际收件由用户后续人工复核。HTTPS/Cookie/CSRF 独立检查。缺任一实际环境只阻塞对应验收，不改用模拟并标通过。
 - 本次计划不执行业务测试。原型历史 47+2 项检查及失败修复见 `prototype/review-history.md`；用户认可原型不等于后端已验收。

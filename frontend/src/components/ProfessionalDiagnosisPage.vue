@@ -25,6 +25,7 @@ const props = defineProps<{
   referencesNote: string
   skillLabel: string | null
   failureText?: string
+  embedded?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -88,7 +89,7 @@ const claimGroups = computed(() => [
 <template>
   <section class="pro-layout" :class="{ 'pro-page': run }" :data-run-status="run?.status" :data-run-id="run?.runId">
     <!-- 顶部任务与运行信息：任务卡承载目标、资产与时点 -->
-    <header v-if="run" class="pro-task-card">
+    <header v-if="run && !embedded" class="pro-task-card">
       <div class="pro-task-main">
         <p class="pro-breadcrumb">专业诊断 <span aria-hidden="true">›</span> 调查任务</p>
         <p class="pro-task-eyebrow">INVESTIGATION / 诊断工作台</p>
@@ -110,7 +111,7 @@ const claimGroups = computed(() => [
       </div>
     </header>
 
-    <div class="pro-workspace" :class="{ 'pro-workspace-empty': !run }">
+    <div class="pro-workspace" :class="{ 'pro-workspace-empty': !run, 'pro-workspace-embedded': embedded }">
       <nav v-if="run" class="pro-nav pro-card" aria-label="调查方向">
         <h3>调查方向 <span>{{ model.claims.length }} 项</span></h3>
         <p class="hint">按线索查看判断、证据与待核验项。</p>
@@ -217,7 +218,7 @@ const claimGroups = computed(() => [
         <slot name="timeline" />
       </div>
 
-    <aside v-if="run" class="pro-sources pro-card">
+    <aside v-if="run && !embedded" class="pro-sources pro-card">
       <h3 id="pro-evidence-context">证据与上下文 <span>{{ registeredReferences.length }} 条来源</span></h3>
       <p class="hint">来源可追溯，不等同于现场核验。</p>
       <section v-if="terminal" data-testid="registered-sources">
@@ -286,6 +287,9 @@ const claimGroups = computed(() => [
 
 .pro-workspace { display: grid; grid-template-columns: 216px minmax(0, 1fr) 236px; gap: 14px; align-items: start; }
 .pro-workspace-empty { grid-template-columns: minmax(0, 1fr); max-width: 820px; width: 100%; margin: 0 auto; }
+.pro-workspace-embedded { grid-template-columns: minmax(0, 1fr); max-width: none; margin: 0; }
+.pro-workspace-embedded .pro-center { grid-row: 1; }
+.pro-workspace-embedded .pro-nav { grid-row: 2; }
 .pro-center { display: grid; gap: 12px; min-width: 0; }
 .pro-nav, .pro-sources { min-width: 0; padding: 16px 14px; }
 .pro-nav > h3, .pro-sources > h3 { margin: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
