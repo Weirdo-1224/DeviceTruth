@@ -989,6 +989,7 @@ onUnmounted(() => {
       <span class="pro-mode-chip">专业工作台</span>
       <nav class="pro-topnav" aria-label="专业工作台导航">
         <a href="#pro-workspace" aria-current="page">诊断工作台</a>
+        <a href="/admin/users">平台管理</a>
         <button type="button" @click="openRecord('pro-assets')">设备资料</button>
         <button type="button" @click="openRecord('pro-events')">调查过程</button>
         <button type="button" @click="showReport">报告与历史</button>

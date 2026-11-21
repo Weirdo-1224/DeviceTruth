@@ -88,8 +88,9 @@ public class ProductAuthConfiguration {
         return serializer;
     }
     @Bean SecurityFilterChain productSecurity(HttpSecurity http, HttpSessionSecurityContextRepository contexts,
-            HttpSessionCsrfTokenRepository csrf) throws Exception {
-        http.securityContext(c -> c.securityContextRepository(contexts))
+            HttpSessionCsrfTokenRepository csrf, HikariDataSource source) throws Exception {
+        http.addFilterBefore(new io.devicetruth.admin.api.AdminGateFilter(new JdbcTemplate(source)), org.springframework.security.web.csrf.CsrfFilter.class)
+                .securityContext(c -> c.securityContextRepository(contexts))
                 .csrf(c -> c.csrfTokenRepository(csrf))
                 .requestCache(c -> c.disable())
                 .formLogin(c -> c.disable()).httpBasic(c -> c.disable()).logout(c -> c.disable())
@@ -105,6 +106,7 @@ public class ProductAuthConfiguration {
                         .requestMatchers("/api/auth/me", "/api/auth/logout", "/api/workspaces", "/api/workspaces/**", "/api/invitations/accept").authenticated()
                         // 全链 scope 尚未接通时拒绝资源访问，不把新账号落入固定演示归属。
                         .requestMatchers("/api/conversations", "/api/conversations/**", "/api/runs/**", "/api/assets", "/api/assets/**", "/api/files", "/api/files/**", "/api/knowledge/**").authenticated()
+                        .requestMatchers("/api/admin/**").authenticated()
                         .requestMatchers("/api/**", "/actuator/**").denyAll().anyRequest().permitAll());
         return http.build();
     }

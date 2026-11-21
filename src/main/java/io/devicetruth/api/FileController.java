@@ -42,8 +42,8 @@ public class FileController {
             @RequestParam(required = false) String title, @RequestParam(defaultValue = "general") String domain,
             @RequestParam(required = false) String deviceModel, @RequestParam(defaultValue = "1.0") String version,
             @RequestParam(defaultValue = "SIMULATED") String dataNature) {
-        return ResponseEntity.accepted().body(files.upload(ownerId(), projectId(), file,
-                new FileUploadService.ImportMetadata(title, domain, deviceModel, version, dataNature)));
+        return ResponseEntity.accepted().body(files.uploadForActor(ownerId(), projectId(), file,
+                new FileUploadService.ImportMetadata(title, domain, deviceModel, version, dataNature),access.current().actorUserId()));
     }
 
     @GetMapping("/api/files/{fileId}")
@@ -53,7 +53,7 @@ public class FileController {
 
     @PostMapping("/api/files/{fileId}/retry")
     ResponseEntity<FileUploadService.FileView> retry(@PathVariable UUID fileId) {
-        return ResponseEntity.accepted().body(files.retry(ownerId(), projectId(), fileId));
+        return ResponseEntity.accepted().body(files.retryForActor(ownerId(), projectId(), fileId,access.current().actorUserId()));
     }
 
     @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)

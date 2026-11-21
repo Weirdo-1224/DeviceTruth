@@ -56,6 +56,33 @@ public final class FileUploadService implements AutoCloseable {
     private final KnowledgeImportService imports;
     private final Path storageRoot;
     private final ThreadPoolExecutor executor;
+    private final String importWorker="import-"+UUID.randomUUID();
+    private final Set<UUID> dispatched=java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Set<UUID> redispatchRequested=java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Object dispatchLock=new Object();
+    private final java.util.concurrent.ScheduledExecutorService managedRecovery=java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r->{var t=new Thread(r,"managed-import-recovery");t.setDaemon(true);return t;});
+    private final java.util.concurrent.atomic.AtomicBoolean recoveryStarted=new java.util.concurrent.atomic.AtomicBoolean();
+    public boolean managedLeaseValid(UUID file) {
+        return jdbc.queryForObject("SELECT count(*) FROM dt_admin_import WHERE file_id=? AND import_lease_owner=? AND import_lease_until>clock_timestamp()",Long.class,file,importWorker)==1;
+    }
+    public void recoverManagedImports() {
+        jdbc.query("SELECT f.id,f.owner_id,f.project_id FROM dt_uploaded_file f JOIN dt_admin_import m ON m.file_id=f.id WHERE f.parse_status IN ('UPLOADED','PROCESSING') AND (m.import_lease_until IS NULL OR m.import_lease_until<clock_timestamp()) ORDER BY m.created_at,f.id LIMIT 100",(rs,n)->{dispatch(rs.getString("owner_id"),rs.getString("project_id"),rs.getObject("id",UUID.class));return 0;});
+    }
+    public void enableManagedRecovery() {
+        if(recoveryStarted.compareAndSet(false,true))managedRecovery.scheduleWithFixedDelay(()->{try{recoverManagedImports();}catch(RuntimeException e){LOG.error("Managed import recovery failed: {}",e.getClass().getSimpleName());}},1,10,TimeUnit.SECONDS);
+    }
+
+    private java.util.function.Consumer<UUID> managedGuard = id -> {};
+    private java.util.function.BiConsumer<UUID,String> managedCompletion = (id,code) -> {};
+    public void managedAuthorization(java.util.function.Consumer<UUID> guard,java.util.function.BiConsumer<UUID,String> completion) {
+        managedGuard=java.util.Objects.requireNonNull(guard);managedCompletion=java.util.Objects.requireNonNull(completion);
+    }
+    private void afterCommit(Runnable action) {
+        if(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive())
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization(){@Override public void afterCommit(){action.run();}});
+        else action.run();
+    }
+
 
     public FileUploadService(JdbcTemplate jdbc, KnowledgeImportService imports, Path storageRoot,
                              int maxConcurrentImports, int maxQueue) {
@@ -77,6 +104,16 @@ public final class FileUploadService implements AutoCloseable {
     }
 
     public FileView upload(String ownerId, String projectId, MultipartFile file, ImportMetadata metadata) {
+        return uploadInternal(ownerId,projectId,file,metadata,null);
+    }
+    public FileView uploadForActor(String ownerId,String projectId,MultipartFile file,ImportMetadata metadata,UUID actor) {
+        var tx=new org.springframework.transaction.support.TransactionTemplate(new org.springframework.jdbc.datasource.DataSourceTransactionManager(java.util.Objects.requireNonNull(jdbc.getDataSource())));
+        return tx.execute(t->{lockActiveActor(actor);return uploadInternal(ownerId,projectId,file,metadata,actor);});
+    }
+    private void lockActiveActor(UUID actor) {
+        if(jdbc.queryForList("SELECT id FROM dt_account WHERE id=? AND status='ACTIVE' FOR SHARE",UUID.class,actor).isEmpty())throw new KnowledgeException("AUTHORIZATION_REVOKED",403);
+    }
+    private FileView uploadInternal(String ownerId, String projectId, MultipartFile file, ImportMetadata metadata,UUID actor) {
         if (file == null || file.isEmpty()) throw KnowledgeException.invalid("file is required");
         String filename = file.getOriginalFilename();
         String mime = file.getContentType() == null ? "" : file.getContentType().toLowerCase(Locale.ROOT);
@@ -110,15 +147,19 @@ public final class FileUploadService implements AutoCloseable {
             jdbc.update("""
                     INSERT INTO dt_uploaded_file(id,owner_id,project_id,path_key,original_name,mime,checksum,byte_size,
                         parse_status,created_at,import_title,import_domain,import_device_model,import_version,
-                        import_data_nature)
-                    VALUES (?,?,?,?,?,?,?,?,'UPLOADED',?,?,?,?,?,?)
+                        import_data_nature,uploaded_by_user_id,uploaded_by_status_version)
+                    VALUES (?,?,?,?,?,?,?,?,'UPLOADED',?,?,?,?,?,?,?,?)
                     """, id, ownerId, projectId, "knowledge/" + id, request.filename(), request.mimeType(), checksum,
                     bytes.length, Timestamp.from(Instant.now()), request.title(), request.domain(),
-                    request.deviceModel(), request.version(), request.dataNature());
+                    request.deviceModel(), request.version(), request.dataNature(),actor,actor==null?null:jdbc.queryForObject("SELECT status_version FROM dt_account WHERE id=?",Long.class,actor));
         } catch (RuntimeException e) {
             try { Files.deleteIfExists(target); } catch (IOException ignored) { }
             throw e;
         }
+        if(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive())
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization(){
+                @Override public void afterCompletion(int completion){if(completion==STATUS_ROLLED_BACK)try{Files.deleteIfExists(target);}catch(IOException ignored){}}
+            });
         if (pdf) {
             // PDF 明确状态：保留文件记录供界面展示与审计，但不解析、不切片、不产生页码；
             // 需要 OCR/版面解析能力后才可能转成可检索文档（05-02 记录为未实现能力，绝不伪造正文）。
@@ -126,7 +167,7 @@ public final class FileUploadService implements AutoCloseable {
                     + "mime='application/pdf' WHERE id=? AND owner_id=? AND project_id=?", id, ownerId, projectId);
             return require(ownerId, projectId, id);
         }
-        dispatch(ownerId, projectId, id);
+        afterCommit(() -> dispatch(ownerId, projectId, id));
         return require(ownerId, projectId, id);
     }
 
@@ -137,12 +178,26 @@ public final class FileUploadService implements AutoCloseable {
     }
 
     public FileView retry(String ownerId, String projectId, UUID fileId) {
+        if(jdbc.queryForObject("SELECT count(*) FROM dt_admin_import WHERE file_id=?",Long.class,fileId)>0)throw KnowledgeException.notFoundOrDenied();
+        return retryManaged(ownerId,projectId,fileId);
+    }
+    public FileView retryForActor(String ownerId,String projectId,UUID fileId,UUID actor) {
+        var tx=new org.springframework.transaction.support.TransactionTemplate(new org.springframework.jdbc.datasource.DataSourceTransactionManager(java.util.Objects.requireNonNull(jdbc.getDataSource())));
+        return tx.execute(t->{
+            lockActiveActor(actor);
+            if(jdbc.queryForObject("SELECT count(*) FROM dt_admin_import WHERE file_id=?",Long.class,fileId)>0)throw KnowledgeException.notFoundOrDenied();
+            jdbc.queryForList("SELECT id FROM dt_uploaded_file WHERE id=? AND owner_id=? AND project_id=? FOR UPDATE",fileId,ownerId,projectId);
+            var result=retryManaged(ownerId,projectId,fileId);
+            jdbc.update("UPDATE dt_uploaded_file SET uploaded_by_user_id=?,uploaded_by_status_version=(SELECT status_version FROM dt_account WHERE id=?) WHERE id=?",actor,actor,fileId);return result;
+        });
+    }
+    public FileView retryManaged(String ownerId, String projectId, UUID fileId) {
         FileView file = require(ownerId, projectId, fileId);
         if (!Set.of("FAILED", "OCR_REQUIRED").contains(file.parseStatus()))
             throw new KnowledgeException("IMPORT_NOT_RETRYABLE", 409);
         jdbc.update("UPDATE dt_uploaded_file SET parse_status='UPLOADED',parse_error=NULL WHERE id=? AND owner_id=? AND project_id=?",
                 fileId, ownerId, projectId);
-        dispatch(ownerId, projectId, fileId);
+        afterCommit(() -> dispatch(ownerId, projectId, fileId));
         return require(ownerId, projectId, fileId);
     }
 
@@ -150,6 +205,7 @@ public final class FileUploadService implements AutoCloseable {
     public List<Map<String, Object>> readyAttachments(String ownerId, String projectId,
                                                        List<Map<String, Object>> attachments) {
         if (attachments == null || attachments.isEmpty()) return List.of();
+        if(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) KnowledgeVisibilityGuard.lockScope(jdbc,ownerId,projectId,false);
         if (attachments.size() > 5) throw new GeneralAgentService.RequestFailure("INVALID_ATTACHMENT", 400);
         List<Map<String, Object>> validated = new ArrayList<>();
         for (Map<String, Object> attachment : attachments) {
@@ -159,7 +215,8 @@ public final class FileUploadService implements AutoCloseable {
             try { fileId = UUID.fromString(String.valueOf(attachment.get("fileId"))); }
             catch (RuntimeException e) { throw new GeneralAgentService.RequestFailure("INVALID_ATTACHMENT", 400); }
             FileView file = require(ownerId, projectId, fileId);
-            if (!"PARSED".equals(file.parseStatus()) || file.documentId() == null)
+            if (!"PARSED".equals(file.parseStatus()) || file.documentId() == null ||
+                    jdbc.queryForObject("SELECT count(*) FROM dt_knowledge_document d JOIN dt_uploaded_file f ON f.id=d.source_file_id WHERE d.id=? AND d.availability='ENABLED' AND d.ingest_status='READY' AND (f.usage_scope='SPACE_KNOWLEDGE' OR EXISTS(SELECT 1 FROM dt_knowledge_publication p WHERE p.document_id=d.id))",Long.class,file.documentId())!=1)
                 throw new GeneralAgentService.RequestFailure("ATTACHMENT_NOT_READY", 409);
             validated.add(Map.of("fileId", file.fileId().toString(), "documentId", file.documentId().toString(),
                     "title", file.title(), "version", file.documentVersion(), "domain", file.domain()));
@@ -168,15 +225,27 @@ public final class FileUploadService implements AutoCloseable {
     }
 
     private void dispatch(String ownerId, String projectId, UUID fileId) {
+        synchronized(dispatchLock){if(!dispatched.add(fileId)){redispatchRequested.add(fileId);return;}}
         try {
-            executor.execute(() -> process(ownerId, projectId, fileId));
+            executor.execute(() -> {try{process(ownerId,projectId,fileId);}finally{
+                boolean again;synchronized(dispatchLock){dispatched.remove(fileId);again=redispatchRequested.remove(fileId);}
+                if(again && jdbc.queryForObject("SELECT count(*) FROM dt_uploaded_file WHERE id=? AND parse_status IN ('UPLOADED','PROCESSING')",Long.class,fileId)>0)dispatch(ownerId,projectId,fileId);
+            }});
         } catch (RejectedExecutionException e) {
+            synchronized(dispatchLock){dispatched.remove(fileId);redispatchRequested.remove(fileId);}
             fail(ownerId, projectId, fileId, "IMPORT_QUEUE_REJECTED");
         }
     }
 
     private void process(String ownerId, String projectId, UUID fileId) {
+        boolean managed=jdbc.queryForObject("SELECT count(*) FROM dt_admin_import WHERE file_id=?",Long.class,fileId)>0;
+        java.util.concurrent.ScheduledFuture<?> heartbeat=null;
+        if(managed) {
+            if(jdbc.update("UPDATE dt_admin_import SET import_lease_owner=?,import_lease_until=clock_timestamp()+interval '60 seconds' WHERE file_id=? AND (import_lease_until IS NULL OR import_lease_until<clock_timestamp())",importWorker,fileId)!=1)return;
+            heartbeat=managedRecovery.scheduleWithFixedDelay(()->{try{jdbc.update("UPDATE dt_admin_import SET import_lease_until=clock_timestamp()+interval '60 seconds' WHERE file_id=? AND import_lease_owner=? AND import_lease_until>clock_timestamp()",fileId,importWorker);}catch(RuntimeException e){LOG.error("Managed import heartbeat failed: {}",e.getClass().getSimpleName());}},15,15,TimeUnit.SECONDS);
+        }
         try {
+            managedGuard.accept(fileId);
             var rows = jdbc.queryForList("SELECT path_key,import_title,import_domain,import_device_model,"
                     + "import_version,import_data_nature,original_name FROM dt_uploaded_file "
                     + "WHERE id=? AND owner_id=? AND project_id=? AND parse_status IN ('UPLOADED','PROCESSING')",
@@ -202,10 +271,17 @@ public final class FileUploadService implements AutoCloseable {
         } catch (IOException | RuntimeException e) {
             LOG.error("Markdown import failed: fileId={} type={}", fileId, e.getClass().getSimpleName());
             fail(ownerId, projectId, fileId, "IMPORT_FAILED");
+        } finally {
+            if(heartbeat!=null)heartbeat.cancel(false);
+            if(managed)jdbc.update("UPDATE dt_admin_import SET import_lease_owner=NULL,import_lease_until=NULL,updated_at=clock_timestamp() WHERE file_id=? AND import_lease_owner=?",fileId,importWorker);
         }
     }
 
     private void fail(String ownerId, String projectId, UUID fileId, String code) {
+        var owners=jdbc.queryForList("SELECT import_lease_owner FROM dt_admin_import WHERE file_id=?",String.class,fileId);
+        if(!owners.isEmpty() && owners.getFirst()!=null && !owners.getFirst().equals(importWorker))return;
+        if(jdbc.queryForObject("SELECT count(*) FROM dt_uploaded_file WHERE id=? AND parse_status IN ('UPLOADED','PROCESSING')",Long.class,fileId)==0)return;
+        managedCompletion.accept(fileId,code);
         // PDF 等“需要 OCR/版面解析”的明确状态与普通解析失败分开：重试后仍保持该状态，不产生正文/页码
         boolean requiresOcr = "OCR_REQUIRED".equals(code) || "PDF_NOT_SUPPORTED".equals(code);
         jdbc.update("UPDATE dt_uploaded_file SET parse_status=?,parse_error=? WHERE id=? AND owner_id=? AND project_id=?",
@@ -223,5 +299,5 @@ public final class FileUploadService implements AutoCloseable {
         catch (NoSuchAlgorithmException e) { throw new IllegalStateException("SHA-256 unavailable"); }
     }
 
-    @Override public void close() { executor.shutdownNow(); }
+    @Override public void close() { executor.shutdownNow();managedRecovery.shutdownNow(); }
 }

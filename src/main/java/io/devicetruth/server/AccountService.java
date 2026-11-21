@@ -49,17 +49,17 @@ public final class AccountService {
     public AccountView authenticate(String email, String password) {
         String normalized = normalizeEmail(email);
         validatePassword(password);
-        var rows = jdbc.query("SELECT id,email,display_name,password_hash FROM dt_account WHERE email=?",
+        var rows = jdbc.query("SELECT id,email,display_name,password_hash,status FROM dt_account WHERE email=?",
                 (rs, row) -> new Object[]{new AccountView(rs.getObject("id", UUID.class), rs.getString("email"),
-                        rs.getString("display_name")), rs.getString("password_hash")}, normalized);
+                        rs.getString("display_name")), rs.getString("password_hash"), rs.getString("status")}, normalized);
         String encoded = rows.isEmpty() ? dummyPassword : (String) rows.getFirst()[1];
         boolean matches = passwords.matches(password, encoded);
-        if (rows.isEmpty() || !matches) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS");
+        if (rows.isEmpty() || !matches || !"ACTIVE".equals(rows.getFirst()[2])) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS");
         return (AccountView) rows.getFirst()[0];
     }
 
     public AccountView get(UUID user) {
-        return jdbc.query("SELECT id,email,display_name FROM dt_account WHERE id=?",
+        return jdbc.query("SELECT id,email,display_name FROM dt_account WHERE id=? AND status='ACTIVE'",
                 (rs, row) -> new AccountView(rs.getObject("id", UUID.class), rs.getString("email"), rs.getString("display_name")), user)
                 .stream().findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED"));
     }

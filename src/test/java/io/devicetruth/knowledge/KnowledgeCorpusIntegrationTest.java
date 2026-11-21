@@ -26,9 +26,19 @@ class KnowledgeCorpusIntegrationTest {
         ds=new DriverManagerDataSource(base+database,user,password);jdbc=new JdbcTemplate(ds);tx=new TransactionTemplate(new DataSourceTransactionManager(ds));
         Flyway.configure().dataSource(ds).target("17").load().migrate();
         deterministic=new DeterministicEmbeddingClient(EmbeddingProfile.of("deterministic","","","deterministic-char2",1024,"1",1000,false));
-        legacy=new KnowledgeImportService(jdbc,tx,deterministic,480).importDocument("legacy-owner","legacy-project",new KnowledgeImportService.ImportRequest("旧手册","industrial",null,"legacy-1","legacy.md","text/markdown","# 原文\n\n旧证据必须保留。","SIMULATED")).document().documentId();
+        legacy=plantV17LegacyDocument();
         Flyway.configure().dataSource(ds).load().migrate();
         docs=KnowledgeCorpus.load(Path.of("datasets/knowledge")).subList(0,3);
+    }
+    /** V17 夹具只使用 V17 列；不能让当前导入器在未迁移数据库上忽略可用性约束。 */
+    private static UUID plantV17LegacyDocument() {
+        UUID file=UUID.randomUUID(),document=UUID.randomUUID();
+        String content="旧证据必须保留。",checksum=KnowledgeCorpus.hash(content);
+        jdbc.update("INSERT INTO dt_uploaded_file(id,owner_id,project_id,path_key,original_name,mime,checksum,byte_size,parse_status,created_at) VALUES (?,'legacy-owner','legacy-project',?,'legacy.md','text/markdown',?,?,'PARSED',now())",file,"knowledge/"+file,checksum,content.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+        jdbc.update("INSERT INTO dt_knowledge_document(id,owner_id,project_id,title,domain,doc_version,source_file_id,checksum,ingest_status,embedding_profile,embedding_model,embedding_dimension,chunking_profile,chunk_count,data_nature,created_at) VALUES (?,'legacy-owner','legacy-project','旧手册','industrial','legacy-1',?,?,'READY',?,?,1024,?,1,'SIMULATED',now())",document,file,checksum,deterministic.profile().profileVersion(),deterministic.profile().model(),KnowledgeChunker.PROFILE);
+        jdbc.update("INSERT INTO dt_knowledge_chunk(id,document_id,owner_id,project_id,chunk_no,content,section,embedding,embedding_profile) VALUES (?,?,'legacy-owner','legacy-project',1,?,'原文',?::vector,?)",UUID.randomUUID(),document,content,VectorLiteral.of(deterministic.embed(content)),deterministic.profile().profileVersion());
+        jdbc.update("INSERT INTO dt_knowledge_document_file VALUES (?,?,'legacy-owner','legacy-project')",file,document);
+        return document;
     }
     @AfterAll static void stop() throws Exception {
         if(database!=null)try(var c=java.sql.DriverManager.getConnection(base+"postgres",user,password);var s=c.createStatement()){s.execute("DROP DATABASE "+database+" WITH (FORCE)");}

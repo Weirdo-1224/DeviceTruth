@@ -27,6 +27,7 @@ public final class WorkspaceService {
     public WorkspaceView createTeam(UUID actor, String name) {
         authenticated(actor); String title = name(name);
         return transactions.execute(status -> {
+            lockActive(actor);
             UUID id = UUID.randomUUID();
             jdbc.update("INSERT INTO dt_workspace(id,kind,name,owner_id,project_id) VALUES (?,'TEAM',?,?,'default')", id, title, "workspace-" + id);
             jdbc.update("INSERT INTO dt_workspace_member(workspace_id,user_id,role) VALUES (?,?,'ADMIN')", id, actor);
@@ -62,7 +63,7 @@ public final class WorkspaceService {
         });
     }
     void lockManagedTeam(UUID actor, UUID workspace) {
-        authenticated(actor);
+        authenticated(actor);lockActive(actor);
         // 先验证可见性，避免未授权请求锁住其他团队；拿锁后再次授权以覆盖撤权竞态。
         scopes.resolve(actor, workspace);
         String kind = jdbc.queryForObject("SELECT kind FROM dt_workspace WHERE id=? FOR UPDATE", String.class, workspace);
@@ -75,6 +76,9 @@ public final class WorkspaceService {
         if ("ADMIN".equals(roles.getFirst()) && replacement != Role.ADMIN &&
                 jdbc.queryForObject("SELECT count(*) FROM dt_workspace_member WHERE workspace_id=? AND role='ADMIN'", Long.class, workspace) == 1)
             throw error(HttpStatus.CONFLICT, "LAST_WORKSPACE_ADMIN");
+    }
+    private void lockActive(UUID actor) {
+        if(jdbc.queryForList("SELECT id FROM dt_account WHERE id=? AND status='ACTIVE' FOR SHARE",UUID.class,actor).isEmpty())throw error(HttpStatus.UNAUTHORIZED,"ACCOUNT_DISABLED");
     }
     private static void authenticated(UUID actor) {
         if (actor == null) throw error(HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED");

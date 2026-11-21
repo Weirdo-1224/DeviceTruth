@@ -30,7 +30,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * legacy 诊断栈已移至 {@link LegacyConfiguration}（仅 {@code legacy} profile）。
  */
 @Configuration
-@Import(ProductConfiguration.class)
+@Import({ProductConfiguration.class, io.devicetruth.admin.application.AdminConfiguration.class})
 @ComponentScan(basePackages = "io.devicetruth.api")
 public class ServerConfiguration {
     /** HTTP 与模型协议共用严格 JSON 边界，避免转换或覆盖用户原文。 */

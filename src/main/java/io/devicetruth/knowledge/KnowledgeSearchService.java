@@ -355,6 +355,10 @@ public final class KnowledgeSearchService {
                   AND c.embedding_profile = ? AND d.embedding_profile = ?
                   AND c.embedding_profile = d.embedding_profile
                   AND d.embedding_model = ? AND d.embedding_dimension = ?
+ AND d.availability='ENABLED'
+              AND EXISTS(SELECT 1 FROM dt_uploaded_file vf WHERE vf.id=d.source_file_id AND
+                (vf.usage_scope='SPACE_KNOWLEDGE' OR EXISTS(SELECT 1 FROM dt_knowledge_publication vp
+                  JOIN dt_workspace vw ON vw.id=vp.workspace_id WHERE vp.document_id=d.id AND vw.owner_id=d.owner_id AND vw.project_id=d.project_id)))
                   AND (d.ingest_status = 'READY' OR (d.ingest_status = 'STAGED' AND d.release_id IS NOT NULL))
                 """);
         if (filters.domain() != null) sql.append(" AND d.domain = ?");

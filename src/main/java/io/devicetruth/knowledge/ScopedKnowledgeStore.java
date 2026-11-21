@@ -29,6 +29,10 @@ public final class ScopedKnowledgeStore {
             WHERE c.owner_id=? AND c.project_id=? AND c.embedding_profile=? AND d.embedding_profile=?
               AND d.embedding_model=? AND d.embedding_dimension=?
               AND c.release_id IS NOT DISTINCT FROM d.release_id
+ AND d.availability='ENABLED'
+              AND EXISTS(SELECT 1 FROM dt_uploaded_file vf WHERE vf.id=d.source_file_id AND
+                (vf.usage_scope='SPACE_KNOWLEDGE' OR EXISTS(SELECT 1 FROM dt_knowledge_publication vp
+                  JOIN dt_workspace vw ON vw.id=vp.workspace_id WHERE vp.document_id=d.id AND vw.owner_id=d.owner_id AND vw.project_id=d.project_id)))
               AND (d.ingest_status='READY' OR (d.ingest_status='STAGED' AND d.release_id IS NOT NULL))
               AND (d.release_id IS NULL OR EXISTS (SELECT 1 FROM dt_knowledge_release r
                 WHERE r.id=d.release_id AND r.owner_id=d.owner_id AND r.project_id=d.project_id
