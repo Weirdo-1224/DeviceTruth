@@ -81,6 +81,7 @@ public class ProductConfiguration {
     GeneralAgentService generalAgentService(HikariDataSource source, Environment environment,
             @Qualifier("agentCapabilityGateway") CapabilityGateway gateway,
             ServerIdentity identity, SkillRuntime skills,
+            io.devicetruth.knowledge.KnowledgeTools knowledgeTools,
             io.devicetruth.knowledge.FileUploadService fileUploadService,
             io.devicetruth.application.agent.RunEventStreamService runEventStreamService,
             @Value("${devicetruth.agent.reasoner:scripted}") String reasonerName,
@@ -99,7 +100,7 @@ public class ProductConfiguration {
                 transactions,
                 identity, gateway, observedReasoners(agentReasoners(agentReasonerName(environment, reasonerName)), observers.getIfAvailable()), maxConcurrentRuns,
                 maxQueue, workerEnabled, fileUploadService, leaseSeconds, maxRecoveryAttempts, skills,
-                runEventStreamService::publish, recoveryScanLimit);
+                runEventStreamService::publish, recoveryScanLimit).withToolPreparation(knowledgeTools::prepare);
     }
 
     private static Supplier<GeneralReasoner> observedReasoners(Supplier<GeneralReasoner> factory,

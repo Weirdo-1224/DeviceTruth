@@ -30,7 +30,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * legacy 诊断栈已移至 {@link LegacyConfiguration}（仅 {@code legacy} profile）。
  */
 @Configuration
-@Import(ProductConfiguration.class)
+@Import({ProductConfiguration.class, io.devicetruth.admin.application.AdminConfiguration.class})
 @ComponentScan(basePackages = "io.devicetruth.api")
 public class ServerConfiguration {
     /** HTTP 与模型协议共用严格 JSON 边界，避免转换或覆盖用户原文。 */
@@ -152,7 +152,21 @@ public class ServerConfiguration {
             Environment environment) {
         return new KnowledgeSearchService(knowledgeJdbc, knowledgeTransactions, productEmbeddingClient,
                 Integer.parseInt(environment.getProperty("devicetruth.knowledge.max-chunks", "5")),
-                Double.parseDouble(environment.getProperty("devicetruth.knowledge.min-similarity", "0.45")));
+                Double.parseDouble(environment.getProperty("devicetruth.knowledge.min-similarity", "0.45")))
+                .withHybrid(new io.devicetruth.knowledge.HybridRetrievalService(knowledgeJdbc, knowledgeTransactions,
+                        productEmbeddingClient, new io.devicetruth.knowledge.LuceneBm25Index(
+                                Path.of(environment.getProperty("devicetruth.knowledge.lucene-root", "outputs/knowledge-lucene"))),
+                        new io.devicetruth.knowledge.HybridRetrievalService.Configuration(
+                                Integer.parseInt(environment.getProperty("devicetruth.knowledge.candidates", "20")),
+                                Integer.parseInt(environment.getProperty("devicetruth.knowledge.rrf-k", "60")),
+                                Double.parseDouble(environment.getProperty("devicetruth.knowledge.dense-weight", "1.0")),
+                                Double.parseDouble(environment.getProperty("devicetruth.knowledge.bm25-weight", "1.0")),
+                                Double.parseDouble(environment.getProperty("devicetruth.knowledge.identifier-weight", "1.0")),
+                                Double.parseDouble(environment.getProperty("devicetruth.knowledge.dense-min-similarity", "0.45")),
+                                io.devicetruth.knowledge.HybridRetrievalService.DenseSearch.valueOf(
+                                        environment.getProperty("devicetruth.knowledge.dense-search", "EXACT").toUpperCase(java.util.Locale.ROOT)),true)),
+                        io.devicetruth.knowledge.HybridRetrievalService.Mode.valueOf(
+                                environment.getProperty("devicetruth.knowledge.mode", "LEGACY").toUpperCase(java.util.Locale.ROOT)));
     }
 
     /** 服务端知识工具合同；02-02 起注册进产品 Agent 网关（agentCapabilityGateway）。 */

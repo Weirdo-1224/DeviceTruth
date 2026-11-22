@@ -1,4 +1,8 @@
 target/
+outputs/
+.DS_Store
+*.backup
+*.dump
 outputs/runs/
 outputs/baselines/
 outputs/validation/

@@ -205,7 +205,7 @@ class GeneralAgentFlowTest {
         assertThat(catalog).allMatch(ToolSpec::readOnly);
         ToolSpec search = catalog.stream().filter(spec -> "search_knowledge".equals(spec.name())).findFirst().orElseThrow();
         assertThat(search.requiredParameters()).containsExactly("query");
-        assertThat(search.allowedParameters()).containsExactlyInAnyOrder("query", "filters", "limit");
+        assertThat(search.allowedParameters()).containsExactlyInAnyOrder("query", "filters", "limit", "mode");
         @SuppressWarnings("unchecked")
         Map<String, Object> properties = (Map<String, Object>) search.inputSchema().get("properties");
         assertThat(properties).containsKey("filters");

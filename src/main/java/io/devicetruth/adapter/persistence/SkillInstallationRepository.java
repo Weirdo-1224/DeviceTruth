@@ -55,15 +55,19 @@ public final class SkillInstallationRepository {
                     SELECT id, conversation_id, owner_id, project_id FROM dt_agent_run
                     WHERE id=? AND owner_id=? AND project_id=? AND version=? AND status='RUNNING'
                       AND cancel_requested_at IS NULL AND lease_expires_at > clock_timestamp() FOR NO KEY UPDATE
+                ), current_installation AS MATERIALIZED (
+                    SELECT * FROM dt_skill_installation
+                    WHERE owner_id=? AND project_id=? AND skill_id=? AND version=? AND enabled FOR SHARE
                 )
                 INSERT INTO dt_run_skill(run_id,conversation_id,owner_id,project_id,skill_id,version,devices,tasks,
                     allowed_tools,document_digest)
                 SELECT r.id,r.conversation_id,r.owner_id,r.project_id,i.skill_id,i.version,?,?,?,?
-                FROM current_run r JOIN dt_skill_installation i
+                FROM current_run r JOIN current_installation i
                     ON i.owner_id=r.owner_id AND i.project_id=r.project_id
                 WHERE i.skill_id=? AND i.version=? AND i.enabled AND ?::text[] <@ i.allowed_tools
                 ON CONFLICT (run_id) DO NOTHING
                 """, runId, identity.ownerId(), identity.projectId(), leaseVersion,
+                identity.ownerId(), identity.projectId(), selection.skillId(), selection.version(),
                 selection.devices().toArray(String[]::new), selection.tasks().toArray(String[]::new),
                 selection.allowedTools().toArray(String[]::new), selection.documentDigest(), selection.skillId(),
                 selection.version(), selection.allowedTools().toArray(String[]::new)) == 1;

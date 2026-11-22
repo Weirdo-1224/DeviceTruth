@@ -69,6 +69,14 @@ public final class KnowledgeImportService {
     private final TransactionTemplate transactions;
     private final EmbeddingClient embeddings;
     private final int maxChunkChars;
+    private java.util.function.Consumer<UUID> managedGuard=id->{};
+    private java.util.function.Consumer<UUID> managedSuccess=id->{};
+    public void managedAuthorization(java.util.function.Consumer<UUID> guard,java.util.function.Consumer<UUID> success) {managedGuard=guard;managedSuccess=success;}
+    private ImportResult managedWrite(UUID file,java.util.function.Supplier<ImportResult> write) {
+        if(file!=null)managedGuard.accept(file);
+        var result=write.get();if(file!=null)managedSuccess.accept(file);return result;
+    }
+
 
     public KnowledgeImportService(JdbcTemplate jdbc, TransactionTemplate transactions,
                                   EmbeddingClient embeddings, int maxChunkChars) {
@@ -83,6 +91,11 @@ public final class KnowledgeImportService {
         if (!MARKDOWN_MIME.contains(mime) && !"text/plain".equals(mime))
             throw new KnowledgeException("UNSUPPORTED_FILE_TYPE", 415);
         return importBytes(ownerId, projectId, request, request.content().getBytes(StandardCharsets.UTF_8), null);
+    }
+
+    /** Frozen professional corpora reuse this module's JDBC, transactions and production embedding client. */
+    public KnowledgeCorpusService corpus() {
+        return new KnowledgeCorpusService(jdbc, transactions, embeddings);
     }
 
     /** 兼容不指定文件的上传调用；新上传应传入自己的 fileId，保证文档关联和 PARSED 同事务完成。 */
@@ -111,6 +124,7 @@ public final class KnowledgeImportService {
         Checks.id(projectId, "projectId");
         if (bytes.length == 0) throw KnowledgeException.invalid("document has no indexable text");
         if (bytes.length > MAX_DOCUMENT_BYTES) throw new KnowledgeException("DOCUMENT_TOO_LARGE", 413);
+        if(sourceFileId!=null)managedGuard.accept(sourceFileId);
         String checksum = sha256(bytes);
         // 维度先于复用判断：配置维度与索引列不符时必须失败，不能因为文档已存在而返回 reused=true。
         int dimension = KnowledgeIndexSchema.vectorDimension(jdbc);
@@ -121,16 +135,16 @@ public final class KnowledgeImportService {
             if (sourceFileId == null && isKnowledge(existing.documentId())) return new ImportResult(existing,true);
             if (sourceFileId == null) return transactions.execute(status -> reuseForFile(ownerId,projectId,
                     ensureUploadedFile(ownerId,projectId,request,checksum,bytes.length),existing));
-            return transactions.execute(status -> reuseForFile(ownerId, projectId, sourceFileId, existing));
+            return transactions.execute(status -> managedWrite(sourceFileId,()->reuseForFile(ownerId, projectId, sourceFileId, existing)));
         }
         List<KnowledgeChunker.Chunk> chunks = MARKDOWN_MIME.contains(request.mimeType())
                 ? new DocumentParser().parseMarkdown(bytes, maxChunkChars)
                 : KnowledgeChunker.of(request.content(), false, maxChunkChars);
         if (chunks.isEmpty()) throw KnowledgeException.invalid("document has no indexable text");
         List<float[]> vectors = new ArrayList<>(chunks.size());
-        for (KnowledgeChunker.Chunk chunk : chunks) vectors.add(embed(chunk.content(), dimension));
-        return transactions.execute(status -> write(ownerId, projectId, request, checksum,
-                bytes.length, chunks, vectors, sourceFileId));
+        for (KnowledgeChunker.Chunk chunk : chunks) {if(sourceFileId!=null)managedGuard.accept(sourceFileId);vectors.add(embed(chunk.content(), dimension));}
+        return transactions.execute(status -> managedWrite(sourceFileId,()->write(ownerId, projectId, request, checksum,
+                bytes.length, chunks, vectors, sourceFileId)));
     }
 
     /** 读取文档元数据；不存在与无权统一 404，不泄漏其他 owner/project 是否存在。 */
@@ -156,17 +170,19 @@ public final class KnowledgeImportService {
         }
         UUID fileId = sourceFileId == null ? ensureUploadedFile(ownerId, projectId, request, checksum, byteSize)
                 : sourceFileId;
+        KnowledgeVisibilityGuard.lockScope(jdbc,ownerId,projectId,false);
+        boolean disabled=jdbc.queryForObject("SELECT count(*) FROM dt_knowledge_document WHERE owner_id=? AND project_id=? AND checksum=? AND availability='DISABLED'",Long.class,ownerId,projectId,checksum)>0;
         UUID documentId = UUID.randomUUID();
         Instant now = Instant.now();
         jdbc.update("""
                 INSERT INTO dt_knowledge_document(id,owner_id,project_id,title,domain,device_model,doc_version,
                     source_file_id,checksum,ingest_status,embedding_profile,embedding_model,embedding_dimension,
-                    chunking_profile,chunk_count,data_nature,created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,'READY',?,?,?,?,?,?,?)
+                    chunking_profile,chunk_count,data_nature,created_at,availability)
+                VALUES (?,?,?,?,?,?,?,?,?,'READY',?,?,?,?,?,?,?,?)
                 """, documentId, ownerId, projectId, request.title(), request.domain(), request.deviceModel(),
                 request.version(), fileId, checksum, embeddings.profile().profileVersion(),
                 embeddings.profile().model(), embeddings.profile().dimension(), KnowledgeChunker.PROFILE,
-                chunks.size(), request.dataNature(), Timestamp.from(now));
+                chunks.size(), request.dataNature(), Timestamp.from(now),disabled?"DISABLED":"ENABLED");
         for (int index = 0; index < chunks.size(); index++) {
             KnowledgeChunker.Chunk chunk = chunks.get(index);
             jdbc.update("""
@@ -189,8 +205,10 @@ public final class KnowledgeImportService {
     private void linkAndMarkParsed(String ownerId, String projectId, UUID fileId, UUID documentId) {
         jdbc.update("""
                 INSERT INTO dt_knowledge_document_file(file_id,document_id,owner_id,project_id)
-                VALUES (?,?,?,?)
+                VALUES (?,?,?,?) ON CONFLICT(file_id) DO NOTHING
                 """, fileId, documentId, ownerId, projectId);
+        if(jdbc.queryForObject("SELECT count(*) FROM dt_knowledge_document_file WHERE file_id=? AND document_id=? AND owner_id=? AND project_id=?",Long.class,fileId,documentId,ownerId,projectId)!=1)
+            throw new KnowledgeException("DOCUMENT_FILE_VERSION_CONFLICT",409);
         int updated = jdbc.update("""
                 UPDATE dt_uploaded_file SET parse_status='PARSED',parse_error=NULL
                 WHERE id=? AND owner_id=? AND project_id=?

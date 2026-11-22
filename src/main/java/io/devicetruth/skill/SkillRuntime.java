@@ -61,6 +61,9 @@ public final class SkillRuntime {
         return identity.equals(scope)?this:new SkillRuntime(registry,repository,scope,serverTools,defaults);
     }
 
+    public SkillRegistry registry() { return registry; }
+    public Set<String> serverTools() { return serverTools; }
+
     public SelectionView selection(UUID runId) {
         Selection selected = repository.selection(identity, runId);
         return selected == null ? null : new SelectionView(selected.skillId(), selected.version(),

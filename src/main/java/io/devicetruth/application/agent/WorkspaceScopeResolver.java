@@ -13,15 +13,17 @@ public final class WorkspaceScopeResolver {
 
     public AccessScope resolve(UUID authenticatedActor, UUID requestedWorkspace) {
         if (authenticatedActor == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        if (!Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM dt_account WHERE id=? AND status='ACTIVE')", Boolean.class, authenticatedActor)))
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "ACCOUNT_DISABLED");
         var scopes = jdbc.query("""
-                SELECT w.id,w.owner_id,w.project_id,m.role
-                FROM dt_workspace w JOIN dt_workspace_member m ON m.workspace_id=w.id
+                SELECT w.id,w.owner_id,w.project_id,m.role,a.status_version
+                FROM dt_workspace w JOIN dt_workspace_member m ON m.workspace_id=w.id JOIN dt_account a ON a.id=m.user_id AND a.status='ACTIVE'
                 WHERE m.user_id=? AND
                     ((?::uuid IS NOT NULL AND w.id=?::uuid) OR
                      (?::uuid IS NULL AND w.personal_user_id=?))
                 """, (rs, row) -> new AccessScope(authenticatedActor, rs.getObject("id", UUID.class),
                         AccessScope.Role.valueOf(rs.getString("role")),
-                        new ServerIdentity(rs.getString("owner_id"), rs.getString("project_id"))),
+                        new ServerIdentity(rs.getString("owner_id"), rs.getString("project_id")), rs.getLong("status_version")),
                 authenticatedActor, requestedWorkspace, requestedWorkspace, requestedWorkspace, authenticatedActor);
         if (scopes.size() != 1) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         return scopes.getFirst();

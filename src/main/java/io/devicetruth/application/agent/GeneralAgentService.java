@@ -10,6 +10,7 @@ import io.devicetruth.core.contract.AgentResult.Reference;
 import io.devicetruth.core.contract.AgentTaskInput.PendingQuestion;
 import io.devicetruth.core.contract.Checks;
 import io.devicetruth.core.reasoning.GeneralReasoner;
+import io.devicetruth.core.reasoning.ActionProposal;
 import io.devicetruth.core.reasoning.Reasoner;
 import io.devicetruth.core.runtime.TaskOrchestrator;
 import io.devicetruth.core.runtime.AgentExecutionCheckpoint;
@@ -103,6 +104,13 @@ public final class GeneralAgentService {
     private final ServerIdentity identity;
     private final CapabilityGateway gateway;
     private final Supplier<GeneralReasoner> reasoners;
+    private java.util.function.BiConsumer<ToolContext, ActionProposal.CallTool> toolPreparation;
+
+    public GeneralAgentService withToolPreparation(
+            java.util.function.BiConsumer<ToolContext, ActionProposal.CallTool> preparation) {
+        this.toolPreparation = java.util.Objects.requireNonNull(preparation);
+        return this;
+    }
     private final TaskOrchestrator orchestrator;
     private final boolean workerEnabled;
     private final ThreadPoolExecutor executor;
@@ -115,6 +123,7 @@ public final class GeneralAgentService {
     private final java.time.Duration leaseDuration;
     private final java.util.concurrent.atomic.AtomicBoolean recoveryScheduled =
             new java.util.concurrent.atomic.AtomicBoolean();
+    private final java.util.concurrent.atomic.AtomicBoolean revocationScheduled = new java.util.concurrent.atomic.AtomicBoolean();
     private final RunRecoveryService recovery;
     private final java.util.concurrent.ScheduledExecutorService heartbeats;
     /** 进程内待执行集合：周期扫描与提交路径并发时，不会向 executor 重复堆同一个 run。 */
@@ -224,6 +233,7 @@ public final class GeneralAgentService {
         this.pendingDispatch=root.pendingDispatch;
         this.conversations=root.conversations; this.runs=root.runs; this.transactions=root.transactions;
         this.identity=identity; this.accessScope=scope; this.gateway=root.gateway; this.reasoners=root.reasoners;
+        this.toolPreparation=root.toolPreparation;
         this.orchestrator=root.orchestrator; this.workerEnabled=root.workerEnabled; this.executor=root.executor;
         this.files=root.files; this.skills=root.skills==null?null:root.skills.forIdentity(identity);
         this.workerId=root.workerId; this.eventNotifier=root.eventNotifier; this.leaseDuration=root.leaseDuration;
@@ -236,12 +246,16 @@ public final class GeneralAgentService {
         AccessScope persisted=runs.persistedScope(runId);
         return persisted==null?this:forScope(persisted);
     }
+    private void lockCurrentActor() {
+        if(accessScope!=null && !runs.lockWriteAuthorization(accessScope))throw new RequestFailure("AUTHORIZATION_REVOKED",403);
+    }
     private void requireWrite() {
         if(accessScope!=null && !runs.canWrite(accessScope)) throw new RequestFailure("AUTHORIZATION_REVOKED",403);
     }
     public ConversationView create() {
         requireWrite();
         return transactions.execute(status -> {
+            lockCurrentActor();
             var created=conversations.create(identity, Instant.now());
             if(accessScope!=null) runs.bindConversation(created.conversationId(),accessScope);
             return created;
@@ -365,11 +379,18 @@ public final class GeneralAgentService {
         recoverQueued();
     }
 
+    private void reconcileRevokedAccounts() {
+        for(var revoked:runs.revokedRuns()) new GeneralAgentService(this,revoked.identity(),null).failQuietly(revoked.id(),"AUTHORIZATION_REVOKED");
+    }
     public void recoverQueued() {
+        reconcileRevokedAccounts();
         for(var storage: runs.recoveryIdentities(authenticatedRecoveryOnly ? null : identity)) {
             var scoped=new GeneralAgentService(this,storage,null);
             recovery.reconcile(storage,workerEnabled,scoped::dispatch);
         }
+        if(revocationScheduled.compareAndSet(false,true)) heartbeats.scheduleWithFixedDelay(()->{
+            try {reconcileRevokedAccounts();} catch(RuntimeException e){LOG.error("Account revocation reconciliation failed: {}",e.getClass().getSimpleName());}
+        },1000,1000,TimeUnit.MILLISECONDS);
         // 周期任务（P1-04 修复）：过期 RUNNING 回收 + 有界滞留 QUEUED 补派。
         // 必须整体捕获异常——scheduleWithFixedDelay 遇到未捕获异常会永久取消后续执行。
         if (workerEnabled && recoveryScheduled.compareAndSet(false, true))
@@ -428,6 +449,7 @@ public final class GeneralAgentService {
         Instant now = Instant.now();
         Instant asOf = input.asOf() == null ? now : input.asOf();
         RunView run = transactions.execute(status -> {
+            lockCurrentActor();
             var currentConversation = conversations.require(identity, conversationId, true);
             if (conversations.hasRequest(identity, conversationId, requestKey))
                 throw new RequestFailure("DUPLICATE_REQUEST", 409);
@@ -456,7 +478,9 @@ public final class GeneralAgentService {
         Instant now = Instant.now();
         Instant asOf = input.asOf() == null ? now : input.asOf();
         RunView run = transactions.execute(status -> {
+            lockCurrentActor();
             conversations.require(identity, conversationId, true);
+            validatedAttachments(input.attachments());
             RunRecord record = runs.load(identity, target.runId(), true);
             if (!record.conversationId().equals(conversationId)
                     || !"WAITING_FOR_USER".equals(record.status())
@@ -484,6 +508,12 @@ public final class GeneralAgentService {
         notifyEvents(run.runId());
         dispatch(run.runId());
         return run;
+    }
+
+    private List<Map<String, Object>> validatedAttachments(List<Map<String, Object>> attachments) {
+        if (attachments == null || attachments.isEmpty()) return List.of();
+        if (files == null) throw new RequestFailure("REFERENCES_NOT_AVAILABLE", 400);
+        return files.readyAttachments(identity.ownerId(), identity.projectId(), attachments);
     }
 
     private List<Map<String, Object>> validatedAttachments(UUID conversationId,List<Map<String, Object>> attachments) {
@@ -643,6 +673,7 @@ public final class GeneralAgentService {
                 return null;
             }
             var references = runs.references(identity, runId);
+            if (toolPreparation != null) reasoner = new PreparingToolReasoner(reasoner, toolContext, toolPreparation);
             var checkpoint = runs.checkpoint(identity, runId);
             var session = skills == null ? null : skills.open(gateway, toolContext, run.version() + 1);
             return orchestrator.runAgent(input, session == null ? gateway : session.gateway(),
@@ -838,8 +869,10 @@ public final class GeneralAgentService {
             transactions.execute(status -> {
                 if (claimed != null && !lockClaim(claimed)) return null;
                 RunRecord record = runs.load(identity, runId, true);
-                if (claimed != null || "QUEUED".equals(record.status())) {
-                    if (record.cancelRequested())
+                if (claimed != null || "QUEUED".equals(record.status()) || ("AUTHORIZATION_REVOKED".equals(code) && java.util.Set.of("RUNNING","WAITING_FOR_USER").contains(record.status()))) {
+                    if ("AUTHORIZATION_REVOKED".equals(code))
+                        runs.revokeAuthorization(identity,record,Instant.now());
+                    else if (record.cancelRequested())
                         runs.cancelRunning(identity, record, record.stepsUsed(), 0, 0, 0, Instant.now());
                     else
                         runs.fail(identity, record, code, record.stepsUsed(), 0, 0, 0, Instant.now());
@@ -862,6 +895,10 @@ public final class GeneralAgentService {
     }
 
     /** 关闭执行器与心跳（仅测试/停机用），不阻塞等待结果。 */
+    public record OperationalStatus(boolean workerEnabled,int activeWorkers,int queuedTasks,int queueCapacity) {}
+    public OperationalStatus operationalStatus() {
+        return new OperationalStatus(workerEnabled,executor.getActiveCount(),executor.getQueue().size(),executor.getQueue().size()+executor.getQueue().remainingCapacity());
+    }
     public void shutdown() {
         executor.shutdownNow();
         heartbeats.shutdownNow();

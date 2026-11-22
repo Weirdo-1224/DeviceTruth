@@ -6,4 +6,9 @@ public interface EmbeddingClient {
 
     /** 单段文本向量化；失败抛 {@link EmbeddingException}，不返回部分结果。 */
     float[] embed(String text);
+
+    /** Batch-capable providers override this; legacy clients retain ordered single-input behavior. */
+    default java.util.List<float[]> embedBatch(java.util.List<String> texts) {
+        return texts.stream().map(this::embed).toList();
+    }
 }

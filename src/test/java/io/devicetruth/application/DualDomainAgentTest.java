@@ -48,12 +48,12 @@ class DualDomainAgentTest {
         database = "devicetruth_test_" + UUID.randomUUID().toString().replace("-", "");
         databaseCommand("CREATE DATABASE ");
         app = new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--spring.datasource.url=" + jdbcBase + database, "--spring.datasource.username=" + username,
                 "--spring.datasource.password=" + password, "--devicetruth.agent.reasoner=scripted",
                 "--devicetruth.embedding.provider=deterministic", "--devicetruth.product.owner-id=" + OWNER,
                 "--devicetruth.product.project-id=" + PROJECT, "--devicetruth.assets.seed-fixtures=true",
-                "--devicetruth.auth.cookie-secure=false", "--devicetruth.assets.fixtures=" + ASSET);
+                "--devicetruth.assets.fixtures=" + ASSET);
         HTTP = io.devicetruth.server.AuthenticatedProductTestSupport.client(app);
         base = "http://127.0.0.1:" + ((WebServerApplicationContext) app).getWebServer().getPort();
         request(HttpMethod.POST, "/api/knowledge/documents", Map.of(

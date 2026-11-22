@@ -17,6 +17,7 @@ class InvestigationMaterialTest {
     private io.devicetruth.knowledge.FileUploadService files;
     private io.devicetruth.knowledge.KnowledgeImportService imports;
     private io.devicetruth.knowledge.KnowledgeSearchService searches;
+    private io.devicetruth.knowledge.EmbeddingClient embedding;
     @org.junit.jupiter.api.io.TempDir java.nio.file.Path storage;
     private AccessScope a,b;private final List<GeneralAgentService> services=new ArrayList<>();
     @BeforeEach void setup() throws Exception {
@@ -27,7 +28,7 @@ class InvestigationMaterialTest {
         b=scopes.resolve(accounts.register("b@example.com","long-password-123","乙").userId(),null);
     }
     @BeforeEach void materials() {
-        var embedding=new io.devicetruth.knowledge.DeterministicEmbeddingClient(io.devicetruth.knowledge.EmbeddingProfile.of("deterministic","","","deterministic-char2",1024,"1",1000,false));
+        embedding=new io.devicetruth.knowledge.DeterministicEmbeddingClient(io.devicetruth.knowledge.EmbeddingProfile.of("deterministic","","","deterministic-char2",1024,"1",1000,false));
         imports=new io.devicetruth.knowledge.KnowledgeImportService(jdbc,tx,embedding,1000);
         files=new io.devicetruth.knowledge.FileUploadService(jdbc,imports,storage,1,10);
         searches=new io.devicetruth.knowledge.KnowledgeSearchService(jdbc,tx,embedding,10,0);
@@ -54,6 +55,12 @@ class InvestigationMaterialTest {
         var aa=service(false,this::ask).forScope(a);var ca=aa.create().conversationId();var cb=aa.create().conversationId();
         var file=upload(a,ca,"检查.txt","控制信号 ABC-123 尚未检查");assertThat(file.parseStatus()).isEqualTo("PARSED");
         assertThat(file.uploadedByUserId()).isEqualTo(a.actorUserId());assertThat(file.usageScope()).isEqualTo("CONVERSATION_ATTACHMENT");
+        var attachment=List.<Map<String,Object>>of(Map.of("fileId",file.fileId().toString()));
+        assertThat(files.readyAttachments(a.storageIdentity().ownerId(),a.storageIdentity().projectId(),attachment)).hasSize(1);
+        jdbc.update("UPDATE dt_knowledge_document SET availability='DISABLED' WHERE id=?",file.documentId());
+        assertThatThrownBy(()->files.readyAttachments(a.storageIdentity().ownerId(),a.storageIdentity().projectId(),attachment))
+                .isInstanceOf(GeneralAgentService.RequestFailure.class).hasMessage("ATTACHMENT_NOT_READY");
+        jdbc.update("UPDATE dt_knowledge_document SET availability='ENABLED' WHERE id=?",file.documentId());
         assertThat(aa.read(ca).runs()).isEmpty();assertThat(files.content(a.storageIdentity().ownerId(),a.storageIdentity().projectId(),file.fileId()).content()).contains("尚未检查");
         var ra=aa.submit(ca,UUID.randomUUID(),input("分析"));var rb=aa.submit(cb,UUID.randomUUID(),input("其他调查"));
         for(var channel:io.devicetruth.knowledge.KnowledgeSearchService.SearchChannel.values()) {
@@ -83,6 +90,20 @@ class InvestigationMaterialTest {
         assertThat(files.knowledge(a,0,20)).hasSize(1);assertThat(files.attachments(a,ca,0,20)).hasSize(2);
         assertThatThrownBy(()->files.attachments(b,ca,0,20)).isInstanceOf(GeneralAgentService.RequestFailure.class);
         assertThatThrownBy(()->files.requireAttachmentConversation(a.storageIdentity().ownerId(),a.storageIdentity().projectId(),cb,List.of(Map.of("fileId",file.fileId().toString())))).isInstanceOf(io.devicetruth.knowledge.KnowledgeException.class);
+    }
+    @Test void hybridRetrievalKeepsPrivateAttachmentsScopedAndHonorsDisable() throws Exception {
+        var hybrid=new io.devicetruth.knowledge.HybridRetrievalService(jdbc,tx,embedding,
+                new io.devicetruth.knowledge.LuceneBm25Index(storage.resolve("index")),
+                io.devicetruth.knowledge.HybridRetrievalService.Configuration.DEFAULT);
+        searches.withHybrid(hybrid,io.devicetruth.knowledge.HybridRetrievalService.Mode.HYBRID_TRIPLE);
+        var aa=service(false,this::ask).forScope(a);var ca=aa.create().conversationId();var cb=aa.create().conversationId();
+        var file=upload(a,ca,"检查.txt","控制信号 ABC-123 尚未检查");
+        var ra=aa.submit(ca,UUID.randomUUID(),input("分析"));var rb=aa.submit(cb,UUID.randomUUID(),input("其他调查"));
+        assertThat(searches.search(context(ra),"ABC-123",null,10).hits()).isNotEmpty();
+        assertThat(searches.search(context(rb),"ABC-123",null,10).hits()).isEmpty();
+        jdbc.update("UPDATE dt_knowledge_document SET availability='DISABLED' WHERE id=?",file.documentId());
+        assertThat(searches.search(context(ra),"ABC-123",null,10).hits()).isEmpty();
+        assertThat(runs.references(a.storageIdentity(),ra.runId())).isNotEmpty();
     }
     @Test void pdfAndReadonlyDoNotPublishOrCreateRunsAndLegacyImportRemainsKnowledge() throws Exception {
         var aa=service(false,this::ask).forScope(a);var ca=aa.create().conversationId();

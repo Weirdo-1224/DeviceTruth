@@ -64,6 +64,7 @@ class PersistentConversationTest {
     private static ConfigurableApplicationContext open(String owner, String project) {
         var context = new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
                 "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+
                 "--logging.level.org.springframework=WARN", "--logging.level.org.springframework.jdbc=INFO",
                 "--devicetruth.core.reasoner=scripted", "--spring.datasource.url=" + databaseBaseUrl + databaseName,
                 "--spring.datasource.username=" + username, "--spring.datasource.password=" + password,
@@ -73,6 +74,7 @@ class PersistentConversationTest {
                 "--devicetruth.agent.worker-enabled=false");
         AuthenticatedProductTestSupport.register(context);
         return context;
+
     }
 
     private static String base(ConfigurableApplicationContext context) {
@@ -193,6 +195,7 @@ class PersistentConversationTest {
                 new io.devicetruth.adapter.persistence.ConversationRepository.SummaryCursor(Integer.parseInt(cursorParts[0]),
                         java.time.Instant.ofEpochSecond(Long.parseLong(cursorParts[1]), Integer.parseInt(cursorParts[2])), UUID.fromString(cursorParts[3])), 20);
         assertThat(directSecond.items()).hasSize(2);
+
         var second = Json.MAPPER.readTree(rest.getForObject(
                 base + "/api/conversations/summaries?limit=20&q=TARGET-&cursor=" + cursor, String.class));
         assertThat(second.path("items").size()).isEqualTo(2);

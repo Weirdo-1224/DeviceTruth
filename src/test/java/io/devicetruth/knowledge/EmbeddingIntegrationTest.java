@@ -47,7 +47,7 @@ class EmbeddingIntegrationTest {
         otherApp = open("owner-b");
         base = base(app);
         otherBase = base(otherApp);
-        rest = new TestRestTemplate();
+        rest = io.devicetruth.server.AuthenticatedProductTestSupport.client(app, otherApp);
         jdbc = new JdbcTemplate(app.getBean(HikariDataSource.class));
     }
 
@@ -70,7 +70,7 @@ class EmbeddingIntegrationTest {
 
     private static ConfigurableApplicationContext open(String owner) {
         return new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
-                "--spring.profiles.active=product", "--server.port=0", "--debug=false",
+                "--spring.profiles.active=product", "--devicetruth.auth.cookie-secure=false", "--server.port=0", "--debug=false",
                 "--logging.level.org.springframework=WARN", "--devicetruth.core.reasoner=scripted",
                 "--devicetruth.agent.worker-enabled=false",
                 "--spring.datasource.url=" + databaseBaseUrl + databaseName,

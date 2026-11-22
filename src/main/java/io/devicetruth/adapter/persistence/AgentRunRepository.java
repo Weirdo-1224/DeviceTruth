@@ -87,14 +87,24 @@ public final class AgentRunRepository {
 
     private final JdbcTemplate jdbc;
     public io.devicetruth.application.agent.AccessScope persistedScope(UUID runId) {
-        return jdbc.query("SELECT c.workspace_id,r.execution_actor_user_id,r.owner_id,r.project_id,COALESCE(m.role,'VIEWER') role FROM dt_agent_run r JOIN dt_conversation c ON c.id=r.conversation_id LEFT JOIN dt_workspace_member m ON m.workspace_id=c.workspace_id AND m.user_id=r.execution_actor_user_id WHERE r.id=? AND c.workspace_id IS NOT NULL AND r.execution_actor_user_id IS NOT NULL",
-                (rs,n)->new io.devicetruth.application.agent.AccessScope(rs.getObject("execution_actor_user_id",UUID.class),rs.getObject("workspace_id",UUID.class),io.devicetruth.application.agent.AccessScope.Role.valueOf(rs.getString("role")),new ServerIdentity(rs.getString("owner_id"),rs.getString("project_id"))),runId).stream().findFirst().orElse(null);
+        return jdbc.query("SELECT c.workspace_id,r.execution_actor_user_id,r.execution_actor_status_version,r.owner_id,r.project_id,COALESCE(m.role,'VIEWER') role FROM dt_agent_run r JOIN dt_conversation c ON c.id=r.conversation_id LEFT JOIN dt_workspace_member m ON m.workspace_id=c.workspace_id AND m.user_id=r.execution_actor_user_id WHERE r.id=? AND c.workspace_id IS NOT NULL AND r.execution_actor_user_id IS NOT NULL",
+                (rs,n)->new io.devicetruth.application.agent.AccessScope(rs.getObject("execution_actor_user_id",UUID.class),rs.getObject("workspace_id",UUID.class),io.devicetruth.application.agent.AccessScope.Role.valueOf(rs.getString("role")),new ServerIdentity(rs.getString("owner_id"),rs.getString("project_id")),rs.getLong("execution_actor_status_version")),runId).stream().findFirst().orElse(null);
     }
     public boolean canWrite(io.devicetruth.application.agent.AccessScope scope) {
-        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM dt_workspace_member WHERE workspace_id=? AND user_id=? AND role IN ('ADMIN','COLLABORATOR'))",Boolean.class,scope.workspaceId(),scope.actorUserId()));
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM dt_workspace_member m JOIN dt_account a ON a.id=m.user_id WHERE workspace_id=? AND user_id=? AND role IN ('ADMIN','COLLABORATOR') AND a.status='ACTIVE' AND a.status_version=?)",Boolean.class,scope.workspaceId(),scope.actorUserId(),scope.accountStatusVersion()));
     }
     public boolean lockWriteAuthorization(io.devicetruth.application.agent.AccessScope scope) {
-        return !jdbc.queryForList("SELECT user_id FROM dt_workspace_member WHERE workspace_id=? AND user_id=? AND role IN ('ADMIN','COLLABORATOR') FOR SHARE",UUID.class,scope.workspaceId(),scope.actorUserId()).isEmpty();
+        return !jdbc.queryForList("SELECT user_id FROM dt_workspace_member m JOIN dt_account a ON a.id=m.user_id WHERE workspace_id=? AND user_id=? AND role IN ('ADMIN','COLLABORATOR') AND a.status='ACTIVE' AND a.status_version=? FOR SHARE OF m,a",UUID.class,scope.workspaceId(),scope.actorUserId(),scope.accountStatusVersion()).isEmpty();
+    }
+    public record RevokedRun(UUID id, ServerIdentity identity) {}
+    public List<RevokedRun> revokedRuns() {
+        return jdbc.query("""
+                SELECT r.id,r.owner_id,r.project_id FROM dt_agent_run r JOIN dt_conversation c ON c.id=r.conversation_id
+                JOIN dt_account a ON a.id=r.execution_actor_user_id
+                WHERE c.workspace_id IS NOT NULL AND r.status IN ('QUEUED','RUNNING','WAITING_FOR_USER')
+                  AND (a.status<>'ACTIVE' OR a.status_version<>r.execution_actor_status_version)
+                ORDER BY r.requested_at,r.id LIMIT 100
+                """,(rs,n)->new RevokedRun(rs.getObject("id",UUID.class),new ServerIdentity(rs.getString("owner_id"),rs.getString("project_id"))));
     }
     public List<ServerIdentity> recoveryIdentities(ServerIdentity legacy) {
         var values=new java.util.ArrayList<ServerIdentity>();if(legacy!=null)values.add(legacy);
@@ -105,13 +115,13 @@ public final class AgentRunRepository {
         jdbc.update("UPDATE dt_conversation SET workspace_id=?,created_by_user_id=? WHERE id=?",scope.workspaceId(),scope.actorUserId(),id);
     }
     public void bindRun(UUID run,UUID message,io.devicetruth.application.agent.AccessScope scope) {
-        jdbc.update("UPDATE dt_agent_run SET initiated_by_user_id=?,execution_actor_user_id=? WHERE id=?",scope.actorUserId(),scope.actorUserId(),run);
+        jdbc.update("UPDATE dt_agent_run SET initiated_by_user_id=?,execution_actor_user_id=?,execution_actor_status_version=? WHERE id=?",scope.actorUserId(),scope.actorUserId(),scope.accountStatusVersion(),run);
         jdbc.update("UPDATE dt_message SET actor_user_id=? WHERE id=?",scope.actorUserId(),message);
         jdbc.update("UPDATE dt_run_event SET actor_user_id=? WHERE run_id=? AND type='RUN_QUEUED'",scope.actorUserId(),run);
         snapshot(run,scope);
     }
     public void bindReply(UUID run,UUID key,io.devicetruth.application.agent.AccessScope scope) {
-        jdbc.update("UPDATE dt_agent_run SET execution_actor_user_id=? WHERE id=?",scope.actorUserId(),run);
+        jdbc.update("UPDATE dt_agent_run SET execution_actor_user_id=?,execution_actor_status_version=? WHERE id=?",scope.actorUserId(),scope.accountStatusVersion(),run);
         jdbc.update("UPDATE dt_message SET actor_user_id=? WHERE request_key=? AND run_id=?",scope.actorUserId(),key,run);
         snapshot(run,scope);
     }
@@ -433,6 +443,15 @@ public final class AgentRunRepository {
      * RUNNING 只落取消标记，由持有租约的 worker 在每步之间协作式收尾，迟到响应只记录不提交。
      * 返回 1 表示请求已被接受（立即终态或已打标），0 表示 run 不存在或已是终态。
      */
+    public int revokeAuthorization(ServerIdentity identity, RunRecord run, Instant now) {
+        int changed=jdbc.update("""
+                UPDATE dt_agent_run SET status='FAILED',version=version+1,updated_at=?,finished_at=?,
+                  pending_question_id=NULL,pending_question=NULL,lease_owner=NULL,lease_expires_at=NULL,lease_heartbeat_at=NULL
+                WHERE id=? AND owner_id=? AND project_id=? AND version=? AND status IN ('QUEUED','RUNNING','WAITING_FOR_USER')
+                """,java.sql.Timestamp.from(now),java.sql.Timestamp.from(now),run.runId(),identity.ownerId(),identity.projectId(),run.version());
+        if(changed==1)appendEvent(identity,run.runId(),run.conversationId(),"RUN_FAILED",Map.of("code","AUTHORIZATION_REVOKED"),now);
+        return changed;
+    }
     public int requestCancel(ServerIdentity identity, UUID runId, Instant now) {
         UUID conversationId = jdbc.query("""
                 SELECT conversation_id FROM dt_agent_run
@@ -630,8 +649,9 @@ public final class AgentRunRepository {
         return latest == null ? 0 : latest;
     }
 
-    /** 把同归属的历史证据登记到当前 run；不存在或跨权统一拒绝，返回的新 ID 才能用于本次回答。 */
+    /** 把同归属且仍可用的历史证据登记到当前 run；知识启停与本轮材料资格必须同时满足。 */
     public UUID importReference(ServerIdentity identity, UUID sourceReferenceId, UUID targetRunId) {
+        io.devicetruth.knowledge.KnowledgeVisibilityGuard.lockScope(jdbc,identity.ownerId(),identity.projectId(),false);
         try {
             return jdbc.queryForObject("""
                     INSERT INTO dt_evidence_reference(id,run_id,conversation_id,owner_id,project_id,source_type,
@@ -644,7 +664,13 @@ public final class AgentRunRepository {
                     JOIN dt_evidence_reference source ON source.owner_id=target.owner_id
                       AND source.project_id=target.project_id
                     WHERE target.id=? AND target.owner_id=? AND target.project_id=? AND source.id=?
-                      AND (source.source_type<>'KNOWLEDGE_DOCUMENT' OR %s)
+                      AND (source.source_type<>'KNOWLEDGE_DOCUMENT' OR (%s AND EXISTS (
+                        SELECT 1 FROM dt_knowledge_chunk kc JOIN dt_knowledge_document kd ON kd.id=kc.document_id
+                        WHERE kc.id=source.chunk_id AND kd.id=source.source_id::uuid
+                          AND kd.availability='ENABLED' AND kd.ingest_status='READY'
+                          AND (kd.release_id IS NULL OR EXISTS (
+                            SELECT 1 FROM dt_knowledge_release kr WHERE kr.id=kd.release_id
+                              AND kr.active AND kr.status='READY' AND NOT kr.is_test)))))
                     ON CONFLICT (run_id,owner_id,project_id,chunk_id) DO UPDATE
                     SET retrieved_at=EXCLUDED.retrieved_at
                     RETURNING id

@@ -146,6 +146,7 @@ function selectSpace(event: Event): void {
         </section>
         <footer class="dt-side-footer">
           <button type="button" class="dt-link" @click="emit('navigate', 'create-team')">＋ 创建团队</button>
+          <a class="dt-link" href="/admin/users">平台管理</a>
           <small>{{ space.kind === 'TEAM' ? '本空间的调查对团队成员可见' : '个人调查仅自己可见' }}</small>
           <div class="dt-user">
             <span class="dt-avatar dt-me" aria-hidden="true">{{ account.displayName.slice(0, 1) }}</span>

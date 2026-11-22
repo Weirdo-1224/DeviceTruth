@@ -40,7 +40,7 @@ public class KnowledgeController {
 
     public record SearchRequest(UUID runId, String query,
                                 KnowledgeSearchService.KnowledgeFilters filters, Integer limit, String mode) {}
-    public record SearchResponse(UUID runId, List<KnowledgeSearchService.KnowledgeHit> hits, boolean empty) {}
+    public record SearchResponse(UUID runId, List<KnowledgeSearchService.KnowledgeHit> hits, boolean empty, io.devicetruth.knowledge.HybridRetrievalService.Trace trace) {}
     public record ToolCatalog(List<KnowledgeTools.ToolDescriptor> tools) {}
 
     private final KnowledgeImportService imports;
@@ -71,6 +71,11 @@ public class KnowledgeController {
         return imports.document(ownerId(), projectId(), documentId);
     }
 
+    @GetMapping("/documents/{documentId}/provenance")
+    java.util.Map<String,Object> provenance(@PathVariable UUID documentId) {
+        return imports.corpus().provenance(documentId, ownerId(), projectId());
+    }
+
     /** 暴露服务端工具合同，便于联调；本切片不宣称已接入 Runtime 工具目录。 */
     @GetMapping("/tools")
     ToolCatalog tools() { return new ToolCatalog(tools.descriptors()); }
@@ -79,15 +84,22 @@ public class KnowledgeController {
     SearchResponse search(@RequestBody SearchRequest request) {
         if (request.runId() == null) throw new IllegalArgumentException("runId is required");
         if (request.mode() != null && !request.mode().isBlank()) {
-            var channel = KnowledgeSearchService.SearchChannel.valueOf(request.mode().toUpperCase(java.util.Locale.ROOT));
+            String selectedMode = request.mode().toUpperCase(java.util.Locale.ROOT);
+            int bounded = request.limit() == null ? searches.maxHits() : request.limit();
+            if (java.util.Set.of("LEGACY","DENSE","BM25","IDENTIFIER","HYBRID_DUAL","HYBRID_TRIPLE").contains(selectedMode)) {
+                var result = searches.searchMode(context(request.runId()),request.query(),request.filters(),bounded,
+                        io.devicetruth.knowledge.HybridRetrievalService.Mode.valueOf(selectedMode));
+                return new SearchResponse(request.runId(),result.hits(),result.empty(),result.trace());
+            }
+            var channel = KnowledgeSearchService.SearchChannel.valueOf(selectedMode);
             int limit = request.limit() == null ? 5 : request.limit();
             var outcome = searches.searchChannel(context(request.runId()), request.query(), request.filters(), limit, channel);
-            return new SearchResponse(request.runId(), outcome.hits(), outcome.empty());
+            return new SearchResponse(request.runId(), outcome.hits(), outcome.empty(), outcome.trace());
         }
         var outcome = tools.search(new KnowledgeTools.SearchRequest(request.query(), request.filters(), request.limit()),
                 context(request.runId()));
         if (!outcome.success()) throw failure(outcome.error().code());
-        return new SearchResponse(request.runId(), outcome.hits(), outcome.empty());
+        return new SearchResponse(request.runId(), outcome.hits(), outcome.empty(), outcome.trace());
     }
 
     @GetMapping("/references/{referenceId}")

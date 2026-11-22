@@ -63,7 +63,7 @@ class KnowledgeImportTest {
         otherBase = base(otherApp);
         otherProjectBase = base(otherProjectApp);
         otherProfileBase = base(otherProfileApp);
-        rest = io.devicetruth.server.AuthenticatedProductTestSupport.client(app,otherApp,otherProjectApp,otherProfileApp);
+        rest = io.devicetruth.server.AuthenticatedProductTestSupport.client(app, otherApp, otherProjectApp, otherProfileApp);
         jdbc = new JdbcTemplate(app.getBean(HikariDataSource.class));
     }
 

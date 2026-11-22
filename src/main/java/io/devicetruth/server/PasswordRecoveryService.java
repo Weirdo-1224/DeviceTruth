@@ -42,7 +42,7 @@ public final class PasswordRecoveryService {
         random.nextBytes(bytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
         UUID reset = transactions.execute(status -> {
-            var users = jdbc.queryForList("SELECT id FROM dt_account WHERE email=? FOR UPDATE", UUID.class, normalized);
+            var users = jdbc.queryForList("SELECT id FROM dt_account WHERE email=? AND status='ACTIVE' FOR UPDATE", UUID.class, normalized);
             if (users.isEmpty()) return null;
             UUID user = users.getFirst();
             jdbc.update("DELETE FROM dt_password_reset WHERE user_id=?", user);
@@ -75,7 +75,7 @@ public final class PasswordRecoveryService {
             if (users.isEmpty()) throw invalidToken();
             UUID user = users.getFirst();
             // 同账号先锁账号，再消费凭证；多令牌/并发消费遵守相同锁顺序。
-            jdbc.queryForObject("SELECT id FROM dt_account WHERE id=? FOR UPDATE", UUID.class, user);
+            if (jdbc.queryForList("SELECT id FROM dt_account WHERE id=? AND status='ACTIVE' FOR UPDATE", UUID.class, user).isEmpty()) throw invalidToken();
             int consumed = jdbc.update("UPDATE dt_password_reset SET consumed_at=CURRENT_TIMESTAMP WHERE token_hash=? AND consumed_at IS NULL AND expires_at>CURRENT_TIMESTAMP", hash);
             if (consumed != 1) throw invalidToken();
             jdbc.update("UPDATE dt_account SET password_hash=? WHERE id=?", encoded, user);
