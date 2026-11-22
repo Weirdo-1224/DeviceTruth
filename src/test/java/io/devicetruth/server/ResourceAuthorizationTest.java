@@ -136,6 +136,15 @@ class ResourceAuthorizationTest {
         assertThat(defaultTime.getBody()).contains(ASSET);
     }
 
+    @Test
+    void assetSummariesExposeDisplayNameAndTypeWithinScopeOnly() {
+        var response = get(baseA, "/api/assets/summaries");
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getBody()).contains(ASSET);
+        // 概要按当前生效事实返回，跨身份的资产不能出现在别人的概要里
+        assertThat(get(baseB, "/api/assets/summaries").getBody()).doesNotContain(ASSET);
+    }
+
     // ---------- 跨身份：不同 owner ----------
 
     @Test

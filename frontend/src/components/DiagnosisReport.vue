@@ -83,8 +83,8 @@ function claimReferenceLabels(claim: ClaimView): string {
     <template v-else>
       <section class="report-conclusion">
         <h2>当前结论</h2>
-        <p class="report-short">{{ model.shortConclusion }}</p>
-        <p class="report-summary">{{ model.summary || '未返回摘要' }}</p>
+        <p class="report-short">{{ model.summary || '未返回摘要' }}</p>
+        <p class="report-summary">{{ model.shortConclusion }}</p>
       </section>
       <p v-if="model.safetyNotice" class="safety">{{ model.safetyNotice }}</p>
       <p v-if="model.dataNatureNote" class="report-note">{{ model.dataNatureNote }}</p>
@@ -139,9 +139,9 @@ function claimReferenceLabels(claim: ClaimView): string {
 .diagnosis-report { max-width: 1040px; margin: 0 auto; padding: 24px 28px; color: var(--text); }
 .report-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap;
   border-bottom: 1px solid var(--line); padding-bottom: 16px; }
-.report-eyebrow { margin: 0 0 5px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: 0.07em; }
+.report-eyebrow { margin: 0 0 5px; color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: 0.07em; }
 .report-header h1 { margin: 0; font-size: 24px; }
-.report-run { margin: 6px 0 0; color: var(--text-3); font-size: 11px; overflow-wrap: anywhere; }
+.report-run { margin: 6px 0 0; color: var(--text-3); font-size: 12px; overflow-wrap: anywhere; }
 .pro-report-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .report-meta { padding: 14px 0; }
 .report-meta dl { display: grid; gap: 6px; margin: 0; }
@@ -150,14 +150,14 @@ function claimReferenceLabels(claim: ClaimView): string {
 .report-meta dd { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
 .report-conclusion { border-radius: 12px; background: var(--soft); padding: 14px 16px; }
 .report-conclusion h2, .report-section h2, .report-state h2 { margin: 0 0 8px; font-size: 16px; color: var(--accent-2); }
-.report-short { margin: 0 0 8px; font-size: 18px; font-weight: 730; line-height: 1.5; }
+.report-short { margin: 0 0 8px; font-size: 21px; font-weight: 600; line-height: 1.5; }
 .report-summary { margin: 0; color: var(--text-2); line-height: 1.7; white-space: pre-wrap; }
 .report-section { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
 .report-section h3 { margin: 10px 0 5px; font-size: 13px; color: var(--text); }
 .report-section ol, .report-section ul { margin: 0; padding-left: 22px; color: var(--text-2); line-height: 1.65; }
 .report-section li + li { margin-top: 5px; }
 .report-claims li { overflow-wrap: anywhere; }
-.certainty { display: inline-block; border-radius: 999px; padding: 1px 8px; margin-right: 5px; font-size: 11px;
+.certainty { display: inline-block; border-radius: 999px; padding: 1px 8px; margin-right: 5px; font-size: 12px;
   color: var(--accent-2); background: var(--soft); }
 .certainty.possible { color: var(--warn); background: var(--warn-bg); }
 .report-citations { color: var(--accent-2); white-space: nowrap; }

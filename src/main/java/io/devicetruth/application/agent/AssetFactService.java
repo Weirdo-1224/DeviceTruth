@@ -15,6 +15,7 @@ import io.devicetruth.core.contract.Checks;
 import java.time.Instant;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -124,6 +125,56 @@ public final class AssetFactService {
         Checks.id(projectId, "projectId");
         return jdbc.query("SELECT id FROM dt_asset WHERE owner_id=? AND project_id=? ORDER BY id",
                 (r, n) -> r.getString(1), ownerId, projectId);
+    }
+
+    /**
+     * 档案页概要：一次查询带出每台设备的展示名、种类与型号。
+     * 展示名优先取别名/描述快照，缺失时回退资产编号；型号与种类取当前生效的最新事实，缺失为 null。
+     */
+    public List<AssetSummary> summaries(String ownerId, String projectId) {
+        Checks.id(ownerId, "ownerId");
+        Checks.id(projectId, "projectId");
+        List<String> ids = assets(ownerId, projectId);
+        if (ids.isEmpty()) return List.of();
+        List<AttributeValue> values = jdbc.query("""
+                SELECT DISTINCT ON (c.asset_id, c.attribute) c.asset_id, c.attribute, c.value
+                FROM dt_asset_configuration c
+                WHERE c.owner_id=? AND c.project_id=?
+                  AND c.attribute IN ('deviceType','vehicleAlias','registeredModel','registryModelSnapshot',
+                                      'registryDescriptionSnapshot','expected_profinet_name','configured_device_name')
+                  AND c.valid_from<=now() AND (c.valid_to IS NULL OR c.valid_to>now())
+                ORDER BY c.asset_id, c.attribute, c.valid_from DESC
+                """, (r, n) -> new AttributeValue(r.getString(1), r.getString(2), r.getString(3)),
+                ownerId, projectId);
+        Map<String, Map<String, String>> byAsset = new java.util.HashMap<>();
+        for (AttributeValue value : values)
+            byAsset.computeIfAbsent(value.assetId(), key -> new java.util.HashMap<>()).put(value.attribute(), value.value());
+        return ids.stream().map(id -> {
+            Map<String, String> attributes = byAsset.getOrDefault(id, Map.of());
+            String displayName = firstNonBlank(attributes.get("vehicleAlias"), attributes.get("registryDescriptionSnapshot"),
+                    attributes.get("expected_profinet_name"), attributes.get("configured_device_name"));
+            String model = firstNonBlank(attributes.get("registeredModel"), attributes.get("registryModelSnapshot"));
+            String deviceType = attributes.get("deviceType");
+            return new AssetSummary(id, displayName == null ? "" : displayName,
+                    deviceType == null ? "" : deviceType, model == null ? "" : model);
+        }).toList();
+    }
+
+    private static String firstNonBlank(String... candidates) {
+        for (String candidate : candidates) if (candidate != null && !candidate.isBlank()) return candidate;
+        return null;
+    }
+
+    private record AttributeValue(String assetId, String attribute, String value) {}
+
+    /** 设备档案概要视图：编号 + 展示名 + 种类 + 型号，空串表示该维度没有已登记事实。 */
+    public record AssetSummary(String assetId, String displayName, String deviceType, String model) {
+        public AssetSummary {
+            Checks.required(assetId, "assetId");
+            displayName = displayName == null ? "" : displayName;
+            deviceType = deviceType == null ? "" : deviceType;
+            model = model == null ? "" : model;
+        }
     }
 
 }

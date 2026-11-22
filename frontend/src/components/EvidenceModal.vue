@@ -110,16 +110,18 @@ onUnmounted(closeNative)
         </button>
       </header>
       <h4 class="modal-title">《{{ reference.title }}》</h4>
+      <section class="modal-excerpt">
+        <h4>关键内容摘录</h4>
+        <p>{{ reference.excerpt || '（该引用未提供摘录）' }}</p>
+      </section>
+      <details class="modal-metadata"><summary>来源版本、定位与标识</summary>
       <dl class="modal-rows">
         <div v-for="[label, value] in rows(reference)" :key="label">
           <dt>{{ label }}</dt>
           <dd>{{ value }}</dd>
         </div>
       </dl>
-      <section class="modal-excerpt">
-        <h4>关键内容摘录</h4>
-        <p>{{ reference.excerpt || '（该引用未提供摘录）' }}</p>
-      </section>
+      </details>
       <footer class="modal-foot">
         <button type="button" class="secondary" @click="requestClose">关闭</button>
       </footer>
@@ -152,4 +154,6 @@ onUnmounted(closeNative)
 .modal-foot .secondary { border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2);
   color: var(--text-2); padding: 7px 14px; font-weight: 600; cursor: pointer; }
 .modal-hint { margin-top: 12px; font-size: 11px; color: var(--text-3); }
+.modal-metadata { margin-top: 16px; font-size: 13px; }
+.modal-metadata summary { cursor: pointer; margin-bottom: 12px; color: var(--text-2); }
 </style>

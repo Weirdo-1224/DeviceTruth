@@ -6,7 +6,7 @@ const emit = defineEmits<{ openReference: [referenceId: string] }>()
 
 <template>
   <section class="answer-review" aria-label="逐项复核">
-    <p v-if="!review.available" class="review-history">{{ review.heading }}</p>
+    <p v-if="!review.available || !review.units.length" class="review-history">{{ review.heading }}</p>
     <details v-else :open="review.limited">
       <summary>{{ review.heading }}</summary>
       <ul>

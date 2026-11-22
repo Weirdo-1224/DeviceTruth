@@ -37,6 +37,12 @@ public class AssetController {
     @GetMapping("/api/assets")
     List<String> assets() { return service.assets(identity().ownerId(), identity().projectId()); }
 
+    /** 档案页概要：编号 + 展示名 + 种类 + 型号，与清单同一归属口径。 */
+    @GetMapping("/api/assets/summaries")
+    List<AssetFactService.AssetSummary> summaries() {
+        return service.summaries(identity().ownerId(), identity().projectId());
+    }
+
     /**
      * 资产身份、组件清单，以及指定时点的配置/维修事实组合视图。
      * 未登记或跨归属一律 404，不透露资产是否存在于其他身份下。

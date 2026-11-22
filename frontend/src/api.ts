@@ -361,6 +361,12 @@ export function listAssets(): Promise<string[]> {
   return call<string[]>('/api/assets', { method: 'GET' })
 }
 
+/** 设备档案概要：编号 + 展示名 + 种类 + 型号，空串表示该维度无已登记事实。 */
+export interface AssetSummary { assetId: string; displayName: string; deviceType: string; model: string }
+export function listAssetSummaries(): Promise<AssetSummary[]> {
+  return call<AssetSummary[]>('/api/assets/summaries', { method: 'GET' })
+}
+
 export function readConversation(conversationId: string): Promise<ConversationDetail> {
   return call<ConversationDetail>('/api/conversations/' + encodeURIComponent(conversationId), { method: 'GET' })
 }

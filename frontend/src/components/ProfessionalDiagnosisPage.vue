@@ -11,7 +11,7 @@ import type { RunView } from '../api'
  * 专业诊断工作台主体（单焦点工作区）。
  * 全部内容来自持久 Run 与已登记引用的确定性投影（diagnosisViewModel），不发起模型调用；
  * 判断选择只切换查看焦点（claimSelection，零请求）。
- * 完整结果、风险与本轮字段在默认状态可读；建议/不确定点/限制收进“完整结果”按需展开时仍保留原文。
+ * 结果摘要、判断与引用、本轮建议及边界分区展示；完整结果按需展开。
  * 证据详情统一经 EvidenceModal（由 App 挂载在状态分支之外）按需展开，三种终态共用。
  */
 const props = defineProps<{
@@ -76,8 +76,8 @@ const referenceCounts = computed(() => {
 })
 
 const roundFields = computed(() => [
-  { title: '不确定点', icon: 'activity', items: props.model.uncertainties },
-  { title: '限制', icon: 'warning', items: props.model.limitations }
+  { title: '仍需确认', icon: 'activity', items: props.model.uncertainties },
+  { title: '适用边界与数据限制', icon: 'warning', items: props.model.limitations }
 ])
 const claimGroups = computed(() => [
   { key: 'direct', title: '直接相关候选原因', claims: props.model.directCauses },
@@ -112,15 +112,6 @@ const claimGroups = computed(() => [
     </header>
 
     <div class="pro-workspace" :class="{ 'pro-workspace-empty': !run, 'pro-workspace-embedded': embedded }">
-      <nav v-if="run" class="pro-nav pro-card" aria-label="调查方向">
-        <h3>调查方向 <span>{{ model.claims.length }} 项</span></h3>
-        <p class="hint">按线索查看判断、证据与待核验项。</p>
-        <ClaimList v-for="group in claimGroups" :key="group.key" :title="group.title" :claims="group.claims"
-                   :selected-index="selectedIndex" :reference-counts="referenceCounts"
-                   @select="emit('select', $event)" />
-        <p v-if="!model.claims.length" class="hint">本轮暂无结构化判断。</p>
-        <button type="button" class="pro-outline pro-nav-history" @click="emit('history')"><UiIcon name="clock" /> 查看 Run 历史</button>
-      </nav>
       <div class="pro-center">
         <slot v-if="!run" name="empty" />
         <template v-else>
@@ -134,51 +125,58 @@ const claimGroups = computed(() => [
             <h3><UiIcon name="close" /> 本次调查已取消</h3>
             <p class="hint">取消前的消息、追问与事件仍可查看。</p>
           </section>
-          <section v-else-if="run.status !== 'COMPLETED'" class="pro-state pro-card" data-state="active">
+          <section v-else-if="run.status !== 'COMPLETED' && !embedded" class="pro-state pro-card" data-state="active">
             <h3><UiIcon name="activity" /> {{ statusLabel }}</h3>
             <p>{{ run.status === 'WAITING_FOR_USER' ? '请按待答问题补充信息，补答将继续原 Run。' : '正在排队或调查；连接中断后可重新同步持久状态。' }}</p>
           </section>
-      <div v-else class="pro-focus pro-card">
+      <div v-if="run.status === 'COMPLETED'" class="pro-focus">
         <section class="pro-headline" aria-labelledby="pro-short-conclusion">
-          <p class="pro-focus-eyebrow">CURRENT RESULT / 当前结果</p>
-          <h2 id="pro-short-conclusion">当前结论</h2>
-          <p class="pro-short-conclusion">{{ model.shortConclusion || '本轮未返回结构化结论' }}</p>
-          <div v-if="model.nextActions.length" class="pro-next-actions">
-            <h3>建议下一步</h3>
-            <ol>
-              <li v-for="(item, index) in model.nextActions" :key="index">{{ item }}</li>
-            </ol>
-            <p v-if="model.remainingSuggestionCount" class="hint">
-              另有 {{ model.remainingSuggestionCount }} 项建议，可在完整结果中查看。
-            </p>
-          </div>
+          <p class="pro-focus-eyebrow"><UiIcon name="spark" /> 调查结论 <span>执行已结束</span></p>
+          <h2 id="pro-short-conclusion" class="visually-hidden">当前结论</h2>
+          <p class="pro-short-conclusion">{{ model.summary || '本轮未返回摘要' }}</p>
+          <div class="pro-result-labels"><span v-if="model.review.limited" class="risk-chip">有限结果 · 需人工复核</span><span class="chip">{{ model.categoryLabel }}</span><span v-if="model.riskLevel" class="risk-chip" :class="model.riskLevel">风险 {{ model.riskLevel }}</span><span v-if="model.dataNature" class="chip">{{ model.dataNature }}</span></div>
+          <p class="hint">{{ model.shortConclusion }}</p>
         </section>
-        <div class="pro-focus-heading">
-          <span>CURRENT FOCUS / 当前调查焦点</span>
-          <span v-if="selectedIndex !== null">{{ String(selectedIndex + 1).padStart(2, '0') }} / {{ String(model.claims.length).padStart(2, '0') }}</span>
-        </div>
-        <ClaimDetail :claim="selectedClaim" @toggle-reference="emit('openReference', $event)" />
-        <div v-if="selectedIndex === null" class="conclusion">
-          <div>
-            <h3>本轮摘要</h3>
-            <p class="summary">{{ model.summary || '未返回摘要' }}</p>
+        <div class="pro-claim-workspace">
+          <nav v-if="model.claims.length" class="pro-nav pro-card" aria-label="调查方向">
+            <h3>判断导航 <span>{{ model.claims.length }} 项</span></h3>
+
+            <ClaimList v-for="group in claimGroups" :key="group.key" :title="group.title" :claims="group.claims"
+                       :selected-index="selectedIndex" :reference-counts="referenceCounts"
+                       @select="emit('select', $event)" />
+            <button type="button" class="pro-outline pro-nav-history" @click="emit('history')"><UiIcon name="clock" /> 查看 Run 历史</button>
+          </nav>
+          <div class="pro-claim-content">
+            <div class="pro-focus-heading">
+              <span>当前判断与依据</span>
+              <span v-if="selectedIndex !== null">{{ String(selectedIndex + 1).padStart(2, '0') }} / {{ String(model.claims.length).padStart(2, '0') }}</span>
+            </div>
+            <ClaimDetail :claim="selectedClaim" @toggle-reference="emit('openReference', $event)" />
           </div>
         </div>
-        <p v-if="model.safetyNotice" class="safety" role="note">{{ model.safetyNotice }}</p>
-        <p v-if="model.dataNatureNote" class="hint">{{ model.dataNatureNote }}</p>
-        <AnswerReviewPanel v-if="run?.result" :review="model.review" @open-reference="emit('openReference', $event)" />
-
-        <div class="pro-round-fields">
-          <div v-for="field in roundFields" :key="field.title" class="round-field">
-            <h4><UiIcon :name="field.icon" /> {{ field.title }}（本轮）</h4>
-            <p v-if="!field.items.length" class="hint">无</p>
-            <ul v-else>
-              <li v-for="(item, index) in field.items" :key="index">{{ item }}</li>
-            </ul>
+        <section class="pro-follow-through" aria-label="本轮建议与适用边界">
+          <div v-if="model.suggestions.length" class="pro-next-actions">
+            <h3><UiIcon name="tool" /> 本轮建议</h3>
+            <ol>
+              <li v-for="(item, index) in model.suggestions" :key="index">{{ item }}</li>
+            </ol>
           </div>
-          <p class="hint">{{ model.roundFieldsNote }}</p>
-        </div>
+          <p v-if="model.safetyNotice" class="safety" role="note">{{ model.safetyNotice }}</p>
+          <p v-if="model.dataNatureNote" class="hint">{{ model.dataNatureNote }}</p>
+          <AnswerReviewPanel v-if="run?.result" :review="model.review" @open-reference="emit('openReference', $event)" />
 
+          <div class="pro-round-fields">
+            <div v-for="field in roundFields" :key="field.title" class="round-field">
+              <h4><UiIcon :name="field.icon" /> {{ field.title }}（本轮）</h4>
+              <p v-if="!field.items.length" class="hint">本轮未列出</p>
+              <ul v-else>
+                <li v-for="(item, index) in field.items" :key="index">{{ item }}</li>
+              </ul>
+            </div>
+            <p class="hint">{{ model.roundFieldsNote }}</p>
+          </div>
+
+        </section>
         <button id="pro-full-report" type="button" class="text-button pro-expand" :aria-expanded="resultExpanded"
                 @click="resultExpanded = !resultExpanded">
           <UiIcon name="chevron" :class="{ rotated: resultExpanded }" />
@@ -214,8 +212,8 @@ const claimGroups = computed(() => [
         </div>
       </div>
         </template>
-        <slot name="composer" />
         <slot name="timeline" />
+        <slot name="composer" />
       </div>
 
     <aside v-if="run && !embedded" class="pro-sources pro-card">
@@ -259,105 +257,65 @@ const claimGroups = computed(() => [
 </template>
 
 <style scoped>
-.pro-layout { display: grid; gap: 20px; min-width: 0; }
-.pro-task-card {
-  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
-}
-.pro-task-main { min-width: min(340px, 100%); flex: 1; }
-.pro-breadcrumb { margin: 0 0 12px; color: var(--text-3); font-size: 11px; }
-.pro-breadcrumb span { margin: 0 6px; }
-.pro-task-eyebrow { margin: 0 0 5px; font-size: 11px; font-weight: 800; letter-spacing: 0.09em; color: var(--accent); }
-.pro-task-title { margin: 0; font-size: clamp(19px, 1.6vw, 24px); line-height: 1.35; color: var(--text); overflow-wrap: anywhere; }
-.pro-task-meta { margin: 6px 0 0; font-size: 12px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 4px 8px; }
-.pro-task-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; border-radius: 999px;
-  padding: 4px 11px; color: var(--accent-2); background: var(--soft); border: 1px solid var(--line); }
-.chip.completed { color: var(--ok); background: rgba(52, 211, 153, 0.12); }
-.chip.failed, .chip.cancelled { color: var(--danger); background: rgba(248, 113, 113, 0.12); }
-.chip.waiting_for_user { color: var(--warn); background: var(--warn-bg); }
-.risk-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; border-radius: 999px;
-  padding: 4px 11px; color: var(--warn); background: var(--warn-bg); border: 1px solid rgba(245, 181, 63, 0.4); }
-.risk-chip.LOW { color: var(--ok); background: rgba(52, 211, 153, 0.12); border-color: rgba(52, 211, 153, 0.35); }
-.risk-chip.HIGH, .risk-chip.PROHIBITED { color: var(--danger); background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.4); }
-.safety { margin: 0; background: var(--warn-bg); color: var(--warn); border: 1px solid rgba(245, 181, 63, 0.35);
-  border-radius: 10px; padding: 9px 12px; font-size: 13px; line-height: 1.55; }
-.pro-state { border: 1px solid var(--line-soft); border-radius: 14px; background: var(--panel); padding: 16px 18px; }
-.pro-state h3 { font-size: 15px; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; color: var(--text); }
-.pro-state p { margin: 0 0 6px; font-size: 13px; color: var(--text-2); line-height: 1.6; }
-
-.pro-workspace { display: grid; grid-template-columns: 216px minmax(0, 1fr) 236px; gap: 14px; align-items: start; }
-.pro-workspace-empty { grid-template-columns: minmax(0, 1fr); max-width: 820px; width: 100%; margin: 0 auto; }
-.pro-workspace-embedded { grid-template-columns: minmax(0, 1fr); max-width: none; margin: 0; }
-.pro-workspace-embedded .pro-center { grid-row: 1; }
-.pro-workspace-embedded .pro-nav { grid-row: 2; }
-.pro-center { display: grid; gap: 12px; min-width: 0; }
-.pro-nav, .pro-sources { min-width: 0; padding: 16px 14px; }
-.pro-nav > h3, .pro-sources > h3 { margin: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-  gap: 5px; font-size: 14px; color: var(--text); }
-.pro-nav > h3 span, .pro-sources > h3 span, .pro-focus-heading span + span {
-  border-radius: 99px; padding: 3px 8px; background: var(--soft); color: var(--accent-2); font-size: 11px;
-}
-.pro-nav-history { margin-top: 14px; width: 100%; }
-.pro-focus { min-width: 0; display: grid; gap: 10px; padding: 20px 22px; }
-.pro-headline { border-bottom: 1px solid var(--line); padding-bottom: 12px; }
-.pro-focus-eyebrow { margin: 0 0 4px; color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: 0.07em; }
-.pro-headline h2 { margin: 0 0 5px; font-size: 14px; color: var(--text); }
-.pro-short-conclusion { margin: 0; font-size: 18px; line-height: 1.55; font-weight: 730; color: var(--text); }
-.pro-next-actions { margin-top: 10px; border-radius: 10px; background: var(--soft); padding: 10px 12px; }
-.pro-next-actions h3 { margin: 0 0 5px; font-size: 13px; color: var(--accent-2); }
-.pro-next-actions ol { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.6; color: var(--text-2); }
-.pro-next-actions .hint { margin: 6px 0 0; }
-.pro-focus > .hint { margin: 0; }
-.pro-focus-heading { display: flex; justify-content: space-between; align-items: center; gap: 6px; color: var(--accent);
-  font-size: 11px; font-weight: 800; letter-spacing: 0.07em; }
-.conclusion { border-top: 1px solid var(--line); padding-top: 12px; }
-.conclusion h3 { color: var(--accent-2); font-size: 12px; margin: 0 0 4px; letter-spacing: 0.04em; }
-.summary { font-size: 13px; margin: 0; line-height: 1.6; color: var(--text-2); overflow-wrap: anywhere; }
-.pro-expand { justify-self: start; min-height: 32px; }
+.pro-layout, .pro-center { display: grid; gap: 20px; min-width: 0; }
+.pro-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 20px; align-items: start; }
+.pro-workspace-empty, .pro-workspace-embedded { grid-template-columns: minmax(0, 1fr); }
+.pro-focus { min-width: 0; display: grid; gap: 20px; }
+.pro-headline { padding: 22px 26px; border-radius: 12px; background: #edf3ff; border-left: 4px solid var(--accent); }
+.pro-focus-eyebrow { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; color: var(--accent); font-size: 13px; font-weight: 650; }
+.pro-focus-eyebrow span { margin-left: auto; color: var(--text-3); font-size: 12px; font-weight: 400; }
+.pro-short-conclusion { margin: 0; font-size: 22px; line-height: 1.55; font-weight: 650; color: var(--text); white-space: pre-wrap; }
+.pro-result-labels { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 8px; }
+.chip, .risk-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; border-radius: 6px; padding: 3px 9px; color: var(--accent); background: #ffffffb8; }
+.risk-chip { color: var(--warn); background: var(--warn-bg); font-weight: 600; }
+.risk-chip.LOW { color: var(--ok); background: #e8f4ed; }
+.risk-chip.HIGH, .risk-chip.PROHIBITED { color: var(--danger); background: #fff0ef; }
+.pro-headline > .hint { margin: 0; }
+.pro-claim-workspace { display: grid; grid-template-columns: 238px minmax(0, 1fr); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.pro-claim-workspace:not(:has(.pro-nav)) { grid-template-columns: minmax(0, 1fr); }
+.pro-claim-workspace .pro-nav { padding: 20px 14px; background: #f9fbff; border: 0; border-right: 1px solid var(--line); border-radius: 0; box-shadow: none; }
+.pro-nav > h3, .pro-sources > h3 { display: flex; justify-content: space-between; gap: 8px; margin: 0 0 18px; font-size: 14px; }
+.pro-nav > h3 span { color: var(--text-3); font-size: 12px; font-weight: 400; }
+.pro-nav-history { width: 100%; margin-top: 16px; }
+.pro-claim-content { min-width: 0; padding: 22px 24px; }
+.pro-focus-heading { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 16px; color: var(--text-3); font-size: 12px; }
+.pro-follow-through { padding: 22px 26px; border-top: 1px solid var(--line); }
+.pro-next-actions { padding: 0 0 18px; }
+.pro-next-actions h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 16px; }
+.pro-next-actions ol { margin: 0; padding-left: 23px; font-size: 14px; line-height: 1.8; color: var(--text-2); }
+.safety { margin: 0 0 12px; padding: 12px 14px; border-radius: 8px; color: var(--warn); background: var(--warn-bg); font-size: 14px; line-height: 1.65; }
+.pro-round-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+.round-field h4 { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; font-size: 14px; }
+.round-field ul { padding-left: 20px; margin: 0; color: var(--text-2); font-size: 14px; line-height: 1.75; }
+.pro-round-fields > .hint { grid-column: 1 / -1; margin: 0; font-size: 12px; }
+.pro-expand { justify-self: start; margin-left: 26px; font-size: 13px; }
 .pro-expand svg.rotated { transform: rotate(90deg); }
-.pro-round-fields { border-top: 1px solid var(--line); padding-top: 11px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
-.pro-round-fields > :first-child, .pro-round-fields > .hint { grid-column: 1 / -1; }
-.pro-round-fields .hint { margin: 0; }
-.round-field h4 { font-size: 13px; margin: 0 0 4px; display: flex; align-items: center; gap: 6px; color: var(--text); }
-.round-field ul, .round-field ol { margin: 0; padding-left: 20px; line-height: 1.6; font-size: 13px; color: var(--text-2); }
-.pro-full-result { border-top: 1px solid var(--line-soft); padding-top: 10px; }
-.pro-full-result h4, .pro-full-result h5 { font-size: 13px; color: var(--accent-2); margin: 0 0 8px; display: flex; gap: 6px; align-items: center; }
-.pro-full-result h5 { margin-top: 12px; }
-.pro-full-result dl { display: grid; gap: 6px; margin: 0; }
-.pro-full-result dl div { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; font-size: 12px; }
-.pro-full-result dt { color: var(--text-3); }
-.pro-full-result dd { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
-.pro-full-result ol, .pro-full-result ul { margin: 0; padding-left: 20px; line-height: 1.6; font-size: 13px; color: var(--text-2); }
-.pro-full-result li { overflow-wrap: anywhere; }
-.certainty { font-size: 11px; border-radius: 999px; padding: 1px 8px; font-weight: 700; margin-right: 4px;
-  color: var(--accent-2); background: var(--soft); border: 1px solid var(--line); }
-.certainty.possible { color: var(--warn); background: var(--warn-bg); border-color: rgba(245, 181, 63, 0.4); }
-
-.pro-context-status { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
-.pro-context-note { border-radius: 9px; background: var(--warn-bg); color: var(--warn); padding: 9px;
-  margin-bottom: 0; font-size: 11px; line-height: 1.6; }
-.pro-sources h4, .pro-sources h5 { font-size: 13px; color: var(--accent-2); margin: 0 0 8px; display: flex; gap: 6px; align-items: center; }
-.pro-sources h5 { margin-top: 10px; font-size: 12px; color: var(--text-2); }
-.citation-ref { cursor: pointer; display: block; width: 100%; text-align: left; border: 1px solid var(--line-soft);
-  border-radius: 10px; padding: 8px 11px; margin-bottom: 6px; background: var(--panel-2); color: var(--accent-2);
-  font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-.citation-ref small { display: block; font-weight: 400; color: var(--text-3); font-size: 11px; margin-top: 2px; }
-.citation-ref:hover { border-color: var(--primary); }
-.other-sources { margin-top: 10px; }
-.other-sources summary { cursor: pointer; color: var(--text-2); font-size: 12px; font-weight: 650; margin-bottom: 8px; }
-
-@media (max-width: 1360px) {
-  .pro-workspace:not(.pro-workspace-empty) { grid-template-columns: 205px minmax(0, 1fr); }
-  .pro-sources { grid-column: 1 / -1; }
+.pro-full-result { padding: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.pro-full-result h4, .pro-full-result h5 { font-size: 15px; margin: 14px 0 8px; }
+.pro-full-result dl { margin: 0; display: grid; gap: 8px; }
+.pro-full-result dl div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; font-size: 14px; }
+.pro-full-result dt { color: var(--text-3); } .pro-full-result dd { margin: 0; overflow-wrap: anywhere; }
+.pro-full-result ol, .pro-full-result ul { padding-left: 22px; font-size: 14px; line-height: 1.75; }
+.certainty { font-size: 12px; padding: 2px 7px; background: var(--soft); color: var(--accent); border-radius: 5px; }
+.certainty.possible { color: var(--warn); background: var(--warn-bg); }
+.pro-state { padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.pro-state h3 { margin: 0 0 10px; font-size: 20px; } .pro-state p { font-size: 14px; line-height: 1.7; }
+.pro-task-card { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.pro-task-title { font-size: 24px; margin: 0; } .pro-task-meta, .pro-breadcrumb { color: var(--text-3); font-size: 13px; }
+.pro-task-status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pro-task-eyebrow { color: var(--accent); font-size: 12px; }
+.pro-sources { padding: 20px; min-width: 0; } .pro-sources h4, .pro-sources h5 { margin: 16px 0 8px; font-size: 14px; }
+.citation-ref { display: block; width: 100%; padding: 10px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: var(--accent); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.citation-ref small { display: block; color: var(--text-3); font-size: 12px; margin-top: 4px; }
+.other-sources summary { cursor: pointer; font-size: 13px; } .pro-context-status { margin-top: 18px; border-top: 1px solid var(--line); }
+.pro-context-note { color: var(--warn); font-size: 13px; line-height: 1.65; }
+@media (max-width: 1100px) { .pro-workspace { grid-template-columns: minmax(0, 1fr); } .pro-claim-workspace { grid-template-columns: 205px minmax(0, 1fr); } .pro-claim-content { padding: 20px; } }
+@media (max-width: 800px) {
+  .pro-claim-workspace { grid-template-columns: minmax(0, 1fr); }
+  .pro-claim-workspace .pro-nav { border-right: 0; border-bottom: 1px solid var(--line); }
 }
-@media (max-width: 1000px) {
-  .pro-workspace:not(.pro-workspace-empty) { grid-template-columns: minmax(0, 1fr); }
-  .pro-center { grid-row: 1; }
-  .pro-nav { grid-row: 2; }
-  .pro-sources { grid-row: 3; }
-}
-@media (max-width: 680px) {
-  .pro-focus { padding: 14px; }
-  .pro-round-fields { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 600px) {
+  .pro-headline, .pro-follow-through { padding: 18px; } .pro-short-conclusion { font-size: 19px; }
+  .pro-round-fields { grid-template-columns: minmax(0, 1fr); } .pro-claim-content { padding: 18px; }
 }
 </style>

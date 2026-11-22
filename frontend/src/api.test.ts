@@ -6,6 +6,7 @@ import {
   readRunSkill,
   ApiError,
   describeFailure,
+  listAssetSummaries,
   listAssets,
   listConversationSummaries,
   listConversations,
@@ -448,6 +449,14 @@ describe('api 合同', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0].url).toBe('/api/assets')
     expect(assets).toEqual(['CAR-B'])
+  })
+
+  it('设备档案概要包含编号、展示名、种类与型号', async () => {
+    stubFetch(jsonResponse([{ assetId: 'EV-DEMO-001', displayName: 'SIM-CAR-001', deviceType: 'EV乘用车', model: 'Model 3 2024+' }]))
+    const summaries = await listAssetSummaries()
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('/api/assets/summaries')
+    expect(summaries[0]).toEqual({ assetId: 'EV-DEMO-001', displayName: 'SIM-CAR-001', deviceType: 'EV乘用车', model: 'Model 3 2024+' })
   })
 
   it('选择设备后新问题带 selectedAssetId，不选择时不提交该字段', async () => {

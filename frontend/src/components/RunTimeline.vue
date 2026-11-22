@@ -1,13 +1,18 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { RunEvent } from '../api'
 import UiIcon from './UiIcon.vue'
 
-defineProps<{
+const props = defineProps<{
+  overview?: boolean
+  compact?: boolean
   events: readonly RunEvent[]
   live: boolean
   status: string
   duration: string
 }>()
+
+const visibleEvents = computed(() => props.compact ? props.events.slice(-4) : props.events)
 
 const TYPE_LABELS: Record<string, string> = {
   RUN_QUEUED: '排队',
@@ -19,7 +24,7 @@ const TYPE_LABELS: Record<string, string> = {
   RUN_FAILED: '失败',
   RUN_CANCELLED: '取消',
   RUN_LATE_RESPONSE: '迟到响应',
-  RUN_PHASE: '收口',
+  RUN_PHASE: '答复阶段',
   RUN_DEGRADED: '有限结果',
   RUN_TERMINAL: '运行结束'
 }
@@ -76,7 +81,7 @@ function describeEvent(event: RunEvent): string {
     }
     case 'RUN_RECOVERED': {
       const attempts = asNumber(data.attempts)
-      return attempts !== null ? `中断后恢复执行（第 ${attempts} 次恢复）` : '中断后恢复执行'
+      return attempts !== null ? `中断后恢复执行（执行尝试 ${attempts}）` : '中断后恢复执行'
     }
     case 'RUN_WAITING': {
       const questionVersion = asNumber(data.questionVersion)
@@ -84,11 +89,11 @@ function describeEvent(event: RunEvent): string {
     }
     case 'RUN_TOOL': {
       const toolName = asString(data.toolName) ?? '未知工具'
-      const success = data.success === true
+      const success = data.success
       const duration = asNumber(data.durationMs)
-      const parts = success
+      const parts = success === true
         ? [`检索工具 ${toolName} 成功`]
-        : [`检索工具 ${toolName} 失败（${asString(data.errorCode) ?? 'UNKNOWN'}）`]
+        : success === false ? [`工具 ${toolName} 失败（${asString(data.errorCode) ?? 'UNKNOWN'}）`] : [`工具 ${toolName} 结果未报告`]
       if (duration !== null) parts.push(`耗时 ${formatDuration(duration)}`)
       if (data.retryable === true) parts.push('可重试')
       const references = asNumber(data.references)
@@ -113,11 +118,15 @@ function describeEvent(event: RunEvent): string {
       const riskLevel = asString(data.riskLevel) ?? 'UNKNOWN'
       const dataNature = asString(data.dataNature)
       const summary = `形成答案（${category} · 风险 ${riskLevel}${dataNature ? ' · ' + dataNature : ''}）`
-      const claims = asNumber(data.claims)
-      return claims !== null ? `${summary} · 依据 ${claims} 条` : summary
+      const claims = Array.isArray(data.claims) ? data.claims.length : null
+      return claims !== null ? `${summary} · 判断 ${claims} 项` : summary
     }
-    case 'RUN_PHASE':
-      return data.reason === 'NO_PROGRESS' ? '连续调查没有新增信息，进入最终回答' : '预算接近上限，进入最终回答'
+    case 'RUN_PHASE': {
+      const phase = asString(data.phase) ?? 'UNKNOWN'
+      const labels: Record<string, string> = { FINALIZING: '准备最终答复', REVIEWING: '复核答复', CORRECTING: '修正答复' }
+      const reason = asString(data.reason)
+      return (labels[phase] ?? `处理中（${phase}）`) + (reason ? ` · ${reason}` : '')
+    }
     case 'RUN_DEGRADED':
       return `形成有限结果（${asString(data.code) ?? 'UNKNOWN'}）`
     case 'RUN_FAILED':
@@ -137,17 +146,17 @@ function describeEvent(event: RunEvent): string {
 </script>
 
 <template>
-  <section class="timeline">
+  <section class="timeline" :class="{ compact, overview }">
     <header>
-      <h2><UiIcon name="activity" /> 调查过程</h2>
-      <span class="timeline-status">{{ status }}<span v-if="live" class="live-badge"> · 实时</span></span>
-      <span v-if="duration" class="duration">耗时 {{ duration }}</span>
+      <h2><UiIcon name="activity" /> {{ overview ? '调查活动' : '调查过程' }}</h2>
+      <span v-if="!compact && !overview" class="timeline-status">{{ status }}<span v-if="live" class="live-badge"> · 实时</span></span>
+      <span v-if="duration" class="duration">累计执行用时 {{ duration }}</span>
       <slot />
     </header>
     <p v-if="!events.length" class="hint">等待运行事件…</p>
     <ol v-else class="timeline-list">
-      <li v-for="event in events" :key="event.seq" class="timeline-item" :data-seq="event.seq" :data-type="event.type">
-        <span class="event-marker" :class="event.type === 'RUN_TOOL' && event.data?.success !== true ? 'failure' : badgeClass(event.type)">
+      <li v-for="event in visibleEvents" :key="event.seq" class="timeline-item" :data-seq="event.seq" :data-type="event.type">
+        <span class="event-marker" :class="event.type === 'RUN_TOOL' ? (event.data?.success === true ? 'tool' : event.data?.success === false ? 'failure' : 'neutral') : badgeClass(event.type)">
           <UiIcon :name="event.type === 'RUN_ANSWER' || (event.type === 'RUN_TOOL' && event.data?.success === true) ? 'check' : 'activity'" />
         </span>
         <div class="event-content">
@@ -161,21 +170,27 @@ function describeEvent(event: RunEvent): string {
 </template>
 
 <style scoped>
-.timeline { border: 1px solid #dcdffc; border-radius: 12px; overflow: hidden; background: #f9f9fe; }
-header { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; padding: 9px 13px; background: #f1f1fc; }
-h2 { font-size: 14px; margin: 0; }
-h2 svg { color: var(--accent); margin-right: 4px; }
-.timeline-status, .duration, time { color: var(--muted); font-size: 12px; }
+.timeline { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel); }
+header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 16px 22px; border-bottom: 1px solid var(--line-soft); }
+h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; margin: 0; } h2 svg { color: var(--accent); }
+.timeline-status, .duration, time { color: var(--text-3); font-size: 12px; }
 .duration { margin-left: auto; }
-.timeline-list { list-style: none; margin: 0; padding: 9px 13px; }
-.timeline-item { display: grid; position: relative; grid-template-columns: 17px minmax(0, 1fr) auto; align-items: start; column-gap: 10px; padding: 3px 0 6px; }
-.timeline-item:not(:last-child)::before { content: ""; position: absolute; width: 1px; top: 19px; bottom: -3px; left: 8px; background: #d1d6eb; }
-.event-marker { z-index: 1; display: grid; place-items: center; width: 17px; height: 17px; margin-top: 1px; background: #e6e4ff; color: var(--accent); border-radius: 50%; font-size: 11px; }
-.event-marker.tool, .event-marker.answer { background: #299963; color: #fff; }
-.event-marker.warn { background: #fff0ce; color: var(--warning); }
-.event-marker.failure { background: #fce1e4; color: #a02e3a; }
-.event-content { overflow-wrap: anywhere; }
-.event-content p, .timeline > p { color: var(--muted); margin: 2px 0 0; line-height: 1.4; font-size: 12px; }
-.timeline > p { padding: 9px 13px; }
-time { margin-top: 2px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.overview header > :last-child { margin-left: auto; }
+.timeline-list { list-style: none; margin: 0; padding: 18px 22px; }
+.timeline-item { display: grid; position: relative; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: start; gap: 14px; padding: 4px 0 24px; }
+.timeline-item:last-child { padding-bottom: 4px; }
+.timeline-item:not(:last-child)::before { content: ''; position: absolute; width: 2px; top: 32px; bottom: -3px; left: 14px; background: var(--line); }
+.event-marker { z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; background: var(--soft); color: var(--accent); border-radius: 50%; font-size: 15px; }
+.event-marker.tool, .event-marker.answer { background: #e8f5ee; color: var(--ok); }
+.event-marker.warn { background: var(--warn-bg); color: var(--warn); }
+.event-marker.failure { background: #fff0ef; color: var(--danger); }
+.event-content { min-width: 0; overflow-wrap: anywhere; }
+.event-content strong { display: block; padding-top: 2px; font-size: 15px; font-weight: 600; }
+.event-content p, .timeline > p { color: var(--text-2); margin: 5px 0 0; line-height: 1.6; font-size: 13px; }
+.timeline > p { padding: 20px 22px; margin: 0; }
+time { margin-top: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.overview .timeline-list { max-height: 560px; overflow-y: auto; }
+.overview .timeline-item:last-child .event-content { background: var(--soft); border-radius: 8px; padding: 8px 12px; margin-top: -4px; }
+.compact .timeline-list { padding: 14px 18px; }
+@media (max-width: 600px) { .timeline-item { grid-template-columns: 30px minmax(0, 1fr); gap: 8px 12px; } time { grid-column: 2; margin: 0; } header, .timeline-list { padding-inline: 16px; } }
 </style>
