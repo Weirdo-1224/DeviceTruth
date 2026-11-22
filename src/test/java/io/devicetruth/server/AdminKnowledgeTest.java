@@ -22,7 +22,7 @@ class AdminKnowledgeTest extends AccountWorkspaceMigrationTest {
                 "--spring.datasource.url="+base+database,"--spring.datasource.username="+user,"--spring.datasource.password="+password,
                 "--devicetruth.agent.worker-enabled=false","--devicetruth.agent.reasoner=scripted","--devicetruth.embedding.provider=deterministic")) {
             var source=app.getBean(com.zaxxer.hikari.HikariDataSource.class);var jdbc=new JdbcTemplate(source);var tx=new TransactionTemplate(new DataSourceTransactionManager(source));
-            var accounts=app.getBean(AccountService.class);var admin=accounts.register("corpus-admin@example.com","isolated-password-123","运营");var member=accounts.register("corpus-member@example.com","isolated-password-123","检修员");
+            var accounts=app.getBean(AccountService.class);var admin=legacyAdminFixture(accounts,"corpus-admin@example.com","isolated-password-123","运营");var member=accounts.register("corpus-member@example.com","isolated-password-123","检修员");
             var scope=new WorkspaceScopeResolver(jdbc).resolve(member.userId(),null);UUID workspace=scope.workspaceId();var maintenance=new AdminMaintenance(jdbc,tx);
             maintenance.platform("test",admin.userId(),true,true,"OPS_REQUEST");maintenance.grant("test",admin.userId(),workspace,"KNOWLEDGE_MANAGE",true,"OPS_REQUEST");
             var embeddings=app.getBean(EmbeddingClient.class);
@@ -57,7 +57,7 @@ class AdminKnowledgeTest extends AccountWorkspaceMigrationTest {
                 "--spring.datasource.url="+base+database,"--spring.datasource.username="+user,"--spring.datasource.password="+password,
                 "--devicetruth.agent.worker-enabled=false","--devicetruth.agent.reasoner=scripted","--devicetruth.embedding.provider=deterministic")) {
             var source=app.getBean(com.zaxxer.hikari.HikariDataSource.class);var jdbc=new JdbcTemplate(source);var tx=new TransactionTemplate(new DataSourceTransactionManager(source));
-            var accounts=app.getBean(AccountService.class);var admin=accounts.register("knowledge-admin@example.com","isolated-password-123","运营");var member=accounts.register("knowledge-member@example.com","isolated-password-123","检修员");
+            var accounts=app.getBean(AccountService.class);var admin=legacyAdminFixture(accounts,"knowledge-admin@example.com","isolated-password-123","运营");var member=accounts.register("knowledge-member@example.com","isolated-password-123","检修员");
             var scope=new WorkspaceScopeResolver(jdbc).resolve(member.userId(),null);UUID workspace=scope.workspaceId();var maintenance=new AdminMaintenance(jdbc,tx);
             maintenance.platform("test",admin.userId(),true,true,"OPS_REQUEST");maintenance.grant("test",admin.userId(),workspace,"KNOWLEDGE_MANAGE",true,"OPS_REQUEST");
             var service=app.getBean(AdminService.class);var ops=app.getBean(AdminKnowledgeOperations.class);var pages=app.getBean(AdminPages.class);var views=new AdminKnowledgeViews(service,pages);
@@ -111,7 +111,7 @@ class AdminKnowledgeTest extends AccountWorkspaceMigrationTest {
                 "--spring.datasource.url="+base+database,"--spring.datasource.username="+user,"--spring.datasource.password="+password,
                 "--devicetruth.agent.worker-enabled=false","--devicetruth.agent.reasoner=scripted","--devicetruth.embedding.provider=deterministic")) {
             var source=app.getBean(com.zaxxer.hikari.HikariDataSource.class);var jdbc=new JdbcTemplate(source);var tx=new TransactionTemplate(new DataSourceTransactionManager(source));
-            var accounts=app.getBean(AccountService.class);var admin=accounts.register("upload-admin@example.com","isolated-password-123","运营");var actor=accounts.register("upload-actor@example.com","isolated-password-123","上传者");
+            var accounts=app.getBean(AccountService.class);var admin=legacyAdminFixture(accounts,"upload-admin@example.com","isolated-password-123","运营");var actor=accounts.register("upload-actor@example.com","isolated-password-123","上传者");
             new AdminMaintenance(jdbc,tx).platform("test",admin.userId(),true,true,"OPS_REQUEST");var scope=new WorkspaceScopeResolver(jdbc).resolve(actor.userId(),null);
             app.getBean(FileUploadService.class).close();
             var entered=new java.util.concurrent.CountDownLatch(1);var finish=new java.util.concurrent.CountDownLatch(1);var original=app.getBean(EmbeddingClient.class);
@@ -133,7 +133,7 @@ class AdminKnowledgeTest extends AccountWorkspaceMigrationTest {
                 "--spring.datasource.url="+base+database,"--spring.datasource.username="+user,"--spring.datasource.password="+password,
                 "--devicetruth.agent.worker-enabled=false","--devicetruth.agent.reasoner=scripted","--devicetruth.embedding.provider=deterministic")) {
             var source=app.getBean(com.zaxxer.hikari.HikariDataSource.class);var jdbc=new JdbcTemplate(source);var tx=new TransactionTemplate(new DataSourceTransactionManager(source));
-            var admin=app.getBean(AccountService.class).register("revoked-import@example.com","isolated-password-123","运营");var scope=new WorkspaceScopeResolver(jdbc).resolve(admin.userId(),null);var maintenance=new AdminMaintenance(jdbc,tx);maintenance.platform("test",admin.userId(),true,true,"OPS_REQUEST");maintenance.grant("test",admin.userId(),scope.workspaceId(),"KNOWLEDGE_MANAGE",true,"OPS_REQUEST");
+            var admin=legacyAdminFixture(app.getBean(AccountService.class),"revoked-import@example.com","isolated-password-123","运营");var scope=new WorkspaceScopeResolver(jdbc).resolve(admin.userId(),null);var maintenance=new AdminMaintenance(jdbc,tx);maintenance.platform("test",admin.userId(),true,true,"OPS_REQUEST");maintenance.grant("test",admin.userId(),scope.workspaceId(),"KNOWLEDGE_MANAGE",true,"OPS_REQUEST");
             app.getBean(FileUploadService.class).close();var entered=new java.util.concurrent.CountDownLatch(1);var finish=new java.util.concurrent.CountDownLatch(1);var delegate=app.getBean(EmbeddingClient.class);
             var blocking=new EmbeddingClient(){public EmbeddingProfile profile(){return delegate.profile();}public float[] embed(String text){entered.countDown();try{finish.await(10,java.util.concurrent.TimeUnit.SECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}return delegate.embed(text);}};
             var imports=new KnowledgeImportService(jdbc,tx,blocking,1000);

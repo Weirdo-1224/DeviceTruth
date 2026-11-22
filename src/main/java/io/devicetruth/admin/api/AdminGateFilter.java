@@ -9,7 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/** 位于统一安全链内；不建立第二个 principal/session。 */
+/** 当前会话必须属于请求域；域标记和账号用途都由服务器核对。 */
 public final class AdminGateFilter extends OncePerRequestFilter {
     private final JdbcTemplate jdbc;
     public AdminGateFilter(JdbcTemplate jdbc) { this.jdbc=jdbc; }
@@ -24,7 +24,18 @@ public final class AdminGateFilter extends OncePerRequestFilter {
             try { actor=UUID.fromString(authentication.getName()); } catch(IllegalArgumentException ignored) { }
         }
         try {
-            if(admin) {
+            if (request.getSession(false) != null
+                    && !io.devicetruth.server.LoginRealm.forRequest(request).accepts(request.getSession(false)))
+                throw new AdminFailure(401,"AUTHENTICATION_REQUIRED");
+            boolean publicAdmin = request.getRequestURI().equals("/api/admin/auth/login")
+                    || request.getRequestURI().equals("/api/admin/auth/csrf");
+            if (actor != null) {
+                var realm = io.devicetruth.server.LoginRealm.forRequest(request);
+                if (!realm.accepts(request.getSession(false))) throw new AdminFailure(401,"AUTHENTICATION_REQUIRED");
+                var types = jdbc.queryForList("SELECT account_type FROM dt_account WHERE id=?",String.class,actor);
+                if (types.isEmpty() || !realm.name().equals(types.getFirst())) throw new AdminFailure(401,"AUTHENTICATION_REQUIRED");
+            }
+            if(admin && !publicAdmin) {
                 if(actor==null) throw new AdminFailure(401,"AUTHENTICATION_REQUIRED");
                 new AdminAuthorization(jdbc).require(actor);
             } else if(actor!=null && request.getRequestURI().startsWith("/api/")) {

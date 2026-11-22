@@ -18,7 +18,7 @@ public final class AdminBrowserFixture {
         if(url==null || !url.matches("jdbc:postgresql://127.0.0.1:54329/devicetruth_test_[a-f0-9]{32}"))throw new IllegalArgumentException("Isolated database required");
         var app=new SpringApplicationBuilder(DeviceTruthServerApplication.class).run("--spring.profiles.active=product","--server.port=0","--debug=false","--logging.level.org.springframework=WARN","--devicetruth.auth.cookie-secure=false","--devicetruth.agent.worker-enabled=true","--devicetruth.agent.reasoner=openai","--devicetruth.embedding.provider=deterministic");
         var accounts=app.getBean(AccountService.class);
-        var admin=accounts.register("admin@isolated.example","isolated-browser-password-123","平台运营");
+        var admin=accounts.registerAdmin("admin@isolated.example","isolated-browser-password-123","平台运营");
         var member=accounts.register("member@isolated.example","isolated-browser-password-123","设备检修员");
         var source=app.getBean(HikariDataSource.class);var jdbc=new JdbcTemplate(source);var tx=new TransactionTemplate(new DataSourceTransactionManager(source));
         var maintenance=new AdminMaintenance(jdbc,tx);maintenance.platform("browser-fixture",admin.userId(),true,true,"OPS_REQUEST");

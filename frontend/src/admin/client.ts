@@ -10,7 +10,7 @@ export async function request<T>(path: string, options: { method?: string; body?
   const method = options.method ?? 'GET'
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (method !== 'GET') {
-    const csrf = await fetch('/api/auth/csrf', { credentials: 'same-origin', signal: options.signal })
+    const csrf = await fetch('/api/admin/auth/csrf', { credentials: 'same-origin', signal: options.signal })
     if (!csrf.ok) throw new AdminError(csrf.status, 'AUTHENTICATION_REQUIRED', null)
     const token = await csrf.json() as { headerName: string; token: string }
     headers[token.headerName] = token.token

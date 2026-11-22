@@ -18,6 +18,14 @@ class AccountWorkspaceMigrationTest {
     protected String database;
     private JdbcTemplate jdbc;
 
+    /** 历史管理回归需要原空间夹具；显式声明其管理用途，不改变生产开户逻辑。 */
+    protected AccountService.AccountView legacyAdminFixture(AccountService accounts,String email,String password,String name) {
+        var account=accounts.register(email,password,name);
+        new JdbcTemplate(new DriverManagerDataSource(base+database,user,this.password))
+                .update("UPDATE dt_account SET account_type='ADMIN' WHERE id=?",account.userId());
+        return account;
+    }
+
     @BeforeEach void createDatabase() throws Exception {
         base = required("DEVICETRUTH_TEST_PG_BASE_URL");
         user = required("DEVICETRUTH_TEST_PG_USERNAME");

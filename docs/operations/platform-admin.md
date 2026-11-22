@@ -18,7 +18,7 @@
 
 前端五个入口：`/admin/users`、`/admin/runs`、`/admin/knowledge`、`/admin/skills`、`/admin/system`。Vite 开发代理或现有 nginx `try_files` 提供深链接；Java 的 `/index.html` 仍是原演示入口，不代替 Vue 管理端。
 
-管理端复用 `/api/auth/me`、`/api/auth/login`、`/api/auth/logout`、`/api/auth/csrf` 与 DTSESSION。没有管理密码、Bearer token 或第二套账号。部署需同源 HTTPS、Secure/HttpOnly/SameSite Cookie，转发 Cookie 与 X-CSRF-TOKEN；不把密码或 CSRF 存入 localStorage。开发联调显式接启用已配置真实模型的 product 后端，协议/故障测试才使用确定性替身。
+V30 起管理端使用专用 ADMIN 账号与 `/api/admin/auth/me|login|logout|csrf`，独立 DTADMINSESSION；用户端保留 `/api/auth/*` 和 DTSESSION。账号存储及 PBKDF2 底座共用，但会话域在服务器绑定，两端登录/退出分别生效。旧统一会话不再恢复管理身份。部署需同源 HTTPS、Secure/HttpOnly/SameSite Cookie，转发 Cookie 与 X-CSRF-TOKEN；不把密码或 CSRF 存入 localStorage。切换、开户与恢复见 [两端登录说明](login-realms.md)。开发联调显式接启用已配置真实模型的 product 后端，协议/故障测试才使用确定性替身。
 
 `PLATFORM_ADMIN` 与团队 ADMIN 独立。平台管理员初始无空间 grant；管理目标空间必须单独选择，不能默认落入个人空间。管理 grant 不创建团队成员，也不授予产品调查、报告、附件或来源正文阅读权。
 

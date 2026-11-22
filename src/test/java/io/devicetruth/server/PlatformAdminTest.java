@@ -33,26 +33,27 @@ class PlatformAdminTest extends AccountWorkspaceMigrationTest {
             var request=HttpRequest.newBuilder(URI.create(root+path));
             if(header!=null)request.header("X-Workspace-ID",header);
             if(!method.equals("GET")) {
-                var csrf=client.send(HttpRequest.newBuilder(URI.create(root+"/api/auth/csrf")).build(),HttpResponse.BodyHandlers.ofString());
+                var csrf=client.send(HttpRequest.newBuilder(URI.create(root+(path.startsWith("/api/admin/")?"/api/admin/auth/csrf":"/api/auth/csrf"))).build(),HttpResponse.BodyHandlers.ofString());
                 request.header("X-CSRF-TOKEN",Json.MAPPER.readTree(csrf.body()).get("token").asText());
                 request.header("Content-Type","application/json");
             }
             request.method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(Json.write(body)));
             return client.send(request.build(),HttpResponse.BodyHandlers.ofString());
         }
+        void loginAdmin(String email) throws Exception {assertThat(send("POST","/api/admin/auth/login",Map.of("email",email,"password",PASSWORD),null).statusCode()).isEqualTo(200);}
         void login(String email) throws Exception {assertThat(send("POST","/api/auth/login",Map.of("email",email,"password",PASSWORD),null).statusCode()).isEqualTo(200);}
     }
     @Test void realHttpPermissionProjectionPagingAndControlledCreation() throws Exception {
         try(var app=app()) {
             var jdbc=new JdbcTemplate(app.getBean(HikariDataSource.class));var tx=new TransactionTemplate(new DataSourceTransactionManager(app.getBean(HikariDataSource.class)));
-            var accounts=app.getBean(AccountService.class);var admin=accounts.register("admin@example.com",PASSWORD,"运营");var ordinary=accounts.register("ordinary@example.com",PASSWORD,"普通用户");
+            var accounts=app.getBean(AccountService.class);var admin=legacyAdminFixture(accounts,"admin@example.com",PASSWORD,"运营");var ordinary=accounts.register("ordinary@example.com",PASSWORD,"普通用户");
             UUID workspace=jdbc.queryForObject("SELECT id FROM dt_workspace WHERE personal_user_id=?",UUID.class,ordinary.userId());
             var maintenance=new AdminMaintenance(jdbc,tx);String root="http://127.0.0.1:"+((WebServerApplicationContext)app).getWebServer().getPort();
             var browser=new Browser(root);
             assertThat(browser.send("GET","/api/admin/access",null,null).statusCode()).isEqualTo(401);
-            browser.login("ordinary@example.com");app.getBean(WorkspaceService.class).createTeam(ordinary.userId(),"团队管理员仍非平台管理员");assertThat(browser.send("GET","/api/admin/users",null,null).statusCode()).isEqualTo(403);
-            browser.login("admin@example.com");assertThat(browser.send("GET","/api/admin/access",null,null).statusCode()).isEqualTo(403);
-            maintenance.platform("test-operator",admin.userId(),true,true,"OPS_REQUEST");
+            browser.login("ordinary@example.com");app.getBean(WorkspaceService.class).createTeam(ordinary.userId(),"团队管理员仍非平台管理员");assertThat(browser.send("GET","/api/admin/users",null,null).statusCode()).isEqualTo(401);
+            assertThat(browser.send("POST","/api/admin/auth/login",Map.of("email","admin@example.com","password",PASSWORD),null).statusCode()).isEqualTo(403);
+            maintenance.platform("test-operator",admin.userId(),true,true,"OPS_REQUEST");browser.loginAdmin("admin@example.com");
             assertThat(browser.send("GET","/api/admin/access",null,null).body()).contains("PLATFORM_ADMIN","QUOTA_ENFORCEMENT");
             assertThat(browser.send("GET","/api/admin/workspaces",null,null).body()).contains("\"items\":[]");
             assertThat(browser.send("GET","/api/admin/knowledge/documents?workspaceId="+workspace,null,null).statusCode()).isEqualTo(404);
@@ -71,7 +72,8 @@ class PlatformAdminTest extends AccountWorkspaceMigrationTest {
             String secret="SECRET_PASSWORD_ADMIN_PROBE_991";
             var created=browser.send("POST","/api/admin/users",Map.of("email","new@example.com","displayName","新账号","initialPassword",secret),null);
             assertThat(created.statusCode()).isEqualTo(201);assertThat(created.body()).doesNotContain(secret,"password_hash");
-            assertThat(browser.send("GET","/api/auth/me",null,null).body()).contains(admin.userId().toString());
+            assertThat(browser.send("GET","/api/admin/auth/me",null,null).body()).contains(admin.userId().toString());
+            assertThat(browser.send("GET","/api/auth/me",null,null).body()).contains(ordinary.userId().toString());
             assertThat(browser.send("POST","/api/admin/users",Map.of("email","new@example.com","displayName","重复","initialPassword",secret),null).statusCode()).isEqualTo(409);
             assertThat(browser.send("POST","/api/admin/users",Map.of("email","evil@example.com","displayName","伪造","initialPassword",secret,"platformRole","PLATFORM_ADMIN"),null).statusCode()).isEqualTo(400);
             assertThat(browser.send("GET","/api/admin/skills",null,null).statusCode()).isEqualTo(200);
@@ -103,10 +105,10 @@ class PlatformAdminTest extends AccountWorkspaceMigrationTest {
             assertThat(usage.get("runCount").asInt()).isEqualTo(1);assertThat(usage.get("usage").get("status").asText()).isEqualTo("PARTIAL");
             assertThat(usage.get("statusCounts").get("WAITING_FOR_USER").asInt()).isEqualTo(1);assertThat(usage.get("unattributedAttemptCount").asInt()).isEqualTo(3);
             assertThat(usage.get("unknownCurrencyCostCount").asInt()).isEqualTo(1);assertThat(usage.get("amountBuckets").isEmpty()).isTrue();
-            assertThat(browser.send("GET","/api/runs/"+run,null,null).statusCode()).isEqualTo(404);
-            maintenance.platform("test-operator",ordinary.userId(),true,false,"OPS_REQUEST");
+            var adminOnly=new Browser(root);adminOnly.loginAdmin("admin@example.com");assertThat(adminOnly.send("GET","/api/runs/"+run,null,null).statusCode()).isEqualTo(401);
+            jdbc.update("UPDATE dt_account SET account_type='ADMIN' WHERE id=?",ordinary.userId());maintenance.platform("test-operator",ordinary.userId(),true,false,"OPS_REQUEST");
             String currentCursor=URLEncoder.encode(Json.MAPPER.readTree(browser.send("GET","/api/admin/users?limit=1",null,null).body()).get("nextCursor").asText(),java.nio.charset.StandardCharsets.UTF_8);
-            var otherAdmin=new Browser(root);otherAdmin.login("ordinary@example.com");assertThat(otherAdmin.send("GET","/api/admin/users?limit=1&cursor="+currentCursor,null,null).body()).contains("INVALID_CURSOR");
+            var otherAdmin=new Browser(root);otherAdmin.loginAdmin("ordinary@example.com");assertThat(otherAdmin.send("GET","/api/admin/users?limit=1&cursor="+currentCursor,null,null).body()).contains("INVALID_CURSOR");
             maintenance.platform("test-operator",admin.userId(),false,false,"PERMISSION_CHANGE");
             assertThat(browser.send("GET","/api/admin/access",null,null).statusCode()).isEqualTo(403);
         }
@@ -114,7 +116,7 @@ class PlatformAdminTest extends AccountWorkspaceMigrationTest {
     @Test void disabledActorCannotAdoptLateModelProposalOrInvokeAnotherTool() throws Exception {
         try(var app=app()) {
             var source=app.getBean(HikariDataSource.class);var jdbc=new JdbcTemplate(source);var tx=new TransactionTemplate(new DataSourceTransactionManager(source));
-            var accounts=app.getBean(AccountService.class);var admin=accounts.register("late-admin@example.com",PASSWORD,"运营");var actor=accounts.register("late-actor@example.com",PASSWORD,"执行者");
+            var accounts=app.getBean(AccountService.class);var admin=legacyAdminFixture(accounts,"late-admin@example.com",PASSWORD,"运营");var actor=accounts.register("late-actor@example.com",PASSWORD,"执行者");
             new AdminMaintenance(jdbc,tx).platform("test",admin.userId(),true,true,"OPS_REQUEST");
             var scope=new io.devicetruth.application.agent.WorkspaceScopeResolver(jdbc).resolve(actor.userId(),null);
             var entered=new CountDownLatch(1);var finish=new CountDownLatch(1);
@@ -141,7 +143,7 @@ class PlatformAdminTest extends AccountWorkspaceMigrationTest {
     private void verifyDisabledStream(boolean quiet) throws Exception {
         try(var app=app()) {
             var source=app.getBean(HikariDataSource.class);var jdbc=new JdbcTemplate(source);var tx=new TransactionTemplate(new DataSourceTransactionManager(source));
-            var accounts=app.getBean(AccountService.class);var admin=accounts.register("stream-admin@example.com",PASSWORD,"运营");var actor=accounts.register("stream-actor@example.com",PASSWORD,"执行者");
+            var accounts=app.getBean(AccountService.class);var admin=legacyAdminFixture(accounts,"stream-admin@example.com",PASSWORD,"运营");var actor=accounts.register("stream-actor@example.com",PASSWORD,"执行者");
             new AdminMaintenance(jdbc,tx).platform("test",admin.userId(),true,true,"OPS_REQUEST");
             var scope=new io.devicetruth.application.agent.WorkspaceScopeResolver(jdbc).resolve(actor.userId(),null);UUID run=seedRun(jdbc,scope.workspaceId());
             jdbc.update("UPDATE dt_agent_run SET execution_actor_user_id=? WHERE id=?",actor.userId(),run);
@@ -181,7 +183,7 @@ class PlatformAdminTest extends AccountWorkspaceMigrationTest {
     @Test void skillSelectionAndDisableShareTheSameInstallationLock() throws Exception {
         try(var app=app()) {
             var source=app.getBean(HikariDataSource.class);var jdbc=new JdbcTemplate(source);var tx=new TransactionTemplate(new DataSourceTransactionManager(source));
-            var actor=app.getBean(AccountService.class).register("skill-admin@example.com",PASSWORD,"运营");
+            var actor=legacyAdminFixture(app.getBean(AccountService.class),"skill-admin@example.com",PASSWORD,"运营");
             UUID workspace=jdbc.queryForObject("SELECT id FROM dt_workspace WHERE personal_user_id=?",UUID.class,actor.userId());
             var maintenance=new AdminMaintenance(jdbc,tx);maintenance.platform("test",actor.userId(),true,true,"OPS_REQUEST");maintenance.grant("test",actor.userId(),workspace,"SKILL_MANAGE",true,"OPS_REQUEST");
             var service=app.getBean(AdminService.class);var runtime=app.getBean(io.devicetruth.skill.SkillRuntime.class);var meta=runtime.registry().skills().getFirst();
@@ -218,7 +220,7 @@ class PlatformAdminTest extends AccountWorkspaceMigrationTest {
     @Test void accountEpochRevokesOldCookieAndWaitingRunEvenAfterImmediateRestore() throws Exception {
         try(var app=app()) {
             var source=app.getBean(HikariDataSource.class);var jdbc=new JdbcTemplate(source);var tx=new TransactionTemplate(new DataSourceTransactionManager(source));
-            var accounts=app.getBean(AccountService.class);var admin=accounts.register("epoch-admin@example.com",PASSWORD,"运营");var actor=accounts.register("epoch-actor@example.com",PASSWORD,"执行者");
+            var accounts=app.getBean(AccountService.class);var admin=legacyAdminFixture(accounts,"epoch-admin@example.com",PASSWORD,"运营");var actor=accounts.register("epoch-actor@example.com",PASSWORD,"执行者");
             var maintenance=new AdminMaintenance(jdbc,tx);maintenance.platform("test",admin.userId(),true,true,"OPS_REQUEST");
             var service=app.getBean(AdminService.class);var scope=new io.devicetruth.application.agent.WorkspaceScopeResolver(jdbc).resolve(actor.userId(),null);
             UUID run=seedRun(jdbc,scope.workspaceId());jdbc.update("UPDATE dt_agent_run SET execution_actor_user_id=?,status='WAITING_FOR_USER',pending_question_id=?,question_version=1,pending_question=?::jsonb WHERE id=?",actor.userId(),UUID.randomUUID(),"{\"question\":\"模拟问题\"}",run);
@@ -236,7 +238,7 @@ class PlatformAdminTest extends AccountWorkspaceMigrationTest {
     @Test void statusVersionLastAdminConcurrencyAndAuditFailureAreAtomic() throws Exception {
         try(var app=app()) {
             var jdbc=new JdbcTemplate(app.getBean(HikariDataSource.class));var tx=new TransactionTemplate(new DataSourceTransactionManager(app.getBean(HikariDataSource.class)));
-            var accounts=app.getBean(AccountService.class);var a=accounts.register("first@example.com",PASSWORD,"甲");var b=accounts.register("second@example.com",PASSWORD,"乙");
+            var accounts=app.getBean(AccountService.class);var a=legacyAdminFixture(accounts,"first@example.com",PASSWORD,"甲");var b=legacyAdminFixture(accounts,"second@example.com",PASSWORD,"乙");
             var service=app.getBean(AdminService.class);var maintenance=new AdminMaintenance(jdbc,tx);
             maintenance.platform("test",a.userId(),true,true,"OPS_REQUEST");maintenance.platform("test",b.userId(),true,false,"OPS_REQUEST");
             var pool=Executors.newFixedThreadPool(2);var barrier=new CyclicBarrier(2);

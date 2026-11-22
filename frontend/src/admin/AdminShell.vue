@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import AdminTable from './AdminTable.vue'
+import LoginEntry from '../components/LoginEntry.vue'
+import { type LoginRealm, loginTarget, entryTarget } from '../loginRouting'
 import { fieldLabel } from './labels'
 import { AdminError, createAdminScope, describe, queryPath, request, type Access, type Page, type Row, type Workspace } from './client'
 import './admin.css'
@@ -30,7 +32,6 @@ const detail = ref<Row | null>(null); const detailTitle = ref(''); const detailD
 const uploadDialog = ref<HTMLDialogElement | null>(null); const uploadSources = ref<Row[]>([]); const uploadSource = ref(''); const uploadFile = ref<File | null>(null); const uploadTitle = ref(''); const uploadVersion = ref('admin-2026.1')
 const installDialog = ref<HTMLDialogElement | null>(null); const installCatalog = ref<Row[]>([]); const installSkill = ref('')
 const createDialog = ref<HTMLDialogElement | null>(null); const createEmail = ref(''); const createName = ref(''); const initialPassword = ref('')
-const loginEmail = ref(''); const loginPassword = ref('')
 const selected = ref<Row | null>(null); const confirmDialog = ref<HTMLDialogElement | null>(null); const reason = ref('OPS_REQUEST')
 const scope = createAdminScope(); const authScope = createAdminScope(); const detailScope = createAdminScope(); const writeScope = createAdminScope()
 const currentFeature = computed(() => active.value === 'users' ? 'USER_STATUS' : active.value === 'knowledge' ? 'KNOWLEDGE_WRITE' : 'SKILL_WRITE')
@@ -69,10 +70,11 @@ async function loadWorkspaces(more = false) {
 async function restore() {
   invalidate(); const token = authScope.next(); phase.value = 'loading'; error.value = ''; resetFilters(); target.value = ''; workspaces.value = []; identity.value = null; access.value = null
   try {
-    const me = await request<typeof identity.value>('/api/auth/me', { signal: token.signal })
+    const me = await request<typeof identity.value>('/api/admin/auth/me', { signal: token.signal })
     const permission = await request<Access>('/api/admin/access', { signal: token.signal })
     if (!token.current()) return
     identity.value = me; access.value = permission; phase.value = 'ready'
+    if (location.pathname === '/admin/login') { history.replaceState(null, '', entryTarget('ADMIN')); active.value = pages.find(p => location.pathname.endsWith('/' + p.id))?.id ?? 'users' }
     await loadWorkspaces(); await load()
   } catch (e) { if (token.current()) { phase.value = 'error'; await handleFailure(e) } }
 }
@@ -93,7 +95,7 @@ async function load(more = false) {
   if (active.value === 'system') { path = tab.value === 'audit' ? '/api/admin/audit-events' : '/api/admin/system/health'; if (tab.value !== 'audit') { delete query.limit; delete query.cursor } else Object.assign(query, auditFilter.value, { from: from.value, to: to.value }) }
   if (tab.value === 'ops') { loading.value = false; return }
   try {
-    const me = await request<{ userId: string }>('/api/auth/me', { signal: token.signal })
+    const me = await request<{ userId: string }>('/api/admin/auth/me', { signal: token.signal })
     if (!token.current()) return
     if (me.userId !== identity.value?.userId) { await restore(); return }
     const result = await request<Page<Row> & { components?: Row[] } & Row>(queryPath(path, query), { signal: token.signal })
@@ -119,12 +121,13 @@ async function create() {
   try { await request('/api/admin/users', { method: 'POST', body: { email: createEmail.value, displayName: createName.value, initialPassword: initialPassword.value }, signal: token.signal }); if (!token.current()) return; createDialog.value?.close(); createEmail.value = ''; createName.value = ''; await load() }
   catch (e) { if (token.current()) await handleFailure(e) } finally { if (token.current()) { initialPassword.value = ''; busy.value = false } }
 }
-async function login() {
-  if (busy.value) return; busy.value = true; error.value = ''
-  try { await request('/api/auth/login', { method: 'POST', body: { email: loginEmail.value, password: loginPassword.value } }); await restore() }
-  catch (e) { error.value = describe(e) } finally { loginPassword.value = ''; busy.value = false }
+async function signedIn(_account: unknown, realm: LoginRealm, target: string) {
+  if (realm === 'USER') { location.assign(loginTarget(realm, target)); return }
+  history.replaceState(null, '', loginTarget(realm, target))
+  active.value = pages.find(p => location.pathname.endsWith('/' + p.id))?.id ?? 'users'
+  await restore()
 }
-async function logout() { try { await request('/api/auth/logout', { method: 'POST', body: {} }) } catch (e) { error.value = describe(e) } finally { invalidate(); authScope.clear(); access.value = null; identity.value = null; workspaces.value = []; target.value = ''; phase.value = 'login' } }
+async function logout() { try { await request('/api/admin/auth/logout', { method: 'POST', body: {} }) } catch (e) { error.value = describe(e) } finally { invalidate(); authScope.clear(); access.value = null; identity.value = null; workspaces.value = []; target.value = ''; phase.value = 'login'; history.replaceState(null, '', '/admin/login') } }
 async function openUpload() {
   const token = detailScope.next()
   try { const sources = await request<Page<Row>>(queryPath('/api/admin/knowledge/sources', { workspaceId: target.value, limit: '100' }), { signal: token.signal }); if (!token.current()) return; uploadSources.value = sources.items; uploadFile.value = null; uploadSource.value = ''; uploadDialog.value?.showModal() } catch (e) { if (token.current()) await handleFailure(e) }
@@ -182,16 +185,17 @@ async function openCreate() { initialPassword.value = ''; await nextTick(); crea
 </script>
 
 <template>
-  <div class="dt-admin">
+  <LoginEntry v-if="phase === 'login'" initial-realm="ADMIN" @authenticated="signedIn" />
+  <div v-else class="dt-admin">
     <aside class="admin-sidebar"><a class="admin-brand" href="/">✳ <span>DeviceTruth<small>平台管理控制台</small></span></a>
       <nav aria-label="管理端导航"><a v-for="item in pages" :key="item.id" :href="'/admin/' + item.id" :aria-current="active === item.id ? 'page' : undefined" @click.prevent="navigate(item.id)">{{ item.label }}</a></nav>
-      <div class="admin-sidebar-footer">统一身份 · 独立管理范围<br><a href="/">← 返回工作台</a></div>
+      <div class="admin-sidebar-footer">专用管理身份 · 独立会话<br><a href="/">← 返回工作台</a></div>
     </aside>
     <div class="admin-main"><header class="admin-topbar"><span>运营空间 <strong>/ {{ page.label }}</strong></span><div><span v-if="identity">{{ identity.displayName }} · {{ identity.email }}</span><button v-if="identity" type="button" @click="logout">退出</button></div></header>
       <main><div class="admin-page-heading"><div><p class="admin-eyebrow">{{ page.eyebrow }}</p><h1>{{ page.label }}</h1><p>{{ page.description }}</p></div><button v-if="phase === 'ready'" type="button" @click="load()">刷新数据</button></div>
         <p v-if="error" class="admin-alert" role="alert">{{ error }}</p>
         <p v-if="phase === 'loading'" role="status">正在恢复登录与管理权限…</p>
-        <form v-else-if="phase === 'login'" class="admin-card admin-login" @submit.prevent="login"><h2>登录 DeviceTruth</h2><p>使用已有统一账号，平台权限由服务端实时核验。</p><label>邮箱<input v-model="loginEmail" type="email" autocomplete="username" required></label><label>密码<input v-model="loginPassword" type="password" autocomplete="current-password" required></label><button class="primary" :disabled="busy">{{ busy ? '登录中…' : '登录' }}</button></form>
+
         <section v-else-if="phase === 'denied'" class="admin-card"><h2>无平台管理权限</h2><p>请通过可信维护入口为已有账号配置平台角色。团队 ADMIN 不授予后台权限。</p><a href="/">返回工作台</a><button type="button" @click="restore">重新核验</button></section>
         <section v-else-if="phase === 'error'" class="admin-card"><p>管理服务暂不可用。</p><button @click="restore">重试</button></section>
         <template v-else-if="phase === 'ready'">

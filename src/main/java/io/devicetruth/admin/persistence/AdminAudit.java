@@ -7,7 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /** 成功审计在业务事务内；只保存枚举及有限状态。 */
 public final class AdminAudit {
-    private static final Set<String> STATE_KEYS = Set.of("status","enabled","revision","platformRole","capabilities");
+    private static final Set<String> STATE_KEYS = Set.of("status","enabled","revision","platformRole","capabilities","accountType");
     private final JdbcTemplate jdbc;
     public AdminAudit(JdbcTemplate jdbc) { this.jdbc=jdbc; }
     public UUID append(UUID actor, String operator, UUID workspace, String type, String target, String action,

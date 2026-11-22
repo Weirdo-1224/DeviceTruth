@@ -2,6 +2,8 @@
 
 状态：本 change 的接口合同，实施与验证状态见 acceptance.md。类型和白名单以下文为准；产品 /api/auth/*、/api/workspaces/* 继续沿用原合同，不改统一返回包装。
 
+后续认证合同变更：`separate-user-admin-login` 从 V30 起用独立 `/api/admin/auth/csrf|login|me|logout`、DTADMINSESSION 和 ADMIN 账号用途替代本文原“管理端复用用户 Session”部分。匿名只允许管理 csrf/login，其他接口仍校验管理域、ACTIVE、ADMIN 和 PLATFORM_ADMIN；USER 不能通过重命名 Cookie 获得管理身份。正文业务接口、字段白名单和空间 grant 不变，原验收保留历史含义。详见 `docs/operations/login-realms.md` 和该后续 change 的规格。
+
 ## 1. 通用协议
 
 - 同源 Cookie Session + 现有 CSRF；不增加 Bearer token、管理密码或 /api/me。

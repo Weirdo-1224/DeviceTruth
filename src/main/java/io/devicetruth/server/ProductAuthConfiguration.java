@@ -57,7 +57,7 @@ public class ProductAuthConfiguration {
                 environment.getProperty("devicetruth.mail.public-url", ""));
     }
     @Bean PasswordEncoder accountPasswordEncoder() {
-        return new DelegatingPasswordEncoder("pbkdf2", java.util.Map.of("pbkdf2", Pbkdf2PasswordEncoder.defaultsForSpringSecurity_v5_8()));
+        return AccountService.passwordEncoder();
     }
     @Bean AccountService accountService(HikariDataSource source, PasswordEncoder encoder) {
         return new AccountService(new JdbcTemplate(source),
@@ -87,6 +87,9 @@ public class ProductAuthConfiguration {
         serializer.setSameSite("Lax");
         return serializer;
     }
+    @Bean org.springframework.session.web.http.HttpSessionIdResolver httpSessionIdResolver(Environment environment) {
+        return new RealmSessionIdResolver(environment.getProperty("devicetruth.auth.cookie-secure", Boolean.class, true));
+    }
     @Bean SecurityFilterChain productSecurity(HttpSecurity http, HttpSessionSecurityContextRepository contexts,
             HttpSessionCsrfTokenRepository csrf, HikariDataSource source) throws Exception {
         http.addFilterBefore(new io.devicetruth.admin.api.AdminGateFilter(new JdbcTemplate(source)), org.springframework.security.web.csrf.CsrfFilter.class)
@@ -102,6 +105,7 @@ public class ProductAuthConfiguration {
                     res.getWriter().write("{\"code\":\"ACCESS_DENIED\"}");
                 }))
                 .authorizeHttpRequests(c -> c.requestMatchers("/api/health", "/api/auth/csrf", "/api/auth/register", "/api/auth/login",
+                        "/api/admin/auth/csrf", "/api/admin/auth/login",
                         "/api/auth/password-reset-requests", "/api/auth/password-resets").permitAll()
                         .requestMatchers("/api/auth/me", "/api/auth/logout", "/api/workspaces", "/api/workspaces/**", "/api/invitations/accept").authenticated()
                         // 全链 scope 尚未接通时拒绝资源访问，不把新账号落入固定演示归属。

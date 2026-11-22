@@ -11,7 +11,7 @@ public final class AdminAuthorization {
     private final JdbcTemplate jdbc;
     public AdminAuthorization(JdbcTemplate jdbc) { this.jdbc = jdbc; }
     public Context require(UUID actor) {
-        var states = jdbc.queryForList("SELECT status FROM dt_account WHERE id=?", String.class, actor);
+        var states = jdbc.queryForList("SELECT status FROM dt_account WHERE id=? AND account_type='ADMIN'", String.class, actor);
         if (states.isEmpty()) throw new AdminFailure(401,"AUTHENTICATION_REQUIRED");
         if (!states.getFirst().equals("ACTIVE")) throw new AdminFailure(401,"ACCOUNT_DISABLED");
         if (jdbc.queryForObject("SELECT count(*) FROM dt_platform_admin WHERE user_id=?", Long.class, actor) != 1)
@@ -38,8 +38,8 @@ public final class AdminAuthorization {
         return values.getFirst();
     }
     public void protectLast(UUID target) {
-        if (jdbc.queryForObject("SELECT count(*) FROM dt_platform_admin p JOIN dt_account a ON a.id=p.user_id WHERE a.status='ACTIVE' AND a.id=?",Long.class,target)==1
-                && jdbc.queryForObject("SELECT count(*) FROM dt_platform_admin p JOIN dt_account a ON a.id=p.user_id WHERE a.status='ACTIVE'",Long.class)<=1)
+        if (jdbc.queryForObject("SELECT count(*) FROM dt_platform_admin p JOIN dt_account a ON a.id=p.user_id WHERE a.status='ACTIVE' AND a.account_type='ADMIN' AND a.id=?",Long.class,target)==1
+                && jdbc.queryForObject("SELECT count(*) FROM dt_platform_admin p JOIN dt_account a ON a.id=p.user_id WHERE a.status='ACTIVE' AND a.account_type='ADMIN'",Long.class)<=1)
             throw new AdminFailure(409,"LAST_PLATFORM_ADMIN");
     }
 }

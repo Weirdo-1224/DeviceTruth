@@ -34,7 +34,8 @@ public class AccountController {
         this.recovery = recovery;
         this.limits = limits;
     }
-    @GetMapping("/csrf") Map<String,String> csrf(CsrfToken token) {
+    @GetMapping("/csrf") Map<String,String> csrf(CsrfToken token, HttpServletRequest request) {
+        request.getSession().setAttribute(LoginRealm.SESSION_ATTRIBUTE, LoginRealm.USER.name());
         return Map.of("headerName", token.getHeaderName(), "token", token.getToken());
     }
     @PostMapping("/register") AccountService.AccountView register(@RequestBody Registration body, HttpServletRequest req, HttpServletResponse res) {
@@ -74,8 +75,10 @@ public class AccountController {
         SecurityContextHolder.setContext(context);
         csrf.saveToken(null, req, res);
         contexts.saveContext(context, req, res);
+        req.getSession().setAttribute(LoginRealm.SESSION_ATTRIBUTE, LoginRealm.USER.name());
     }
     @ExceptionHandler(ResponseStatusException.class) ResponseEntity<Map<String,String>> error(ResponseStatusException e) {
-        return ResponseEntity.status(e.getStatusCode()).body(Map.of("code", e.getReason()));
+        return ResponseEntity.status(e.getStatusCode()).body(e instanceof AccountService.RealmMismatch mismatch
+                ? Map.of("code", e.getReason(), "targetRealm", mismatch.target().name()) : Map.of("code", e.getReason()));
     }
 }

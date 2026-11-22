@@ -26,7 +26,7 @@ class AdminRealModelTest extends AccountWorkspaceMigrationTest {
                 "--spring.datasource.url="+base+database,"--spring.datasource.username="+user,"--spring.datasource.password="+password,
                 "--devicetruth.agent.worker-enabled=true","--devicetruth.agent.reasoner=openai","--devicetruth.files.root="+output.resolve("files").toAbsolutePath())) {
             var source=app.getBean(com.zaxxer.hikari.HikariDataSource.class);var jdbc=new JdbcTemplate(source);var tx=new TransactionTemplate(new DataSourceTransactionManager(source));
-            var admin=app.getBean(AccountService.class).register("admin-real@example.com","isolated-real-password-123","运营验收");
+            var admin=legacyAdminFixture(app.getBean(AccountService.class),"admin-real@example.com","isolated-real-password-123","运营验收");
             var maintenance=new AdminMaintenance(jdbc,tx);maintenance.platform("isolated-real-test",admin.userId(),true,true,"OPS_REQUEST");
             var service=app.getBean(AdminService.class);var created=service.createUser(admin.userId(),UUID.randomUUID(),"member-real@example.com","设备检修员","isolated-real-member-password-123");
             UUID actor=(UUID)created.get("userId"),workspace=(UUID)created.get("personalWorkspaceId");

@@ -16,10 +16,37 @@ public final class AdminMaintenance {
     public AdminMaintenance(JdbcTemplate jdbc,TransactionTemplate transactions) {
         this.jdbc=jdbc;this.transactions=transactions;authorization=new AdminAuthorization(jdbc);audit=new AdminAudit(jdbc);
     }
+    public io.devicetruth.server.AccountService.AccountView createAdmin(String operator,String email,String name,String password) {
+        validate(operator,"OPS_REQUEST");
+        return transactions.execute(tx -> {
+            authorization.maintenanceLock();
+            var accounts=new io.devicetruth.server.AccountService(jdbc,transactions,io.devicetruth.server.AccountService.passwordEncoder());
+            var created=accounts.registerAdmin(email,password,name);
+            audit.append(null,operator,null,"ACCOUNT",created.userId().toString(),"ADMIN_CREATE","SUCCESS","OPS_REQUEST",null,
+                    UUID.randomUUID(),null,Map.of("accountType","ADMIN","status","ACTIVE"));
+            return created;
+        });
+    }
+    public void resetAdminPassword(String operator,UUID target,String password) {
+        validate(operator,"OPS_REQUEST");
+        if(password==null || password.length()<12 || password.length()>128)throw AdminFailure.input();
+        String encoded=io.devicetruth.server.AccountService.passwordEncoder().encode(password);
+        transactions.executeWithoutResult(tx->{
+            authorization.maintenanceLock();
+            if(jdbc.update("UPDATE dt_account SET password_hash=? WHERE id=? AND account_type='ADMIN'",encoded,target)!=1)throw AdminFailure.missing();
+            jdbc.update("DELETE FROM spring_session WHERE principal_name=?",target.toString());
+            jdbc.update("UPDATE dt_password_reset SET consumed_at=COALESCE(consumed_at,now()) WHERE user_id=?",target);
+            audit.append(null,operator,null,"ACCOUNT",target.toString(),"ADMIN_PASSWORD_RESET","SUCCESS","OPS_REQUEST",null,
+                    UUID.randomUUID(),null,null);
+        });
+    }
     public void platform(String operator,UUID target,boolean enabled,boolean bootstrap,String reason) {
         validate(operator,reason);
         transactions.executeWithoutResult(tx -> {
-            authorization.maintenanceLock(); if(enabled)active(target);else existing(target);
+            authorization.maintenanceLock(); if(enabled){active(target);
+                if(jdbc.queryForObject("SELECT count(*) FROM dt_account WHERE id=? AND account_type='ADMIN'",Long.class,target)!=1)
+                    throw new AdminFailure(400,"ADMIN_ACCOUNT_REQUIRED");
+            }else existing(target);
             long current=jdbc.queryForObject("SELECT count(*) FROM dt_platform_admin",Long.class);
             if(bootstrap && (current!=0 || !enabled)) throw new AdminFailure(409,"PLATFORM_ALREADY_INITIALIZED");
             if(!enabled) authorization.protectLast(target);
