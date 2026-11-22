@@ -33,7 +33,7 @@ li { padding-block: 12px; border-top: 1px solid var(--line-soft, #dde4eb); break
 p { margin: 5px 0; overflow-wrap: anywhere; }
 .review-labels { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
 .review-labels strong { color: var(--accent-2, #276951); }
-.review-labels .pending { color: #936411; }
+.review-labels .pending { color: var(--warn); }
 .review-reason, .review-history { color: var(--text-3, #67778a); }
 .review-source { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; }
 .review-source button { color: var(--accent-2, #276951); background: transparent; border: 0; padding: 0; text-decoration: underline; font: inherit; cursor: pointer; }

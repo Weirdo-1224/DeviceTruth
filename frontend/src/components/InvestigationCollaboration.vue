@@ -32,7 +32,7 @@ async function load(more = false): Promise<void> {
 async function post(): Promise<void> {
   if (props.mode !== 'discussion' || props.readOnly || busy.value || !draft.value.trim()) return
   busy.value = true; error.value = ''
-  try { await productRequest(`conversations/${props.conversationId}/discussions`, 'POST', {content: draft.value}); draft.value = ''; await loadDiscussions() }
+  try { await productRequest(`conversations/${props.conversationId}/discussions`, 'POST', {content: draft.value}); draft.value = ''; notice.value = '讨论已发表。'; await loadDiscussions() }
   catch(e) { error.value = e instanceof Error ? e.message : '发表失败' }
   finally { busy.value = false }
 }
@@ -72,7 +72,7 @@ watch(() => [props.refreshToken, props.mode], () => { original.value = ''; publi
 onMounted(() => load())
 </script>
 <template>
-  <section v-if="mode === 'discussion'" class="dt-discussion" aria-label="团队讨论">
+  <section v-if="mode === 'discussion'" class="dt-discussion" :aria-busy="loading || busy" aria-label="团队讨论">
     <div class="dt-section-head"><h2>团队讨论</h2><span class="dt-tag">不自动提交给 Agent</span></div>
     <p class="dt-help">在这里商量和交流。需要参与分析的内容，引用到调查补充后再确认提交。</p>
     <button type="button" class="dt-link" :disabled="loading" @click="load()">刷新讨论</button>
@@ -83,9 +83,10 @@ onMounted(() => load())
     </article>
     <p v-if="!loading && !discussions.length" class="dt-empty">还没有讨论，先分享你的看法。</p>
     <button type="button" class="dt-button" :disabled="loading" v-if="cursor !== null" @click="load(true)">更多讨论</button>
-    <form v-if="!readOnly" class="dt-section" @submit.prevent="post"><label class="dt-field">发表讨论<textarea v-model="draft" required maxlength="8000" placeholder="交流看法或商量检查安排，不会直接触发分析…"></textarea></label><div class="dt-section-head"><span>团队可见 · 用户讨论未核实</span><button class="dt-button dt-primary" :disabled="busy || !draft.trim()">发表讨论</button></div></form>
+    <form v-if="!readOnly" class="dt-section" @submit.prevent="post"><label class="dt-field">发表讨论<textarea id="discussion-content" aria-describedby="discussion-content-help" v-model="draft" required maxlength="8000" placeholder="交流看法或商量检查安排，不会直接触发分析…"></textarea><small id="discussion-content-help" class="field-help">请填写讨论内容，不超过 8000 个字符。</small></label><div class="dt-section-head"><span>团队可见 · 用户讨论未核实</span><button class="dt-button dt-primary" :disabled="busy || !draft.trim()">{{ busy ? '正在发表…' : '发表讨论' }}</button></div></form>
   </section>
-  <section v-else class="dt-materials" aria-label="调查附件">
+  <section v-else class="dt-materials" :aria-busy="loading || busy" aria-label="调查附件">
+    <p v-if="loading" role="status">正在读取附件…</p><p v-if="busy" role="status">正在处理，请稍候…</p>
     <p class="dt-help">附件仅服务当前调查，不会自动进入其他调查的检索。上传本身不发起分析。</p>
     <article v-for="file in files" :key="file.fileId" class="dt-record">
       <strong>{{ file.originalName }}</strong><p>{{ parseStatusLabel(file.parseStatus) }}</p>
@@ -97,8 +98,8 @@ onMounted(() => load())
     <button type="button" class="dt-button" v-if="moreFiles" :disabled="loading" @click="load(true)">更多附件</button>
     <div v-if="!readOnly" class="dt-section"><FilePicker ariaLabel="上传调查附件" accept=".md,.txt,.pdf,text/markdown,text/plain,application/pdf" :disabled="busy" @change="upload" /><p class="dt-help">支持 MD / TXT；PDF 可保存，暂不能解析为可检索文本。</p></div>
     <section v-if="originalTitle" class="dt-section"><div class="dt-section-head"><h3>附件原文</h3><button type="button" class="dt-link" @click="originalTitle = ''; original = ''">收起</button></div><h4>{{ originalTitle }}</h4><pre v-if="original" class="dt-original">{{ original }}</pre><p v-else>正在读取或原文不可用。</p></section>
-    <form v-if="publication" class="dt-section" @submit.prevent="publish"><h3>确认发布到当前空间</h3><p class="dt-help">同空间其他调查将可检索；未核实内容不会变成现场事实。</p><label class="dt-field">资料名称<input v-model="title" required maxlength="500"></label><label class="dt-field">适用设备与条件<textarea v-model="applicability" required maxlength="2000"></textarea></label><div class="dt-actions"><button class="dt-button dt-primary" :disabled="busy">确认发布</button><button type="button" class="dt-button" @click="publication = null">取消</button></div></form>
+    <form v-if="publication" class="dt-section" @submit.prevent="publish"><h3>确认发布到当前空间</h3><p class="dt-help">同空间其他调查将可检索；未核实内容不会变成现场事实。</p><label class="dt-field">资料名称<input id="investigationcollaboration-title" v-model="title" aria-describedby="investigationcollaboration-title-help" required maxlength="500"><small id="investigationcollaboration-title-help" class="field-help">请填写此字段。</small></label><label class="dt-field">适用设备与条件<textarea id="publication-applicability" aria-describedby="publication-applicability-help" v-model="applicability" required maxlength="2000"></textarea><small id="publication-applicability-help" class="field-help">请填写适用设备与条件，不超过 2000 个字符。</small></label><div class="dt-actions"><button class="dt-button dt-primary" :disabled="busy">{{ busy ? '正在发布…' : '确认发布' }}</button><button type="button" class="dt-button" @click="publication = null">取消</button></div></form>
     <button type="button" class="dt-link" :disabled="loading" @click="load()">刷新附件</button>
   </section>
-  <p v-if="notice" role="status">{{ notice }}</p><p v-if="error" role="alert">{{ error }}</p>
+  <p v-if="notice" class="dt-feedback-success" role="status">{{ notice }}</p><p v-if="error" role="alert">{{ error }} <button type="button" class="dt-link" :disabled="loading" @click="load()">重新读取{{ mode === 'discussion' ? '讨论' : '附件' }}</button></p>
 </template>

@@ -12,5 +12,5 @@ const emit = defineEmits<{ change: [event: Event] }>()
 <style scoped>
 .file-picker { display: inline-flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; margin: 0; font-size: 16px; cursor: pointer; color: var(--accent); }
 .file-picker:focus-within { outline: 2px solid var(--primary); outline-offset: 3px; }
-.file-picker.disabled { opacity: .5; cursor: not-allowed; }
+.file-picker.disabled { opacity: 1; background: var(--disabled-bg); color: var(--disabled-text); cursor: not-allowed; }
 </style>

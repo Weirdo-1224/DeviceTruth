@@ -165,10 +165,10 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
   vertical-align: top;
 }
 .facts tr.conflict {
-  background: #fff7ed;
+  background: var(--warn-bg);
 }
 .conflict {
-  color: #a35c00;
+  color: var(--warn);
 }
 .verify {
   font-size: 14px;
@@ -176,11 +176,11 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
   padding: 1px 6px;
 }
 .verify.field {
-  color: #0a7a3d;
-  background: #e3f5e9;
+  color: var(--success);
+  background: var(--success-bg);
 }
 .verify.documented {
-  color: #334e68;
+  color: var(--text-2);
   background: #eef2f5;
 }
 .maintenance h3 {
@@ -191,17 +191,17 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
   margin: 0;
   padding-left: 18px;
   font-size: 16px;
-  color: #334e68;
+  color: var(--text-2);
 }
 .hint {
-  color: #616e7c;
+  color: var(--text-3);
   font-size: 16px;
   margin: 4px 0;
 }
 .error {
-  border: 1px solid #f0b7b7;
-  background: #fff5f5;
-  color: #97266d;
+  border: 1px solid var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
   padding: 8px 12px;
   border-radius: 6px;
 }

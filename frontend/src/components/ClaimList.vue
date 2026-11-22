@@ -51,8 +51,8 @@ function referenceCount(claim: ClaimView, counts?: ReadonlyMap<string, number>):
 .claim-list-box h3 { display: flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 500; color: var(--text-3); margin: 0 0 10px; }
 .claim-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .claim-select { width: 100%; cursor: pointer; text-align: left; border: 1px solid transparent; border-radius: 8px; padding: 12px; background: transparent; display: grid; gap: 7px; color: var(--text); }
-.claim-select:hover { background: #eef3fb; }
-li.active .claim-select { border-color: #d6e2ff; background: #eaf1ff; color: var(--accent); }
+.claim-select:hover { background: var(--soft); }
+li.active .claim-select { border-color: #d6e2ff; background: var(--soft-selected); color: var(--accent); }
 .claim-head { display: flex; align-items: center; gap: 8px; }
 .claim-index { order: -1; display: grid; place-items: center; width: 23px; height: 23px; font-size: 14px; border-radius: 6px; background: #e7ecf5; color: var(--text-2); }
 li.active .claim-index { background: var(--accent); color: white; }

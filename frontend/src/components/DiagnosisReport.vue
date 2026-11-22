@@ -42,7 +42,7 @@ function claimReferenceLabels(claim: ClaimView): string {
 </script>
 
 <template>
-  <article class="diagnosis-report pro-card" aria-labelledby="diagnosis-report-title">
+  <article class="diagnosis-report pro-card" :data-run-status="run.status" aria-labelledby="diagnosis-report-title">
     <header class="report-header">
       <div>
         <p class="report-eyebrow">调查报告</p>
@@ -174,4 +174,6 @@ function claimReferenceLabels(claim: ClaimView): string {
   .report-header h1 { font-size: 21px; }
   .report-meta dl div { grid-template-columns: 88px minmax(0, 1fr); }
 }
+[data-run-status="FAILED"] .report-state { border-color: var(--danger); background: var(--danger-bg); color: var(--danger); }
+[data-run-status="CANCELLED"] .report-state { border-left: 4px solid var(--text-3); background: var(--neutral-bg); }
 </style>

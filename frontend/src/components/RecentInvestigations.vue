@@ -50,7 +50,7 @@ watch(() => props.query, value => { searchText.value = value })
       </select>
     </label>
     </details>
-    <p v-if="!historyLoaded" class="hint side-state">正在读取近期调查…</p>
+    <p v-if="!historyLoaded" role="status" class="hint side-state">正在读取近期调查…</p>
     <p v-else-if="historyError" class="hint side-state" role="alert">
       读取失败：{{ historyError }}
       <button type="button" class="text-button" @click="emit('retry')">重试</button>
@@ -100,4 +100,6 @@ watch(() => props.query, value => { searchText.value = value })
 .history-controls[open] > summary { margin-bottom: 8px; }
 .history-list .conversation-link { font-size: 16px; }
 .history-more { min-height: 42px; }
+.history-search input, .history-filter select { min-height: var(--control-height); border-radius: var(--control-radius); }
+.conversation-link:disabled { opacity: 1; background: var(--disabled-bg); color: var(--disabled-text); }
 </style>

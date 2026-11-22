@@ -35,7 +35,7 @@ onMounted(() => load())
     <main class="dt-page-main">
       <p v-if="space.role === 'VIEWER'" class="dt-readonly">你以只读成员身份查看：可阅读调查、讨论、资料和报告，不能提交信息或管理团队。</p>
       <div class="dt-section-head"><h2>团队成员</h2><span>{{ members.length }} 位成员</span></div>
-      <div class="dt-page-card"><p v-if="loading && !members.length">正在读取成员…</p>
+      <div class="dt-page-card"><p v-if="loading && !members.length" role="status">正在读取成员…</p>
         <div class="dt-table-scroll"><table class="dt-table"><thead><tr><th>成员</th><th>邮箱</th><th>角色</th><th v-if="space.role === 'ADMIN'">操作</th></tr></thead><tbody>
           <tr v-for="member in members" :key="member.userId"><td><span class="dt-avatar" aria-hidden="true">{{ member.displayName.slice(0, 1) }}</span> {{ member.displayName }}</td><td>{{ member.email }}</td><td>
             <select v-if="space.role === 'ADMIN'" :key="member.userId + member.role + revision" :value="member.role" :disabled="busy" :aria-label="member.displayName + '的角色'" @change="change('/members/' + member.userId, 'PATCH', { role: ($event.target as HTMLSelectElement).value })"><option value="ADMIN">管理员</option><option value="COLLABORATOR">协作成员</option><option value="VIEWER">只读成员</option></select>
@@ -47,12 +47,12 @@ onMounted(() => load())
       <p class="dt-help">管理员管理成员与团队设置；协作成员可共同推进调查；只读成员可查看调查、资料与报告。</p>
       <template v-if="space.role === 'ADMIN'">
         <section class="dt-page-card dt-section"><h2>邀请成员</h2><p class="dt-help">通过邮箱指定受邀人及加入角色。邮件服务接受不代表对方已经收到或加入。</p>
-          <form class="dt-form-grid" @submit.prevent="change('/invitations', 'POST', { email, role })"><label class="dt-field">邮箱<input v-model="email" type="email" required></label><label class="dt-field">角色<select v-model="role"><option value="COLLABORATOR">协作成员</option><option value="VIEWER">只读成员</option><option value="ADMIN">管理员</option></select></label><button class="dt-button dt-primary" :disabled="busy">创建邀请</button></form>
+          <form class="dt-form-grid" @submit.prevent="change('/invitations', 'POST', { email, role })"><label class="dt-field">邮箱<input id="teammemberspage-email" v-model="email" type="email" aria-describedby="teammemberspage-email-help" required><small id="teammemberspage-email-help" class="field-help">请输入有效的邮箱地址。</small></label><label class="dt-field">角色<select v-model="role"><option value="COLLABORATOR">协作成员</option><option value="VIEWER">只读成员</option><option value="ADMIN">管理员</option></select></label><button class="dt-button dt-primary" :disabled="busy">{{ busy ? '正在处理…' : '创建邀请' }}</button></form>
         </section>
         <section v-if="invitations.length" class="dt-section"><h2>邀请状态</h2><article v-for="invite in invitations" :key="invite.invitationId" class="dt-list-row"><div><strong>{{ invite.email }}</strong><p>{{ roleLabels[invite.role] }} · {{ invitationLabels[invite.status] ?? invite.status }} · {{ deliveryLabels[invite.deliveryStatus] ?? invite.deliveryStatus }}</p></div><div class="dt-actions"><button class="dt-button" :disabled="busy" @click="change('/invitations/' + invite.invitationId + '/resend')">重发</button><button class="dt-button" :disabled="busy" @click="change('/invitations/' + invite.invitationId + '/revoke')">撤销</button></div></article></section>
-        <details class="dt-team-settings"><summary>团队设置</summary><form @submit.prevent="change('', 'PATCH', { name })"><label class="dt-field">团队名称<input v-model="name" required maxlength="100"></label><button class="dt-button" :disabled="busy">保存名称</button></form></details>
+        <details class="dt-team-settings"><summary>团队设置</summary><form @submit.prevent="change('', 'PATCH', { name })"><label class="dt-field">团队名称<input id="teammemberspage-name" v-model="name" aria-describedby="teammemberspage-name-help" required maxlength="100"><small id="teammemberspage-name-help" class="field-help">请填写名称，不超过 100 个字符。</small></label><button class="dt-button" :disabled="busy">{{ busy ? '正在保存…' : '保存名称' }}</button></form></details>
       </template>
-      <p v-if="notice" role="status">{{ notice }}</p><p v-if="error" role="alert">{{ error }}</p>
+      <p v-if="notice" class="dt-feedback-success" role="status">{{ notice }}</p><p v-if="error" role="alert">{{ error }}</p>
     </main>
   </section>
 </template>

@@ -15,7 +15,7 @@ async function create(): Promise<void> {
   <section><header class="dt-pagehead"><p>工作空间 / 创建团队</p><h1>创建团队</h1></header>
     <main class="dt-page-main"><form class="dt-empty-form" @submit.prevent="create">
       <h2>和同事一起推进调查</h2><p class="dt-help">团队拥有独立的调查、设备与知识库。个人内容不会自动转入团队。</p>
-      <label class="dt-field">团队名称<input v-model="name" required maxlength="100" placeholder="例如：华东售后检修组"></label>
+      <label class="dt-field">团队名称<input id="createteampage-name" v-model="name" aria-describedby="createteampage-name-help" required maxlength="100" placeholder="例如：华东售后检修组"><small id="createteampage-name-help" class="field-help">请填写名称，不超过 100 个字符。</small></label>
       <div class="dt-actions"><button class="dt-button dt-primary" :disabled="busy">{{ busy ? '正在创建…' : '创建团队' }}</button><button type="button" class="dt-link" @click="emit('cancel')">返回调查</button></div>
       <p v-if="error" role="alert">{{ error }}</p>
     </form></main>

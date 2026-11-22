@@ -188,9 +188,9 @@ h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; margin: 0; }
 .timeline-item:last-child { padding-bottom: 4px; }
 .timeline-item:not(:last-child)::before { content: ''; position: absolute; width: 2px; top: 32px; bottom: -3px; left: 14px; background: var(--line); }
 .event-marker { z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; background: var(--soft); color: var(--accent); border-radius: 50%; font-size: 16px; }
-.event-marker.tool, .event-marker.answer { background: #e8f5ee; color: var(--ok); }
+.event-marker.tool, .event-marker.answer { background: var(--success-bg); color: var(--ok); }
 .event-marker.warn { background: var(--warn-bg); color: var(--warn); }
-.event-marker.failure { background: #fff0ef; color: var(--danger); }
+.event-marker.failure { background: var(--danger-bg); color: var(--danger); }
 .event-content { min-width: 0; overflow-wrap: anywhere; }
 .event-content strong { display: block; padding-top: 2px; font-size: 16px; font-weight: 600; }
 .event-content p, .timeline > p { color: var(--text-2); margin: 5px 0 0; line-height: 1.7; font-size: 16px; }
@@ -203,4 +203,5 @@ time { margin-top: 5px; white-space: nowrap; font-variant-numeric: tabular-nums;
 .event-technical { margin-top: 7px; color: var(--text-3); font-size: 14px; }
 .event-technical summary { cursor: pointer; width: fit-content; }
 .event-technical pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.65; padding: 12px; background: var(--panel-2); border-radius: 8px; }
+.timeline-item[data-type="RUN_CANCELLED"] .event-marker { background: var(--neutral-bg); color: var(--text-2); }
 </style>

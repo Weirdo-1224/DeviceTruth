@@ -22,6 +22,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // 保留 CSS 原始文本，供共享令牌源合同测试读取。
+    css: true,
     include: ['src/**/*.test.ts']
   }
 })

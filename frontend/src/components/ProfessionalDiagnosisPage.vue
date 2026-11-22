@@ -263,15 +263,15 @@ const claimGroups = computed(() => [
 .pro-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 20px; align-items: start; }
 .pro-workspace-empty, .pro-workspace-embedded { grid-template-columns: minmax(0, 1fr); }
 .pro-focus { min-width: 0; display: grid; gap: 20px; }
-.pro-headline { padding: 22px 26px; border-radius: 12px; background: #edf3ff; border-left: 4px solid var(--accent); }
+.pro-headline { padding: 22px 26px; border-radius: 12px; background: var(--soft); border-left: 4px solid var(--accent); }
 .pro-focus-eyebrow { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; color: var(--accent); font-size: 15px; font-weight: 650; }
 .pro-focus-eyebrow span { margin-left: auto; color: var(--text-3); font-size: 14px; font-weight: 400; }
 .pro-short-conclusion { margin: 0; font-size: 22px; line-height: 1.55; font-weight: 650; color: var(--text); white-space: pre-wrap; }
 .pro-result-labels { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 8px; }
 .chip, .risk-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; border-radius: 6px; padding: 3px 9px; color: var(--accent); background: #ffffffb8; }
 .risk-chip { color: var(--warn); background: var(--warn-bg); font-weight: 600; }
-.risk-chip.LOW { color: var(--ok); background: #e8f4ed; }
-.risk-chip.HIGH, .risk-chip.PROHIBITED { color: var(--danger); background: #fff0ef; }
+.risk-chip.LOW { color: var(--ok); background: var(--success-bg); }
+.risk-chip.HIGH, .risk-chip.PROHIBITED { color: var(--danger); background: var(--danger-bg); }
 .pro-headline > .hint { margin: 0; }
 .pro-claim-workspace { display: grid; grid-template-columns: 238px minmax(0, 1fr); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .pro-claim-workspace:not(:has(.pro-nav)) { grid-template-columns: minmax(0, 1fr); }
@@ -320,4 +320,6 @@ const claimGroups = computed(() => [
   .pro-headline, .pro-follow-through { padding: 18px; } .pro-short-conclusion { font-size: 19px; }
   .pro-round-fields { grid-template-columns: minmax(0, 1fr); } .pro-claim-content { padding: 18px; }
 }
+.pro-state[data-state="failed"] { border-color: var(--danger); background: var(--danger-bg); color: var(--danger); }
+.pro-state[data-state="cancelled"] { border-left: 4px solid var(--text-3); background: var(--neutral-bg); }
 </style>

@@ -1,8 +1,7 @@
 /* ══════════════════════════════════════════════════════
    DeviceTruth 全局设计令牌 & 基础重置
    所有页面（workbench / workspace / admin / auth）共享此文件。
-   子模块可在自己的作用域类（.pro-light / .team-app 等）内局部覆盖，
-   但应优先引用这里的变量，避免硬编码重复颜色。
+   颜色、文字和控件令牌只在这里定义；子模块保留布局差异。
    ══════════════════════════════════════════════════════ */
 
 :root {
@@ -13,6 +12,26 @@
   color: #18253b;
   background: #f7f9fd;
 
+  --font-body: 16px;
+  --font-small: 14px;
+  --font-section: 20px;
+  --font-page: 28px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --control-height: 44px;
+  --control-radius: 8px;
+  --content-width: 1440px;
+  --success-bg: #edf7f1;
+  --danger-bg: #fff3f3;
+  --neutral-bg: #edf0f6;
+  --disabled-bg: #edf0f6;
+  --disabled-text: #59677b;
+  --focus-ring: 2px solid var(--primary);
+
   /* ── 主色：统一品牌蓝 ── */
   --primary:      #245de0;
   --primary-deep: #194bbb;
@@ -20,11 +39,11 @@
   --accent-2:     #245de0;
 
   /* ── 文字层级 ── */
-  --ink:    #18253b;
+  --ink:    var(--text);
   --text:   #18253b;
   --text-2: #4c5d76;
   --text-3: #637084;
-  --muted:  #637084;
+  --muted:  var(--text-3);
 
   /* ── 背景 / 面板 ── */
   --bg:        #f7f9fd;
@@ -43,11 +62,11 @@
   --soft:          #edf3ff;
   --soft-selected: #e7efff;
   --success:       #187a52;
-  --ok:            #187a52;
+  --ok:            var(--success);
   --warn:          #915b12;
   --warn-bg:       #fff7e9;
   --danger:        #b33636;
-  --warning:       #915b12;
+  --warning:       var(--warn);
 
   /* ── 圆角（4档，8px 基准格）── */
   --radius-sm: 6px;
@@ -73,7 +92,7 @@ textarea:focus-visible,
 select:focus-visible,
 input:focus-visible,
 summary:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: var(--focus-ring);
   outline-offset: 3px;
 }
 
@@ -91,7 +110,16 @@ svg { flex: none; vertical-align: middle; }
 /* ── 通用语义组件 ── */
 .hint  { color: var(--muted); font-size: 14px; line-height: 1.6; }
 .error {
-  background: #fff3f3; border: 1px solid var(--danger);
+  background: var(--danger-bg); border: 1px solid var(--danger);
   border-radius: var(--radius); color: var(--danger);
   padding: 10px 14px;
+}
+
+/* 原生约束保留浏览器校验，提交或编辑后才呈现错误。 */
+:where(input, textarea, select):is(:user-invalid, [aria-invalid="true"]) { border-color: var(--danger); background: var(--danger-bg); }
+:where(input, textarea, select, button):disabled { opacity: 1; background: var(--disabled-bg); color: var(--disabled-text); border-color: var(--line); cursor: not-allowed; }
+:where(h1, h2, h3, h4, p, dd, td, pre) { overflow-wrap: anywhere; }
+small { font-size: var(--font-small); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }

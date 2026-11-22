@@ -1187,9 +1187,9 @@ onUnmounted(() => {
               @open-reference="openReference" @retry-references="loadRegisteredReferences(run.runId)" />
             <template v-else>
               <section v-if="!conversation || activeTab === 'overview'" class="dt-overview" aria-labelledby="dt-tab-overview">
-                <section v-if="activeRun" class="dt-run-banner" :class="viewedIsActive ? 'dt-agent-hero' : 'dt-history-active'" aria-label="活动调查状态">
+                <section v-if="activeRun" class="dt-run-banner" :data-run-status="activeRun?.status" :class="viewedIsActive ? 'dt-agent-hero' : 'dt-history-active'" aria-label="活动调查状态">
                   <div class="dt-agent-heading">
-                    <span v-if="viewedIsActive" class="dt-agent-mark"><UiIcon :name="activeRun.status === 'WAITING_FOR_USER' ? 'chat' : 'activity'" /></span>
+                    <span v-if="viewedIsActive" class="dt-agent-mark"><UiIcon :name="activeRun.status === 'WAITING_FOR_USER' ? 'chat' : activeRun.status === 'QUEUED' ? 'clock' : 'activity'" /></span>
                     <div>
                       <p class="dt-eyebrow">{{ viewedIsActive ? 'DEVICETRUTH AGENT' : '正在查看历史结果' }}</p>
                       <h2>{{ viewedIsActive ? (activeRun.status === 'WAITING_FOR_USER' ? '等待你补充信息' : activeRun.status === 'QUEUED' ? '调查已进入队列' : 'Agent 正在调查') : `第 ${runs.findIndex(item => item.runId === activeRun?.runId) + 1} 轮仍有未决调查` }}</h2>
@@ -1237,7 +1237,7 @@ onUnmounted(() => {
                       </section>
                       <form v-else :class="{ 'dt-create-form': !conversation }" @submit.prevent="submit">
                         <label class="dt-field dt-device-field">排查设备（可选）<select v-model="selectedAssetId" :disabled="props.readOnly || busy || composeMode === 'investigate'" aria-label="关联设备"><option value="">暂不指定设备</option><option v-for="asset in assets" :key="asset.assetId" :value="asset.assetId">{{ asset.assetId }}{{ asset.displayName ? ' · ' + asset.displayName : '' }}{{ asset.deviceType ? '（' + asset.deviceType + '）' : '' }}</option></select></label>
-                        <label v-if="!conversation" class="dt-field">调查标题<input v-model="newTitle" required maxlength="200" :disabled="busy || props.readOnly" placeholder="例如：车载座舱空调不转"></label>
+                        <label v-if="!conversation" class="dt-field">调查标题<input id="app-newTitle" v-model="newTitle" aria-describedby="app-newTitle-help" required maxlength="200" :disabled="busy || props.readOnly" placeholder="例如：车载座舱空调不转"><small id="app-newTitle-help" class="field-help">请填写此字段。</small></label>
                         <div v-if="conversation" class="dt-actions" role="group" aria-label="输入模式">
                           <button type="button" class="dt-button" :disabled="props.readOnly" :aria-pressed="composeMode === 'free'" @click="composeMode = 'free'">自由提问</button>
                           <button type="button" class="dt-button" :aria-pressed="composeMode === 'investigate'" :disabled="!canInvestigate" :title="investigateTitle" @click="focusInvestigation">深入调查</button>
