@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import type { RunEvent } from '../api'
 import UiIcon from './UiIcon.vue'
+import { categoryLabel, dataNatureLabel, modelOutcomeLabel, riskLabel } from '../presentation'
+import { describeFailure } from '../api'
 
 const props = defineProps<{
   overview?: boolean
@@ -18,7 +20,7 @@ const TYPE_LABELS: Record<string, string> = {
   RUN_QUEUED: '排队',
   RUN_RECOVERED: '恢复',
   RUN_WAITING: '等待补充',
-  RUN_TOOL: '检索',
+  RUN_TOOL: '工具活动',
   RUN_MODEL: '模型',
   RUN_ANSWER: '答案',
   RUN_FAILED: '失败',
@@ -26,7 +28,8 @@ const TYPE_LABELS: Record<string, string> = {
   RUN_LATE_RESPONSE: '迟到响应',
   RUN_PHASE: '答复阶段',
   RUN_DEGRADED: '有限结果',
-  RUN_TERMINAL: '运行结束'
+  RUN_TERMINAL: '运行结束',
+  RUN_ANSWER_REVIEW: '答复审核记录'
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -42,7 +45,7 @@ const TOOL_LABELS: Record<string, string> = {
 }
 
 function typeLabel(type: string): string {
-  return TYPE_LABELS[type] ?? '事件'
+  return TYPE_LABELS[type] ?? '其他运行事件'
 }
 
 function badgeClass(type: string): string {
@@ -75,10 +78,8 @@ function formatTime(recordedAt: string): string {
 function describeEvent(event: RunEvent): string {
   const data = event.data ?? {}
   switch (event.type) {
-    case 'RUN_QUEUED': {
-      const status = asString(data.status)
-      return status ? `任务进入执行队列（${status}）` : '任务进入执行队列'
-    }
+    case 'RUN_QUEUED':
+      return '任务已进入执行队列'
     case 'RUN_RECOVERED': {
       const attempts = asNumber(data.attempts)
       return attempts !== null ? `中断后恢复执行（执行尝试 ${attempts}）` : '中断后恢复执行'
@@ -88,60 +89,65 @@ function describeEvent(event: RunEvent): string {
       return questionVersion !== null ? `等待补充信息（第 ${questionVersion} 版）` : '等待补充信息'
     }
     case 'RUN_TOOL': {
-      const toolName = asString(data.toolName) ?? '未知工具'
       const success = data.success
       const duration = asNumber(data.durationMs)
       const parts = success === true
-        ? [`检索工具 ${toolName} 成功`]
-        : success === false ? [`工具 ${toolName} 失败（${asString(data.errorCode) ?? 'UNKNOWN'}）`] : [`工具 ${toolName} 结果未报告`]
+        ? ['工具调用完成']
+        : success === false ? ['工具调用失败，请查看技术详情'] : ['工具结果未报告']
       if (duration !== null) parts.push(`耗时 ${formatDuration(duration)}`)
       if (data.retryable === true) parts.push('可重试')
       const references = asNumber(data.references)
-      if (references !== null) parts.push(`引用 ${references} 条`)
+      if (references !== null) parts.push(references === 0 ? '未登记新来源' : `本次登记 ${references} 条引用`)
       return parts.join(' · ')
     }
     case 'RUN_MODEL': {
       const attempt = asNumber(data.attempt)
-      const model = asString(data.model)
       const duration = asNumber(data.durationMs)
       const outcome = asString(data.outcome)
       const parts = [`模型调用${attempt !== null ? `第 ${attempt} 次` : ''}`]
-      if (model) parts.push(model)
-      if (outcome) parts.push(outcome)
+      if (outcome) parts.push(modelOutcomeLabel(outcome))
       if (duration !== null) parts.push(`耗时 ${formatDuration(duration)}`)
       const outputTokens = asNumber(data.outputTokens)
       if (outputTokens !== null) parts.push(`输出 ${outputTokens} tokens`)
       return parts.join(' · ')
     }
     case 'RUN_ANSWER': {
-      const category = asString(data.category) ?? 'UNKNOWN'
-      const riskLevel = asString(data.riskLevel) ?? 'UNKNOWN'
+      const category = asString(data.category)
+      const riskLevel = asString(data.riskLevel)
       const dataNature = asString(data.dataNature)
-      const summary = `形成答案（${category} · 风险 ${riskLevel}${dataNature ? ' · ' + dataNature : ''}）`
+      const summary = `已形成答复（${categoryLabel(category)} · ${riskLabel(riskLevel)}${dataNature ? ' · ' + dataNatureLabel(dataNature) : ''}）`
       const claims = Array.isArray(data.claims) ? data.claims.length : null
       return claims !== null ? `${summary} · 判断 ${claims} 项` : summary
     }
     case 'RUN_PHASE': {
       const phase = asString(data.phase) ?? 'UNKNOWN'
       const labels: Record<string, string> = { FINALIZING: '准备最终答复', REVIEWING: '复核答复', CORRECTING: '修正答复' }
-      const reason = asString(data.reason)
-      return (labels[phase] ?? `处理中（${phase}）`) + (reason ? ` · ${reason}` : '')
+      return labels[phase] ?? '处理阶段未明确，请查看技术详情'
     }
     case 'RUN_DEGRADED':
-      return `形成有限结果（${asString(data.code) ?? 'UNKNOWN'}）`
-    case 'RUN_FAILED':
-      return `执行失败（${asString(data.code) ?? 'UNKNOWN'}）`
-    case 'RUN_CANCELLED':
-      return `已取消（${asString(data.phase) ?? 'UNKNOWN'}）`
-    case 'RUN_LATE_RESPONSE': {
-      const status = asString(data.status)
+      return '本轮形成有限结果，请结合限制与人工核验项阅读'
+    case 'RUN_FAILED': {
       const code = asString(data.code)
-      const inner = [status, code].filter((part): part is string => part !== null).join(' · ')
-      return inner ? `迟到的模型响应（${inner}）` : '迟到的模型响应'
+      const label = describeFailure(code)
+      return code && label.includes(code) ? '执行失败，请查看技术详情' : label
     }
+    case 'RUN_CANCELLED':
+      return '本轮调查已取消'
+    case 'RUN_LATE_RESPONSE':
+      return '收到迟到的模型响应，处理情况见技术详情'
+    case 'RUN_ANSWER_REVIEW':
+      return '已记录答复审核事件'
     default:
-      return `事件 ${event.type}`
+      return '收到其他运行事件，原始类型见技术详情'
   }
+}
+function technicalDetails(event: RunEvent): string {
+  const values: Record<string, unknown> = { eventType: event.type, sequence: event.seq }
+  for (const key of ['toolName', 'success', 'errorCode', 'references', 'durationMs', 'retryable', 'model', 'attempt', 'outcome', 'outputTokens', 'inputTokens', 'cost', 'phase', 'reason', 'code', 'status', 'attempts', 'questionVersion', 'category', 'riskLevel', 'dataNature']) {
+    const value = event.data?.[key]
+    if (typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') values[key] = value
+  }
+  return JSON.stringify(values, null, 2)
 }
 </script>
 
@@ -162,6 +168,7 @@ function describeEvent(event: RunEvent): string {
         <div class="event-content">
           <strong>{{ TOOL_LABELS[asString(event.data?.toolName) ?? ''] ?? typeLabel(event.type) }}</strong>
           <p class="detail">{{ describeEvent(event) }}</p>
+          <details class="event-technical"><summary>技术详情</summary><pre>{{ technicalDetails(event) }}</pre></details>
         </div>
         <time :datetime="event.recordedAt">{{ formatTime(event.recordedAt) }}</time>
       </li>
@@ -193,4 +200,7 @@ time { margin-top: 5px; white-space: nowrap; font-variant-numeric: tabular-nums;
 .overview .timeline-item:last-child .event-content { background: var(--soft); border-radius: 8px; padding: 8px 12px; margin-top: -4px; }
 .compact .timeline-list { padding: 14px 18px; }
 @media (max-width: 600px) { .timeline-item { grid-template-columns: 30px minmax(0, 1fr); gap: 8px 12px; } time { grid-column: 2; margin: 0; } header, .timeline-list { padding-inline: 16px; } }
+.event-technical { margin-top: 7px; color: var(--text-3); font-size: 14px; }
+.event-technical summary { cursor: pointer; width: fit-content; }
+.event-technical pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.65; padding: 12px; background: var(--panel-2); border-radius: 8px; }
 </style>

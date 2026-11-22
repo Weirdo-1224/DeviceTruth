@@ -7,7 +7,7 @@ import type { RunEvent } from './api'
 const event = (type: string, data: Record<string, unknown>, seq = 1): RunEvent => ({ seq, type, data, recordedAt: '2026-11-22T07:00:00Z' })
 const render = (events: RunEvent[], compact = false) => renderToString(createSSRApp(RunTimeline, { events, compact, live: false, status: '执行中', duration: '' }))
 describe('真实运行事件的展示语义', () => {
-  it.each([['FINALIZING', '准备最终答复'], ['REVIEWING', '复核答复'], ['CORRECTING', '修正答复'], ['FUTURE', '处理中（FUTURE）']])('按 %s 阶段展示并保留原因码', async (phase, label) => {
+  it.each([['FINALIZING', '准备最终答复'], ['REVIEWING', '复核答复'], ['CORRECTING', '修正答复'], ['FUTURE', '处理阶段未明确']])('按 %s 阶段展示并保留原因码', async (phase, label) => {
     const html = await render([event('RUN_PHASE', { phase, reason: 'ORIGINAL_REASON' })])
     expect(html).toContain(label); expect(html).toContain('ORIGINAL_REASON'); expect(html).not.toContain('预算接近上限')
   })
@@ -58,7 +58,7 @@ describe('重构后的状态布局', () => {
       result: { summary: '充电中断，现有记录不足以确认原因。', category, claims: [], suggestions: ['读取故障日志'], uncertainties: ['缺实测值'], limitations: ['尚未现场核验'], references: [], riskLevel: 'HIGH', safetyDisposition: 'REQUIRES_QUALIFIED_PERSONNEL', dataNature: 'SIMULATED', review: { version: 2, limited: true, units: [], decisions: [] } } }
     const model = buildDiagnosisViewModel({ run })
     const html = await renderToString(createSSRApp(ProfessionalDiagnosisPage, { run, model, selectedClaim: null, selectedIndex: null, registeredReferences: [], referencesState: 'empty', referencesNote: '', skillLabel: null, embedded: true }))
-    expect(html).toContain('充电中断，现有记录不足以确认原因。'); expect(html).toContain('有限结果 · 需人工复核'); expect(html).toContain('风险 HIGH'); expect(html).toContain('SIMULATED')
+    expect(html).toContain('充电中断，现有记录不足以确认原因。'); expect(html).toContain('有限结果 · 需人工复核'); expect(html).toContain('高风险'); expect(html).toContain('title="HIGH"'); expect(html).toContain('SIMULATED')
     expect(html).not.toContain('修复成功'); expect(html).not.toContain('pro-nav pro-card')
     expect(html.indexOf('pro-claim-workspace')).toBeLessThan(html.indexOf('pro-next-actions'))
   })

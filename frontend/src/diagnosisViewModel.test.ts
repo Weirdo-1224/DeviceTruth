@@ -127,7 +127,7 @@ describe('diagnosisViewModel 映射', () => {
     expect(model.shortConclusion).toContain('未形成')
   })
 
-  it('KNOWLEDGE 类别的判断显示为资料断言，不写成候选故障原因', () => {
+  it('KNOWLEDGE 类别的判断显示为资料答复，不写成候选故障原因', () => {
     const model = buildDiagnosisViewModel({
       run: run({
         result: result({
@@ -139,7 +139,7 @@ describe('diagnosisViewModel 映射', () => {
         })
       })
     })
-    expect(model.claimsTitle).toBe('资料断言')
+    expect(model.claimsTitle).toBe('资料答复')
     expect(model.claims).toHaveLength(2)
     expect(model.claims.map((claim) => claim.certaintyLabel)).toEqual(['可能', '资料支持'])
   })
@@ -331,7 +331,7 @@ describe('调查导航短预览', () => {
     const claims = [{ text: '判断一', certainty: 'SUPPORTED' as const, referenceIds: [] }]
     const knowledge = buildDiagnosisViewModel({ run: run({ result: result({ category: 'KNOWLEDGE', claims }) }) })
     const causes = buildDiagnosisViewModel({ run: run({ result: result({ category: 'POSSIBLE_CAUSES', claims }) }) })
-    expect(knowledge.claimsTitle).toBe('资料断言')
+    expect(knowledge.claimsTitle).toBe('资料答复')
     expect(causes.claimsTitle).toBe('候选原因')
     expect(knowledge.claims[0].certaintyLabel).toBe('资料支持')
     expect(causes.claims[0].certaintyLabel).toBe('资料支持')

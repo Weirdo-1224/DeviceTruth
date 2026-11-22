@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { dataNatureLabel } from '../presentation'
 import UiIcon from './UiIcon.vue'
 import type { ClaimView } from '../diagnosisViewModel'
 
@@ -33,9 +34,9 @@ const emit = defineEmits<{ (event: 'toggle-reference', referenceId: string): voi
           <span class="evidence-icon"><UiIcon name="file" /></span>
           <span class="evidence-main">
             <strong>《{{ reference.title }}》</strong>
-            <small>{{ reference.sourceTypeLabel }} · 版本 {{ reference.sourceVersion }}
+            <small :title="reference.dataNature">{{ reference.sourceTypeLabel }} · 版本 {{ reference.sourceVersion }}
               <template v-if="reference.locatingNote"> · {{ reference.locatingNote }}</template>
-              · {{ reference.dataNature }}</small>
+              · {{ dataNatureLabel(reference.dataNature) }}</small>
             <span v-if="reference.excerpt" class="evidence-excerpt">{{ reference.excerpt }}</span>
           </span>
           <UiIcon name="chevron" class="evidence-open" />

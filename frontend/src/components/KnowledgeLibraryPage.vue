@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { dataNatureLabel, displayTime, memberLabel } from '../presentation'
 import { productRequest, type WorkspaceView } from '../api'
 interface KnowledgeDocument { documentId: string; title: string; documentVersion: string; dataNature: string; ingestStatus: string; applicability: string; originalAuthorUserId: string | null; publishedByUserId: string | null; publishedAt: string | null }
 const props = defineProps<{ space: WorkspaceView; memberNames: Record<string, string> }>()
@@ -15,7 +16,7 @@ async function load(append = false): Promise<void> {
   } catch (e) { error.value = e instanceof Error ? e.message : '知识库读取失败' }
   finally { loading.value = false }
 }
-function author(id: string | null, unknown: string): string { return id ? props.memberNames[id] ?? id : unknown }
+function author(id: string | null, unknown: string): string { return memberLabel(id, props.memberNames, unknown) }
 onMounted(() => load())
 </script>
 <template>
@@ -25,8 +26,8 @@ onMounted(() => load())
         <p v-if="loading && !documents.length" role="status">正在读取知识库…</p>
         <article v-for="doc in documents" :key="doc.documentId" class="dt-list-row"><div>
           <strong>{{ doc.title }}</strong><p>适用范围：{{ doc.applicability }}</p>
-          <p>{{ author(doc.publishedByUserId, '历史发布人未知') }}发布 · 原作者：{{ author(doc.originalAuthorUserId, '历史作者未知') }}</p>
-          <p>版本 {{ doc.documentVersion }} · {{ doc.dataNature }} · {{ doc.publishedAt ?? '历史发布时间未知' }}</p>
+          <p :title="[doc.publishedByUserId, doc.originalAuthorUserId].filter(Boolean).join(' · ')">发布人：{{ author(doc.publishedByUserId, '历史发布人未知') }} · 原作者：{{ author(doc.originalAuthorUserId, '历史作者未知') }}</p>
+          <p :title="doc.dataNature">版本 {{ doc.documentVersion }} · {{ dataNatureLabel(doc.dataNature) }} · {{ displayTime(doc.publishedAt) }}</p>
         </div><span class="dt-tag dt-success">已加入</span></article>
         <div v-if="!loading && !documents.length && !error" class="dt-empty"><h3>知识库还没有资料</h3><p>可从调查附件中选择有复用价值的材料，明确适用范围后发布。</p></div>
         <button v-if="more" type="button" class="dt-button" :disabled="loading" @click="load(true)">{{ loading ? '正在读取…' : '更多资料' }}</button>

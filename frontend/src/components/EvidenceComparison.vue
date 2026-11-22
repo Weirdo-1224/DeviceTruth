@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { dataNatureLabel, verificationLabel } from '../presentation'
 import { ApiError, readAsset, type AssetComposite, type ConfigurationEntry } from '../api'
 
 /**
@@ -16,7 +17,7 @@ const SOURCE_LABELS: Record<string, string> = {
   FACTORY: '出厂记录',
   REPLACEMENT: '改造记录',
   CONFIGURATION: '旧模板',
-  FIELD_OBSERVATION: '现场核验',
+  FIELD_OBSERVATION: '现场观测',
   MAINTENANCE: '维修记录',
   DOCUMENT: '资料记载'
 }
@@ -45,7 +46,7 @@ const groups = computed<Group[]>(() => {
 })
 
 function sourceLabel(type: string): string {
-  return SOURCE_LABELS[type] ?? type
+  return SOURCE_LABELS[type] ?? '来源类型未明确'
 }
 
 function day(value: string | null): string {
@@ -90,7 +91,7 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
     <p v-else-if="errorText" class="error" role="alert">{{ errorText }}</p>
     <template v-else-if="asset">
       <p class="hint">
-        数据性质 {{ asset.dataNature }} · 时点 {{ day(asset.asOf) }} ·
+        数据性质 {{ dataNatureLabel(asset.dataNature) }} · 时点 {{ day(asset.asOf) }} ·
         装机判断 <strong>{{ asset.installationStatus === 'FIELD_CONFIRMED' ? '现场已确认' : '未确认' }}</strong> ·
         冲突 <strong :class="{ conflict: asset.conflict === 'CONFLICT' }">{{ asset.conflict === 'CONFLICT' ? '存在' : '无' }}</strong>
       </p>
@@ -113,10 +114,10 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
                 <span v-if="index === 0">{{ group.componentId }} / {{ group.attribute }}</span>
               </td>
               <td>{{ entry.value }}</td>
-              <td>{{ sourceLabel(entry.sourceType) }}</td>
+              <td :title="entry.sourceType">{{ sourceLabel(entry.sourceType) }}</td>
               <td>
-                <span :class="['verify', entry.verificationStatus === 'FIELD_VERIFIED' ? 'field' : 'documented']">
-                  {{ entry.verificationStatus === 'FIELD_VERIFIED' ? '现场核实' : '资料记载' }}
+                <span :class="['verify', entry.verificationStatus === 'FIELD_VERIFIED' ? 'field' : 'documented']" :title="entry.verificationStatus">
+                  {{ verificationLabel(entry.verificationStatus) }}
                 </span>
               </td>
               <td>{{ day(entry.validFrom) }}</td>
@@ -131,7 +132,7 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
       <div v-if="asset.maintenance.length > 0" class="maintenance">
         <h3>维修记录</h3>
         <ul>
-          <li v-for="entry in asset.maintenance" :key="entry.recordId">
+          <li v-for="entry in asset.maintenance" :key="entry.recordId" :title="entry.sourceType">
             {{ entry.componentId }} · {{ entry.operation }}：
             {{ entry.beforeValue ?? '—' }} → {{ entry.afterValue ?? '—' }}
             · {{ sourceLabel(entry.sourceType) }} · 有效期自 {{ day(entry.validFrom) }}

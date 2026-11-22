@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { dataNatureLabel, riskLabel, safetyLabel } from '../presentation'
 import { computed, ref, watch } from 'vue'
 import UiIcon from './UiIcon.vue'
 import AnswerReviewPanel from './AnswerReviewPanel.vue'
@@ -63,7 +64,7 @@ const citedMissing = computed(() => {
 function describeReference(reference: ReferenceView): string {
   const parts = [reference.sourceTypeLabel, '版本 ' + reference.sourceVersion]
   if (reference.locatingNote) parts.push(reference.locatingNote)
-  parts.push(reference.dataNature)
+  parts.push(dataNatureLabel(reference.dataNature))
   return parts.join(' · ')
 }
 
@@ -92,22 +93,22 @@ const claimGroups = computed(() => [
     <header v-if="run && !embedded" class="pro-task-card">
       <div class="pro-task-main">
         <p class="pro-breadcrumb">专业诊断 <span aria-hidden="true">›</span> 调查任务</p>
-        <p class="pro-task-eyebrow">INVESTIGATION / 诊断工作台</p>
+        <p class="pro-task-eyebrow">检修调查工作台</p>
         <h1 class="pro-task-title" tabindex="-1">{{ model.taskQuestion || '（本轮目标消息不可用）' }}</h1>
         <p class="pro-task-meta">
           设备 <strong data-testid="viewed-asset">{{ model.selectedAssetId || model.assetResolutionLabel }}</strong>
           <template v-if="model.selectedAssetId"> · {{ model.assetResolutionLabel }}</template>
           <template v-if="model.changedFromAssetId"> · 原对象 {{ model.changedFromAssetId }}</template>
-          · 业务时点 <time :datetime="run.asOf">{{ new Date(run.asOf).toLocaleString('zh-CN', { hour12: false }) }}</time>
-          <template v-if="model.dataNature"> · 数据性质 {{ model.dataNature }}</template>
+          · 本轮查询时点 <time :datetime="run.asOf">{{ new Date(run.asOf).toLocaleString('zh-CN', { hour12: false }) }}</time>
+          <template v-if="model.dataNature"> · 数据性质 {{ dataNatureLabel(model.dataNature) }}</template>
           <template v-if="skillLabel"> · {{ skillLabel }}</template>
           <template v-if="run.activeDurationMs != null"> · 耗时 {{ Math.round(run.activeDurationMs / 1000) }} 秒</template>
         </p>
       </div>
       <div class="pro-task-status">
         <span class="chip" :class="run.status.toLowerCase()">{{ statusLabel }}</span>
-        <span v-if="model.riskLevel" class="risk-chip" :class="model.riskLevel"><UiIcon name="warning" /> 风险 {{ model.riskLevel }}</span>
-        <button type="button" class="pro-outline" @click="emit('history')"><UiIcon name="clock" /> 历史 Run</button>
+        <span v-if="model.riskLevel" class="risk-chip" :class="model.riskLevel" :title="model.riskLevel"><UiIcon name="warning" /> {{ riskLabel(model.riskLevel) }}</span>
+        <button type="button" class="pro-outline" @click="emit('history')"><UiIcon name="clock" /> 调查轮次</button>
       </div>
     </header>
 
@@ -118,7 +119,7 @@ const claimGroups = computed(() => [
           <section v-if="run.status === 'FAILED'" class="pro-state pro-card" data-state="failed" role="alert">
             <h3><UiIcon name="warning" /> 本次没有得到答案</h3>
             <p>{{ failureText || ('失败原因码：' + (run.failureCode ?? '未返回原因码')) }}</p>
-            <p v-if="failureText && run.failureCode" class="hint">原因码：{{ run.failureCode }}</p>
+            <details v-if="run.failureCode" class="dt-technical"><summary>失败详情</summary><p>{{ run.failureCode }}</p></details>
             <p class="hint">可重新描述问题发起调查，历史消息和已登记来源仍可查看。</p>
           </section>
           <section v-else-if="run.status === 'CANCELLED'" class="pro-state pro-card" data-state="cancelled">
@@ -134,7 +135,7 @@ const claimGroups = computed(() => [
           <p class="pro-focus-eyebrow"><UiIcon name="spark" /> 调查结论 <span>执行已结束</span></p>
           <h2 id="pro-short-conclusion" class="visually-hidden">当前结论</h2>
           <p class="pro-short-conclusion">{{ model.summary || '本轮未返回摘要' }}</p>
-          <div class="pro-result-labels"><span v-if="model.review.limited" class="risk-chip">有限结果 · 需人工复核</span><span class="chip">{{ model.categoryLabel }}</span><span v-if="model.riskLevel" class="risk-chip" :class="model.riskLevel">风险 {{ model.riskLevel }}</span><span v-if="model.dataNature" class="chip">{{ model.dataNature }}</span></div>
+          <div class="pro-result-labels"><span v-if="model.review.limited" class="risk-chip">有限结果 · 需人工复核</span><span class="chip">{{ model.categoryLabel }}</span><span v-if="model.riskLevel" class="risk-chip" :class="model.riskLevel" :title="model.riskLevel">{{ riskLabel(model.riskLevel) }}</span><span v-if="model.dataNature" class="chip" :title="model.dataNature">{{ dataNatureLabel(model.dataNature) }}</span></div>
           <p class="hint">{{ model.shortConclusion }}</p>
         </section>
         <div class="pro-claim-workspace">
@@ -144,7 +145,7 @@ const claimGroups = computed(() => [
             <ClaimList v-for="group in claimGroups" :key="group.key" :title="group.title" :claims="group.claims"
                        :selected-index="selectedIndex" :reference-counts="referenceCounts"
                        @select="emit('select', $event)" />
-            <button type="button" class="pro-outline pro-nav-history" @click="emit('history')"><UiIcon name="clock" /> 查看 Run 历史</button>
+            <button type="button" class="pro-outline pro-nav-history" @click="emit('history')"><UiIcon name="clock" /> 查看调查轮次</button>
           </nav>
           <div class="pro-claim-content">
             <div class="pro-focus-heading">
@@ -187,9 +188,10 @@ const claimGroups = computed(() => [
           <dl>
             <div><dt>摘要</dt><dd>{{ model.summary ?? '（未返回摘要）' }}</dd></div>
             <div><dt>类别</dt><dd>{{ model.categoryLabel ?? '（未返回）' }}</dd></div>
-            <div><dt>数据性质</dt><dd>{{ model.dataNature ?? '（未返回）' }}</dd></div>
-            <div><dt>安全处置</dt><dd>{{ model.safetyDisposition ?? '（未返回）' }}</dd></div>
+            <div><dt>数据性质</dt><dd>{{ dataNatureLabel(model.dataNature) }}</dd></div>
+            <div><dt>安全处置</dt><dd>{{ safetyLabel(model.safetyDisposition) }}</dd></div>
           </dl>
+          <details class="dt-technical"><summary>结果原始标记</summary><p>结果类别：{{ run.result?.category || '未返回' }} · 数据性质：{{ model.dataNature || '未返回' }} · 风险：{{ model.riskLevel || '未返回' }} · 安全处置：{{ model.safetyDisposition || '未返回' }}</p></details>
           <h5>判断原文（{{ model.claims.length }}）</h5>
           <p v-if="!model.claims.length" class="hint">无判断。</p>
           <ol v-else>
@@ -245,7 +247,7 @@ const claimGroups = computed(() => [
       <p v-if="citedMissing.length" class="hint">有 {{ citedMissing.length }} 条引用未在本轮已登记来源中返回，暂不可用。</p>
       </section>
       <div class="pro-context-status">
-        <h4>Run 状态</h4>
+        <h4>执行状态</h4>
         <p class="hint">执行：{{ statusLabel }}</p>
         <button v-if="model.selectedAssetId" type="button" class="pro-outline" @click="emit('asset')">查看设备快照</button>
         <p v-else class="hint">{{ model.assetResolutionLabel }}，不显示未经确认的设备快照</p>

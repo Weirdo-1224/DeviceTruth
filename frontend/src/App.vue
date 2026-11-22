@@ -42,6 +42,8 @@ import ProfessionalDiagnosisPage from './components/ProfessionalDiagnosisPage.vu
 import EvidenceComparison from './components/EvidenceComparison.vue'
 import EvidenceModal from './components/EvidenceModal.vue'
 import UiIcon from './components/UiIcon.vue'
+import FilePicker from './components/FilePicker.vue'
+import { dataNatureLabel, displayTime, memberLabel, parseStatusLabel, roundLabel } from './presentation'
 import { createRunTimelineController } from './timeline'
 import { buildInvestigationMessage, buildDiagnosisViewModel, toReferenceView, type ReferenceView } from './diagnosisViewModel'
 import { resolveRunTargets, runPermissions, UNSETTLED_STATUSES } from './runTargets'
@@ -731,12 +733,12 @@ const currentTitle = computed(() => messages.value.find(message => message.role 
   ?? (newTitle.value.trim() || '新建调查'))
 const currentCreator = computed(() => {
   const author = messages.value.find(message => message.role === 'USER')?.actorUserId
-  return author ? author === props.actorId ? props.account.displayName : props.memberNames?.[author] ?? author : '历史作者未知'
+  return author ? author === props.actorId ? props.account.displayName : memberLabel(author, props.memberNames) : '历史作者未知'
 })
 const currentRound = computed(() => viewedIndex.value >= 0 ? viewedIndex.value + 1 : '—')
 const activeActorName = computed(() => {
   const actor = activeRun.value?.executionActorUserId
-  return actor ? actor === props.actorId ? props.account.displayName : props.memberNames?.[actor] ?? actor : '历史执行人未知'
+  return actor ? actor === props.actorId ? props.account.displayName : memberLabel(actor, props.memberNames) : '历史执行人未知'
 })
 
 function selectViewedRun(runId: string): void {
@@ -1160,8 +1162,8 @@ onUnmounted(() => {
           <div class="dt-title-row"><h1 class="pro-task-title" tabindex="-1">{{ currentTitle }}</h1><button v-if="conversation" type="button" class="dt-button" @click="showReport">查看报告</button></div>
           <div class="dt-meta">
             <button v-if="viewedAssetId" type="button" class="dt-link" @click="toggleMaterialDrawer('asset')">{{ viewedAssetId }}</button><span v-else-if="conversation">未指定设备</span>
-            <span v-if="conversation">当前查看第 {{ currentRound }} 轮</span><span v-if="conversation">{{ currentCreator }}创建</span>
-            <span v-if="run?.dataNature" class="dt-tag">{{ run.dataNature }}</span>
+            <span v-if="conversation">当前查看第 {{ currentRound }} 轮</span><span v-if="conversation" :title="messages.find(message => message.role === 'USER')?.actorUserId ?? undefined">创建人：{{ currentCreator }}</span>
+            <span v-if="run?.dataNature" class="dt-tag" :title="run.dataNature">{{ dataNatureLabel(run.dataNature) }}</span>
             <span v-if="props.space.kind === 'TEAM'" class="dt-people">{{ Object.keys(props.memberNames ?? {}).length }} 位团队成员</span>
             <span v-if="activeRun && !viewedIsActive" class="dt-tag dt-warning">活动轮：{{ activeLabel }}</span>
             <button v-if="activeRun && !viewedIsActive" type="button" class="dt-link" @click="goToActiveRun">回到活动轮</button>
@@ -1201,7 +1203,7 @@ onUnmounted(() => {
                     <div><dt>提交时间</dt><dd>{{ formatTime(activeRun.requestedAt) }}</dd></div>
                     <div><dt>累计执行用时</dt><dd>{{ activeRun.activeDurationMs != null ? Math.round(activeRun.activeDurationMs / 1000) + ' 秒' : '未报告' }}</dd></div>
                   </dl>
-                  <p class="dt-run-owner">执行人：{{ activeActorName }}<span v-if="!viewedIsActive"> · 当前查看第 {{ currentRound }} 轮</span></p>
+                  <p class="dt-run-owner" :title="activeRun.executionActorUserId ?? undefined">执行人：{{ activeActorName }}<span v-if="!viewedIsActive"> · 当前查看第 {{ currentRound }} 轮</span></p>
                 </section>
                 <ProfessionalDiagnosisPage embedded :run="run" :model="diagnosisModel" :selected-claim="selectedClaimOfPage"
                   :selected-index="selectedClaimIndex" :registered-references="registeredReferences"
@@ -1226,11 +1228,12 @@ onUnmounted(() => {
                       </div>
                       <section v-if="waitingRun?.pendingQuestion" class="question" data-testid="pending-question" :data-run-id="waitingRun.runId" aria-label="需要补充信息">
                         <h2 id="pending-question-title"><UiIcon name="warning" /> 需要补充信息</h2>
-                        <p class="question-owner">待答 Run：{{ waitingRun.runId }}<template v-if="waitingRun.runId !== run?.runId">（当前正在查看其他轮次）</template></p>
+                        <p class="question-owner">补充{{ roundLabel(waitingRun.runId, runs) }}信息<template v-if="waitingRun.runId !== run?.runId">（当前正在查看其他轮次）</template></p>
                         <p class="question-text">{{ waitingRun.pendingQuestion.question }}</p>
                         <p v-if="waitingRun.pendingQuestion.requestedFields.length" class="hint">需要：{{ waitingRun.pendingQuestion.requestedFields.join('、') }}</p>
                         <textarea ref="questionField" v-model="replyDraft" :disabled="props.readOnly || busy" rows="3" aria-label="补充信息" placeholder="按问题补充信息" @keydown.enter="submitOnEnter($event, answerQuestion)"></textarea>
                         <button type="button" class="dt-button dt-primary" :disabled="!permissions.canReply" @click="answerQuestion">提交补答并继续</button>
+                        <details class="dt-technical"><summary>本轮技术详情</summary><p>运行编号：{{ waitingRun.runId }}</p><p>问题编号：{{ waitingRun.pendingQuestion.pendingQuestionId }} · 问题版本：{{ waitingRun.pendingQuestion.questionVersion }}</p></details>
                       </section>
                       <form v-else :class="{ 'dt-create-form': !conversation }" @submit.prevent="submit">
                         <label class="dt-field dt-device-field">排查设备（可选）<select v-model="selectedAssetId" :disabled="props.readOnly || busy || composeMode === 'investigate'" aria-label="关联设备"><option value="">暂不指定设备</option><option v-for="asset in assets" :key="asset.assetId" :value="asset.assetId">{{ asset.assetId }}{{ asset.displayName ? ' · ' + asset.displayName : '' }}{{ asset.deviceType ? '（' + asset.deviceType + '）' : '' }}</option></select></label>
@@ -1242,7 +1245,7 @@ onUnmounted(() => {
                         </div>
                         <label class="dt-field dt-description-field">{{ composeMode === 'observation' ? '现场观察（未核实）' : '现象、已有检查与调查要求' }}<textarea ref="draftInput" v-model="composerText" rows="3" maxlength="7980" :disabled="busy || props.readOnly" aria-label="向 Agent 追加调查要求" placeholder="描述出现条件、已有检查结果，或你希望继续调查的问题…" @keydown.enter="submitOnEnter($event, submit)"></textarea></label>
                         <div class="dt-input-footer">
-                          <label class="dt-attachment-action"><UiIcon name="link" /> 添加附件<input class="visually-hidden" type="file" aria-label="添加 Markdown 资料" accept=".md,.txt,text/markdown,text/plain" :disabled="props.readOnly || uploading || busy || composeMode === 'investigate'" @change="upload"></label>
+                          <FilePicker ariaLabel="添加 Markdown 资料" accept=".md,.txt,text/markdown,text/plain" :disabled="props.readOnly || uploading || busy || composeMode === 'investigate'" @change="upload" />
 
                           <span>{{ activeRun ? '草稿仅自己可见，不加入正在运行的分析' : conversation ? '提交后发起新一轮分析' : 'MD / TXT · 仅用于本调查' }}</span>
                           <button type="submit" class="dt-button dt-primary" :disabled="!canSend"><UiIcon name="send" /> {{ composeMode === 'observation' ? '提交观察' : conversation ? '提交并继续分析' : '创建并开始调查' }}</button>
@@ -1253,10 +1256,10 @@ onUnmounted(() => {
                       <p v-if="sendHint" class="dt-help" role="status">{{ sendHint }}<template v-if="resumingRunId && resumingRunId === activeRun?.runId">正在同步本轮状态…</template></p>
                       <p v-if="stagedFile" class="dt-help" role="status">待发送附件：{{ stagedFile.name }}（首次提交时上传，仅用于本调查）<button type="button" class="dt-link" @click="stagedFile = null">取消本次附带</button></p>
                       <p v-if="uploading" class="dt-help" role="status">正在上传并导入，请稍候。</p>
-                      <p v-if="uploadedFile" class="dt-help" role="status">{{ uploadedFile.originalName }}：{{ uploadedFile.parseStatus }}<span v-if="uploadedFile.failureCode">（{{ uploadedFile.failureCode }}）</span><button v-if="uploadedFile.parseStatus === 'FAILED'" type="button" class="dt-link" :disabled="uploading || busy" @click="retryAttachment">重试导入</button><button v-if="uploadedFile.parseStatus === 'PARSED'" type="button" class="dt-link" :disabled="uploading || busy" @click="uploadedFile = null">取消本次附带</button></p>
+                      <div v-if="uploadedFile" class="dt-help" role="status" :title="uploadedFile.parseStatus">{{ uploadedFile.originalName }}：{{ parseStatusLabel(uploadedFile.parseStatus) }}<details v-if="uploadedFile.failureCode" class="dt-technical"><summary>附件解析详情</summary><p>{{ uploadedFile.failureCode }}</p></details><button v-if="uploadedFile.parseStatus === 'FAILED'" type="button" class="dt-link" :disabled="uploading || busy" @click="retryAttachment">重试导入</button><button v-if="uploadedFile.parseStatus === 'PARSED'" type="button" class="dt-link" :disabled="uploading || busy" @click="uploadedFile = null">取消本次附带</button></div>
                       <div v-if="conversation" class="dt-section-head dt-section"><h3>资料与信息缺口</h3><button type="button" class="dt-link" @click="toggleMaterialDrawer('sources')">查看来源</button></div>
                       <p v-if="conversation" class="dt-help">{{ registeredReferences.length ? `本轮已登记 ${registeredReferences.length} 条来源。` : referencesState === 'idle' ? '尚未读取本轮来源清单。' : referencesState === 'empty' ? '本轮没有已登记来源。' : referencesNote || '来源清单暂不可用。' }}来源登记不等于现场核实。<button v-if="conversation" type="button" class="dt-link" @click="toggleMaterialDrawer('attachments')">管理调查附件</button></p>
-                      <p class="dt-help">资料可能包含 SIMULATED 演示数据；资料记载与现场核验分别标识。</p>
+                      <p class="dt-help">资料可能包含模拟数据；资料记载与现场核验分别标识。</p>
                       </div>
                     </details>
                   </template>
@@ -1268,36 +1271,37 @@ onUnmounted(() => {
               <section v-else-if="activeTab === 'records'" aria-labelledby="dt-tab-records">
                 <div class="dt-section-head"><h2>正式提交与分析结果</h2><span>团队讨论不计入此处</span></div>
                 <article v-for="message in messages" :key="message.messageId" class="dt-record">
-                  <div class="dt-section-head"><strong>{{ message.role === 'USER' ? (message.actorUserId === props.actorId ? '我' : message.actorUserId ? props.memberNames?.[message.actorUserId] ?? message.actorUserId : '历史作者未知') + '提交补充' : 'DeviceTruth Agent' }}</strong><time>{{ formatTime(message.requestedAt) }}</time></div>
+                  <div class="dt-section-head"><strong>{{ message.role === 'USER' ? (message.actorUserId === props.actorId ? '我' : message.actorUserId ? memberLabel(message.actorUserId, props.memberNames) : '历史作者未知') + ' · 正式提交' : 'DeviceTruth Agent' }}</strong><time>{{ formatTime(message.requestedAt) }}</time></div>
                   <p>{{ message.content }}</p><span v-if="message.role === 'USER'" class="dt-tag">用户提供 · 未现场核实</span>
-                  <blockquote v-for="quote in message.discussionQuotes" :key="quote.discussionId" class="dt-quote"><strong>{{ quote.authorName }}</strong> · {{ quote.createdAt }} · 未核实讨论<p>{{ quote.content }}</p></blockquote>
+                  <blockquote v-for="quote in message.discussionQuotes" :key="quote.discussionId" class="dt-quote"><strong>{{ quote.authorName }}</strong> · {{ displayTime(quote.createdAt) }} · 未核实讨论<p>{{ quote.content }}</p></blockquote>
+                  <details v-if="message.actorUserId" class="dt-technical"><summary>提交信息详情</summary><p>提交者标识：{{ message.actorUserId }}</p></details>
                 </article>
                 <p v-if="!messages.length" class="dt-empty">还没有正式提交。</p>
                 <div class="dt-section-head dt-section"><h2>调查轮次</h2><span>{{ runs.length }} 轮</span></div>
-                <article v-for="(item, index) in runs" :key="item.runId" class="dt-record"><div class="dt-section-head"><strong>第 {{ index + 1 }} 轮 · {{ statusLabels[item.status] ?? item.status }}</strong><small>{{ item.executionActorUserId ? (props.memberNames?.[item.executionActorUserId] ?? item.executionActorUserId) : '历史执行人未知' }}执行 · {{ formatTime(item.requestedAt) }}</small></div><p>Run：{{ item.runId }}</p><button type="button" class="dt-link" @click="showRun(item.runId)">查看这一轮结果</button></article>
+                <article v-for="(item, index) in runs" :key="item.runId" class="dt-record"><div class="dt-section-head"><strong>第 {{ index + 1 }} 轮 · {{ statusLabels[item.status] ?? item.status }}</strong><small>{{ item.executionActorUserId ? memberLabel(item.executionActorUserId, props.memberNames) : '历史执行人未知' }}执行 · {{ formatTime(item.requestedAt) }}</small></div><details class="dt-technical"><summary>本轮技术详情</summary><p>运行编号：{{ item.runId }}</p><p :title="item.executionActorUserId ?? undefined">执行人标识：{{ item.executionActorUserId ?? '未记录' }}</p></details><button type="button" class="dt-link" @click="showRun(item.runId)">查看这一轮结果</button></article>
               </section>
               <section v-else aria-labelledby="dt-tab-process">
                 <div class="dt-section-head"><h2>调查过程</h2><span class="dt-tag">{{ activeRun ? '有运行进行中' : '当前无运行' }}</span></div>
                 <nav class="dt-run-picker" aria-label="选择过程轮次"><button v-for="(item, index) in runs" :key="item.runId" type="button" :aria-pressed="item.runId === run?.runId" @click="showRun(item.runId, 'process')">第 {{ index + 1 }} 轮 · {{ statusLabels[item.status] ?? item.status }}</button></nav>
-                <div v-if="run" class="dt-process"><p>Run：{{ run.runId }}</p><p>业务时点：{{ formatTime(run.asOf) }}<template v-if="run.activeDurationMs != null"> · 累计执行用时 {{ Math.round(run.activeDurationMs / 1000) }} 秒</template></p><RunTimeline v-if="timelineEvents.length" :events="timelineEvents" :live="timelineLive" :status="statusLabels[run.status] ?? run.status" :duration="''" /><p v-else class="dt-empty">暂无运行事件。</p><details class="dt-technical"><summary>技术详情与原始原因码</summary><p>状态：{{ run.status }} · 原因码：{{ run.failureCode ?? '无' }}</p><p>数据性质：{{ run.dataNature }}</p><p>执行结束与故障查清分别表达，保留调查来源与记录。</p></details></div><p v-else class="dt-empty">尚无调查过程。</p>
+                <div v-if="run" class="dt-process"><p>当前查看{{ roundLabel(run.runId, runs) }}</p><p>本轮查询时点：{{ formatTime(run.asOf) }}<template v-if="run.activeDurationMs != null"> · 累计执行用时 {{ Math.round(run.activeDurationMs / 1000) }} 秒</template></p><RunTimeline v-if="timelineEvents.length" :events="timelineEvents" :live="timelineLive" :status="statusLabels[run.status] ?? run.status" :duration="''" /><p v-else class="dt-empty">暂无运行事件。</p><details class="dt-technical"><summary>技术详情与原始原因码</summary><p>运行编号：{{ run.runId }}</p><p>状态：{{ run.status }} · 原因码：{{ run.failureCode ?? '无' }}</p><p>数据性质：{{ run.dataNature }}</p><p>执行结束与故障查清分别表达，保留调查来源与记录。</p></details></div><p v-else class="dt-empty">尚无调查过程。</p>
               </section>
             </template>
           </main>
           <aside v-if="conversation && materialDrawer && !reportOpen" class="dt-material-drawer" aria-label="资料与证据">
             <div class="dt-drawer-head"><h2>{{ materialDrawer === 'sources' ? '资料与证据' : materialDrawer === 'attachments' ? '调查附件' : '排查设备' }}</h2><button type="button" class="dt-link" @click="materialDrawer = null">收起</button></div>
             <template v-if="materialDrawer === 'sources'">
-              <p class="dt-help">当前查看第 {{ currentRound }} 轮<template v-if="referencesState === 'ready' || referencesState === 'empty'"> · 已登记 {{ registeredReferences.length }} 条工具来源</template></p><p class="dt-help">{{ referencesNote }}</p><button v-if="referencesState === 'error' || referencesState === 'notFound'" type="button" class="dt-link" @click="run && loadRegisteredReferences(run.runId)">重试读取来源</button>
-              <button v-for="reference in registeredReferences" :key="reference.referenceId" type="button" class="dt-source-button" :data-evidence-id="reference.referenceId" @click="openReference(reference.referenceId)">《{{ reference.title }}》<small>{{ reference.sourceTypeLabel }} · 版本 {{ reference.sourceVersion }} · {{ reference.dataNature }}</small></button>
+              <p class="dt-help">当前查看第 {{ currentRound }} 轮<template v-if="referencesState === 'ready' || referencesState === 'empty'"> · 已登记 {{ registeredReferences.length }} 条工具来源</template></p><p v-if="registeredReferences.length" class="dt-help">{{ referencesNote }}</p><button v-if="referencesState === 'error' || referencesState === 'notFound'" type="button" class="dt-link" @click="run && loadRegisteredReferences(run.runId)">重试读取来源</button>
+              <button v-for="reference in registeredReferences" :key="reference.referenceId" type="button" class="dt-source-button" :title="reference.dataNature" :data-evidence-id="reference.referenceId" @click="openReference(reference.referenceId)">《{{ reference.title }}》<small>{{ reference.sourceTypeLabel }} · 版本 {{ reference.sourceVersion }} · {{ dataNatureLabel(reference.dataNature) }}</small></button>
               <p v-if="!registeredReferences.length" class="dt-empty">{{ referencesState === 'idle' ? '尚未读取本轮来源清单。' : referencesState === 'empty' ? '本轮没有已登记来源。' : referencesNote || '来源清单暂不可用。' }}</p><div class="dt-section-head dt-section"><h3>本次调查附件</h3><button type="button" class="dt-link" @click="materialDrawer = 'attachments'">管理附件</button></div><p class="dt-help">讨论和用户附件不会因出现在界面里就变成已核实的现场证据。</p>
             </template>
             <InvestigationCollaboration v-else-if="materialDrawer === 'attachments'" :key="'materials:' + conversation.conversationId" mode="materials" :conversation-id="conversation.conversationId" :read-only="!!props.readOnly" :member-names="props.memberNames" :refresh-token="uploadedFile?.fileId + (uploadedFile?.parseStatus ?? '')" />
-            <template v-else><h3>{{ viewedAssetId ?? '未指定设备' }}</h3><p class="dt-help">业务时点 {{ viewedAsOf ? formatTime(viewedAsOf) : '未返回' }}。该轮按此资产与时点查询，底部选择只影响新提交。</p><EvidenceComparison v-if="viewedAssetId" :key="(run?.runId ?? '') + '|' + viewedAssetId + '|' + (viewedAsOf ?? '')" :asset-id="viewedAssetId" :as-of="viewedAsOf" /><p v-else class="dt-empty">该轮未关联设备。</p></template>
+            <template v-else><h3>{{ viewedAssetId ?? '未指定设备' }}</h3><p class="dt-help">本轮查询时点 {{ viewedAsOf ? formatTime(viewedAsOf) : '未返回' }}。该轮按此资产与时点查询，底部选择只影响新提交。</p><EvidenceComparison v-if="viewedAssetId" :key="(run?.runId ?? '') + '|' + viewedAssetId + '|' + (viewedAsOf ?? '')" :asset-id="viewedAssetId" :as-of="viewedAsOf" /><p v-else class="dt-empty">该轮未关联设备。</p></template>
           </aside>
         </div>
       </section>
     </WorkspaceShell>
     <dialog ref="cancelDialog" v-if="pendingCancellation" class="cancel-confirm" aria-labelledby="cancel-dialog-title" @cancel.prevent="!cancelling && (pendingCancellation = null)">
-      <h2 id="cancel-dialog-title">确认取消此轮调查？</h2><p>目标 Run：{{ pendingCancellation.runId }}</p><p>取消后保留已有输入、来源与历史，不会自动提交草稿。</p><button id="confirm-run-cancel" type="button" :disabled="cancelling" @click="cancelActive">{{ cancelling ? '正在取消…' : '确认取消此轮' }}</button><button type="button" :disabled="cancelling" @click="pendingCancellation = null">保留运行</button>
+      <h2 id="cancel-dialog-title">确认取消此轮调查？</h2><p>取消目标：{{ roundLabel(pendingCancellation.runId, runs) }}</p><details class="dt-technical"><summary>核对运行编号</summary><p>{{ pendingCancellation.runId }}</p></details><p>取消后保留已有输入、来源与历史，不会自动提交草稿。</p><button id="confirm-run-cancel" type="button" :disabled="cancelling" @click="cancelActive">{{ cancelling ? '正在取消…' : '确认取消此轮' }}</button><button type="button" :disabled="cancelling" @click="pendingCancellation = null">保留运行</button>
     </dialog>
     <EvidenceModal :open="openedReferenceId !== null && !!openedReference" :reference="openedReference" :origin-key="openReferenceKey" @close="closeReference(); restoreFocusAfterEvidence()" />
   </main>

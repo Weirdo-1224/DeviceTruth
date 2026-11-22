@@ -5,9 +5,9 @@ from threading import Thread
 from pathlib import Path
 import json
 from playwright.sync_api import sync_playwright, expect
-from pro_workbench_fixture import Handler, RUN1, REF_A, REF_B, REF_C, WAITING_QUESTION, message, events
+from pro_workbench_fixture import Handler, RUN1, REF_A, REF_B, REF_C, WAITING_QUESTION, ASSET_VIEW, message, events
 
-OUT = Path(__file__).resolve().parent.parent / 'outputs/validation/pro-ui-readable'
+OUT = Path(__file__).resolve().parent.parent / 'outputs/validation/pro-ui-details'
 OUT.mkdir(parents=True, exist_ok=True)
 server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
 Thread(target=server.serve_forever, daemon=True).start()
@@ -15,6 +15,8 @@ base = f'http://127.0.0.1:{server.server_port}'
 mode = 'new'
 calls = []
 checks = []
+uploaded_files=[]
+FILE_UI={'fileId':'file-ui','originalName':'ui-check.md','mime':'text/markdown','checksum':'fixture','byteSize':14,'parseStatus':'PARSED','failureCode':None,'documentId':'doc-ui','title':'UI sample','documentVersion':'version-v1','domain':None,'createdAt':'2026-11-22T07:00:00Z','uploadedByUserId':'member-not-loaded','dataNature':'SIMULATED'}
 def check(condition, label):
     assert condition, label
     checks.append(label)
@@ -39,7 +41,7 @@ def route_api(route):
         body = {'userId':'u','displayName':'检修工程师','email':'ui@example.test'}
         if mode == 'auth': body={'code':'AUTHENTICATION_REQUIRED'}; status=401
     elif path == 'auth/csrf': body = {'headerName':'X-CSRF-TOKEN','token':'ui-test'}
-    elif path == 'workspaces': body = [{'workspaceId':'w','kind':'TEAM' if mode in ('team','sidebar') else 'PERSONAL','role':'ADMIN','name':'个人工作空间'}]
+    elif path == 'workspaces': body = [{'workspaceId':'w','kind':'TEAM' if mode in ('team','sidebar') else 'PERSONAL','role':'VIEWER' if mode == 'readonly' else 'ADMIN','name':'个人工作空间'}]
     elif path.endswith('/members'): body = [{'userId':'u','displayName':'检修工程师','email':'ui@example.test','role':'ADMIN'}]
     elif path.endswith('/invitations'): body=[]
     elif path == 'knowledge/documents': body=[{'documentId':'doc-ui','title':'设备检修操作规程与检查记录','documentVersion':'2026-11-22','dataNature':'SIMULATED','ingestStatus':'READY','applicability':'界面回归样本','publishedByUserId':'u','originalAuthorUserId':'u','publishedAt':'2026-11-22T07:00:00Z'}]
@@ -59,7 +61,13 @@ def route_api(route):
         body={'conversation':conv,'messages':messages,'runs':runs}
     elif path.endswith('/discussions'): body={'items':[{'discussionId':'d1','version':1,'authorUserId':'u','authorName':'检修工程师','createdAt':'2026-11-22T07:00:00Z','content':'现场反馈充电中断，请核对记录。'}],'nextCursor':None}
     elif path.endswith('/events'): body = events('run-1')[:2] + [{'seq':3,'type':'RUN_PHASE','recordedAt':'2026-11-22T07:00:00Z','data':{'phase':'REVIEWING','reason':'ANSWER_REVIEW'}}]
-    elif path.endswith('/references'): body = [REF_A, REF_B, REF_C]
+    elif path.endswith('/references'): body = [] if mode == 'empty' else [REF_A, REF_B, REF_C]
+    elif path.startswith('assets/'):
+        body=deepcopy(ASSET_VIEW)
+        body['configurations'][0].update(sourceType='FIELD_OBSERVATION',verificationStatus='DOCUMENTED')
+    elif path.endswith('/attachments'):
+        if route.request.method=='POST': uploaded_files[:]=[FILE_UI]; status=201; body=FILE_UI
+        else: body=uploaded_files
     elif path == 'runs/run-1': body = r
     elif path == 'runs/run-live': body=dict(r,runId='run-live',status='RUNNING',result=None,goalMessageId='m-live')
     elif path.endswith('/stream'): return route.fulfill(status=200,content_type='text/event-stream',body=': connected\n\n')
@@ -88,6 +96,11 @@ try:
         readable('.dt-create-form .dt-field',16,'创建表单标签')
         readable('.dt-help',14,'辅助说明')
         readable('.dt-nav button',15,'侧栏导航')
+        before=len([c for c in calls if c[0]=='POST'])
+        page.locator('input[aria-label="添加 Markdown 资料"]').set_input_files({'name':'ui-check.md','mimeType':'text/markdown','buffer':b'# UI fixture'})
+        expect(page.get_by_text('待发送附件：ui-check.md',exact=False)).to_be_visible()
+        check(len([c for c in calls if c[0]=='POST'])==before,'新建页选文件仍只暂存，不提前创建会话或上传')
+        page.get_by_role('button',name='取消本次附带',exact=True).click()
         page.screenshot(path=OUT/'initial.png',full_page=True)
         mode='sidebar'; page.reload()
         handle=page.get_by_role('separator',name='调整侧栏宽度')
@@ -147,6 +160,9 @@ try:
             expect(page.locator('.pro-page')).to_be_visible()
             if state=='completed':
                 expect(page.locator('.pro-short-conclusion')).to_have_text(sample()['result']['summary'])
+                expect(page.locator('.pro-headline')).to_contain_text('高风险')
+                expect(page.locator('.dt-meta .dt-tag').first).to_have_text('模拟数据')
+                check(True,'风险与数据性质中文展示且保留真实分类')
                 check(page.locator('.pro-nav').bounding_box()['y'] < page.locator('.dt-composer').bounding_box()['y'],'候选导航在补充表单之前')
                 check(not page.locator('.dt-composer').evaluate('(e)=>e.open'),'完成后补充调查默认收起')
                 check(page.locator('.pro-next-actions').bounding_box()['y'] > page.locator('.pro-claim-workspace').bounding_box()['y'],'本轮建议排在判断与证据之后')
@@ -179,6 +195,11 @@ try:
                 expect(page.locator('.timeline.overview')).to_contain_text('复核答复')
                 readable('.event-content p',16,'调查事件说明')
                 readable('.timeline time',14,'事件时间')
+                descriptions=' '.join(page.locator('.timeline .detail').all_inner_texts())
+                check('search_knowledge' not in descriptions and 'ANSWER_REVIEW' not in descriptions,'事件主要说明不混入工具名或原因码')
+                page.locator('.event-technical summary').last.click()
+                expect(page.locator('.event-technical pre').last).to_contain_text('ANSWER_REVIEW')
+                check(True,'展开事件详情仍能核对原始原因码')
                 check(page.locator('.pro-nav').count()==0,'执行中没有空判断列表')
                 check(not page.locator('.dt-composer').evaluate('(e)=>e.open'),'执行中草稿默认收起')
                 check(page.locator('.pro-state[data-state="active"]').count()==0,'执行态没有重复占位状态卡')
@@ -188,6 +209,8 @@ try:
                 check(not page.get_by_role('button',name='提交并继续分析').is_enabled(),'运行中不能提交新分析')
             else:
                 expect(page.get_by_test_id('pending-question')).to_contain_text(WAITING_QUESTION['question'])
+                expect(page.locator('.question-owner')).to_have_text('补充第 1 轮调查信息')
+                check(not page.get_by_text('运行编号：run-1',exact=True).is_visible(),'待答编号默认折叠，补答目标使用真实轮次')
                 check(page.locator('.dt-composer').evaluate('(e)=>e.open'),'等待补答时表单自动展开')
                 check(page.evaluate('document.documentElement.scrollWidth <= innerWidth'),'等待补答卡不造成横向溢出')
                 page.evaluate('window.scrollTo(0,0)')
@@ -211,11 +234,29 @@ try:
         check(not page.locator('.cancel-confirm').count(),'取消确认指向活动轮且可保留运行')
         mode='team'; page.reload(); page.locator('[data-conversation-id="conv-1"]').click()
         page.get_by_role('tab',name='团队讨论').click()
+        expect(page.locator('.dt-discussion time')).not_to_contain_text('T07:00')
+        check(True,'讨论时间按本地可读日期展示')
         page.get_by_role('button',name='引用到调查补充 →').click()
         expect(page.get_by_role('textbox',name='向 Agent 追加调查要求')).to_be_focused()
         check(page.locator('.dt-composer').evaluate('(e)=>e.open'),'讨论引用自动展开已折叠的补充调查')
         expect(page.locator('.dt-composer')).to_contain_text('现场反馈充电中断，请核对记录。')
         page.locator('.dt-composer > summary').click()
+        page.get_by_role('button',name='资料与证据 3',exact=True).click()
+        page.get_by_role('button',name='管理附件',exact=True).click()
+        expect(page.locator('.dt-materials .file-picker')).to_be_visible()
+        before=len([c for c in calls if c[0]=='POST' and c[1].endswith('/messages')])
+        page.locator('input[aria-label="上传调查附件"]').set_input_files({'name':'ui-check.md','mimeType':'text/markdown','buffer':b'# UI fixture'})
+        expect(page.locator('.dt-materials')).to_contain_text('ui-check.md')
+        expect(page.locator('.dt-materials')).to_contain_text('解析完成')
+        expect(page.locator('.dt-materials')).to_contain_text('成员名称暂不可用')
+        check(len([c for c in calls if c[0]=='POST' and c[1].endswith('/messages')])==before,'新上传控件仍经附件接口上传，不自动提交调查')
+        page.screenshot(path=OUT/'attachments.png',full_page=True)
+        page.get_by_role('button',name='收起',exact=True).click()
+        page.locator('.dt-meta').get_by_role('button',name='CAR-B',exact=True).click()
+        expect(page.locator('.comparison')).to_contain_text('现场观测')
+        expect(page.locator('.comparison .verify')).to_have_text('资料记载')
+        check(True,'现场观测来源与资料记载核实状态分别表达')
+        page.get_by_role('button',name='收起',exact=True).click()
         page.get_by_role('button',name='设备档案',exact=True).click()
         expect(page.locator('.dt-list-row')).not_to_have_count(0)
         readable('.dt-list-row strong',16,'设备档案标题')
@@ -237,6 +278,14 @@ try:
             page.set_viewport_size({'width':width,'height':893}); page.wait_for_timeout(100)
             check(page.evaluate('document.documentElement.scrollWidth <= innerWidth'),f'{width}px 无横向溢出')
             page.screenshot(path=OUT/f'result-{width}.png',full_page=True)
+        page.set_viewport_size({'width':1280,'height':720})
+        mode='empty'; page.reload(); page.locator('[data-conversation-id="conv-1"]').click()
+        page.get_by_role('button',name='资料与证据 0',exact=True).click()
+        check(page.locator('.dt-material-drawer').get_by_text('本轮没有已登记来源。',exact=True).count()==1,'来源为空只显示一处空态')
+        mode='readonly'; page.reload(); page.locator('[data-conversation-id="conv-1"]').click()
+        page.locator('.dt-composer > summary').click()
+        expect(page.locator('input[aria-label="添加 Markdown 资料"]')).to_be_disabled()
+        check(True,'统一上传控件继续遵守只读权限')
         mode='auth'; page.reload()
         expect(page.get_by_role('heading',name='登录检修工作台')).to_be_visible()
         readable('.auth-field input',16,'登录表单输入')

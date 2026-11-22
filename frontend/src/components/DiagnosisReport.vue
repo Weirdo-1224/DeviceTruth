@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { dataNatureLabel, riskLabel } from '../presentation'
 import { computed } from 'vue'
 import UiIcon from './UiIcon.vue'
 import AnswerReviewPanel from './AnswerReviewPanel.vue'
@@ -44,9 +45,9 @@ function claimReferenceLabels(claim: ClaimView): string {
   <article class="diagnosis-report pro-card" aria-labelledby="diagnosis-report-title">
     <header class="report-header">
       <div>
-        <p class="report-eyebrow">INVESTIGATION REPORT / 调查报告</p>
+        <p class="report-eyebrow">调查报告</p>
         <h1 id="diagnosis-report-title" tabindex="-1">设备检修诊断报告</h1>
-        <p class="report-run">Run ID：{{ run.runId }}</p>
+        <p class="report-run">本轮记录编号：{{ run.runId }}</p>
       </div>
       <div class="pro-report-actions">
         <button type="button" class="pro-outline" @click="emit('close')">返回工作台</button>
@@ -60,16 +61,16 @@ function claimReferenceLabels(claim: ClaimView): string {
         <div><dt>实际排查对象</dt><dd>{{ model.selectedAssetId || model.assetResolutionLabel }}</dd></div>
         <div v-if="model.changedFromAssetId"><dt>对象变更</dt><dd>{{ model.changedFromAssetId }} → {{ model.selectedAssetId || model.assetResolutionLabel }}</dd></div>
         <div><dt>对象状态</dt><dd>{{ model.assetResolutionLabel }}</dd></div>
-        <div><dt>业务时点</dt><dd>{{ new Date(run.asOf).toLocaleString('zh-CN', { hour12: false }) }}</dd></div>
-        <div><dt>Run 状态</dt><dd>{{ statusLabel }}</dd></div>
-        <div><dt>风险 / 数据性质</dt><dd>{{ model.riskLevel || '未返回' }} / {{ model.dataNature || '未返回' }}</dd></div>
+        <div><dt>本轮查询时点</dt><dd>{{ new Date(run.asOf).toLocaleString('zh-CN', { hour12: false }) }}</dd></div>
+        <div><dt>执行状态</dt><dd>{{ statusLabel }}</dd></div>
+        <div :title="[model.riskLevel, model.dataNature].filter(Boolean).join(' · ')"><dt>风险 / 数据性质</dt><dd>{{ riskLabel(model.riskLevel) }} / {{ dataNatureLabel(model.dataNature) }}</dd></div>
       </dl>
     </section>
 
     <section v-if="run.status === 'FAILED'" class="report-state" role="alert">
       <h2>本次没有得到答案</h2>
       <p>{{ failureText || ('失败原因码：' + (run.failureCode ?? '未返回原因码')) }}</p>
-      <p v-if="failureText && run.failureCode" class="hint">原因码：{{ run.failureCode }}</p>
+      <p v-if="run.failureCode" class="hint">失败原因码：{{ run.failureCode }}</p>
     </section>
     <section v-else-if="run.status === 'CANCELLED'" class="report-state">
       <h2>本次调查已取消</h2>
@@ -126,11 +127,11 @@ function claimReferenceLabels(claim: ClaimView): string {
       <ol>
         <li v-for="(reference, index) in references" :key="reference.referenceId" class="report-source">
           <h3>[{{ index + 1 }}] 《{{ reference.title }}》</h3>
-          <p>{{ reference.sourceTypeLabel }} · 版本 {{ reference.sourceVersion }} · {{ reference.locatingNote || '未提供页码或章节' }} · {{ reference.dataNature }}</p>
+          <p>{{ reference.sourceTypeLabel }} · 版本 {{ reference.sourceVersion }} · {{ reference.locatingNote || '未提供页码或章节' }} · {{ dataNatureLabel(reference.dataNature) }}</p>
           <p v-if="reference.excerpt" class="source-excerpt">{{ reference.excerpt }}</p>
         </li>
       </ol>
-      <p class="report-note">来源可追溯，不等于现场核验。AUTHORIZED 仅说明来源已授权；FIELD_OBSERVATION 不证明接入真机。</p>
+      <p class="report-note">来源可追溯，不等于现场核验。已授权资料不等同于现场核验；现场观测也不代表已连接真实设备。</p>
     </section>
   </article>
 </template>

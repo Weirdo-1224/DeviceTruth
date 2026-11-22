@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { dataNatureLabel } from '../presentation'
 import { nextTick, onUnmounted, ref, watch } from 'vue'
 import UiIcon from './UiIcon.vue'
 import type { ReferenceView } from '../diagnosisViewModel'
@@ -28,7 +29,7 @@ const rows = (reference: ReferenceView) => [
   ['来源版本', reference.sourceVersion],
   ['切片', reference.chunkId],
   ['定位', reference.locatingNote ?? '未提供页码或章节'],
-  ['数据性质', reference.dataNature]
+  ['数据性质', dataNatureLabel(reference.dataNature) + '（' + reference.dataNature + '）']
 ] as const
 
 function openNative(): void {
@@ -75,7 +76,7 @@ function onKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Tab') return
   const element = dialog.value
   if (!element) return
-  const focusable = [...element.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+  const focusable = [...element.querySelectorAll<HTMLElement>('button, summary, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
     .filter((item) => !item.hasAttribute('disabled'))
   if (!focusable.length) return
   const first = focusable[0]
@@ -125,7 +126,7 @@ onUnmounted(closeNative)
       <footer class="modal-foot">
         <button type="button" class="secondary" @click="requestClose">关闭</button>
       </footer>
-      <p class="modal-hint">AUTHORIZED 仅说明来源已授权；FIELD_OBSERVATION 不证明接入真机或现场已核实。</p>
+      <p class="modal-hint">已授权资料不等同于现场核验；现场观测也不代表已连接真实设备。</p>
     </div>
     <p v-else class="modal-empty hint">所选来源当前不可用。</p>
   </dialog>

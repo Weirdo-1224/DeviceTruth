@@ -3,6 +3,7 @@
  * 纯函数：无 fetch、无模型调用、无数据库写入；不生成概率/评分，不推导已执行检查，
  * 不把建议/不确定点/限制关联到单条判断；AUTHORIZED 只说明来源已授权，不代表现场已核验。
  */
+import { categoryLabel as presentCategory } from './presentation'
 import { answerReviewView, type AnswerReviewView } from './answerReviewView'
 import type {
   AgentResult,
@@ -23,14 +24,6 @@ const SOURCE_TYPE_LABELS: Readonly<Record<string, string>> = {
   KNOWLEDGE_DOCUMENT: '知识文档',
   CONFIGURATION: '配置快照',
   FIELD_OBSERVATION: '现场观测'
-}
-
-/** 答案类别 → 判断区语义标题：只有 POSSIBLE_CAUSES 才把 claims 列为候选原因。 */
-const CATEGORY_LABELS: Readonly<Record<AnswerCategory, string>> = {
-  KNOWLEDGE: '资料断言',
-  POSSIBLE_CAUSES: '候选原因',
-  CONFIRMED_FINDING: '服务端核验结论',
-  HUMAN_REVIEW: '待人工核验'
 }
 
 /** certainty 原样语义：推测 / 资料支持 / 服务端已核验；未知值回退为原样码值。 */
@@ -289,8 +282,8 @@ export function buildDiagnosisViewModel(input: DiagnosisViewModelInput): Diagnos
     assetResolutionLabel: ASSET_RESOLUTION_LABELS[assetResolution],
     changedFromAssetId: run?.changedFromAssetId ?? null,
     category: result?.category ?? null,
-    categoryLabel: result ? CATEGORY_LABELS[result.category] : null,
-    claimsTitle: result ? CATEGORY_LABELS[result.category] : null,
+    categoryLabel: result ? presentCategory(result.category) : null,
+    claimsTitle: result ? presentCategory(result.category) : null,
     claims,
     directCauses,
     contextClaims,
