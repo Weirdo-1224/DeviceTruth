@@ -7,7 +7,7 @@ import json
 from playwright.sync_api import sync_playwright, expect
 from pro_workbench_fixture import Handler, RUN1, REF_A, REF_B, REF_C, WAITING_QUESTION, message, events
 
-OUT = Path(__file__).resolve().parent.parent / 'outputs/validation/pro-ui-final'
+OUT = Path(__file__).resolve().parent.parent / 'outputs/validation/pro-ui-readable'
 OUT.mkdir(parents=True, exist_ok=True)
 server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
 Thread(target=server.serve_forever, daemon=True).start()
@@ -35,11 +35,16 @@ def route_api(route):
     r = sample()
     conv = {'conversationId':'conv-1','version':5,'createdAt':'2026-11-22T07:00:00Z','updatedAt':'2026-11-22T07:00:00Z'}
     status = 200
-    if path == 'auth/me': body = {'userId':'u','displayName':'检修工程师','email':'ui@example.test'}
+    if path == 'auth/me':
+        body = {'userId':'u','displayName':'检修工程师','email':'ui@example.test'}
+        if mode == 'auth': body={'code':'AUTHENTICATION_REQUIRED'}; status=401
     elif path == 'auth/csrf': body = {'headerName':'X-CSRF-TOKEN','token':'ui-test'}
     elif path == 'workspaces': body = [{'workspaceId':'w','kind':'TEAM' if mode in ('team','sidebar') else 'PERSONAL','role':'ADMIN','name':'个人工作空间'}]
-    elif path.endswith('/members'): body = [{'userId':'u','displayName':'检修工程师'}]
+    elif path.endswith('/members'): body = [{'userId':'u','displayName':'检修工程师','email':'ui@example.test','role':'ADMIN'}]
+    elif path.endswith('/invitations'): body=[]
+    elif path == 'knowledge/documents': body=[{'documentId':'doc-ui','title':'设备检修操作规程与检查记录','documentVersion':'2026-11-22','dataNature':'SIMULATED','ingestStatus':'READY','applicability':'界面回归样本','publishedByUserId':'u','originalAuthorUserId':'u','publishedAt':'2026-11-22T07:00:00Z'}]
     elif path == 'assets': body = ['CAR-B','SC0245B']
+    elif path == 'assets/summaries': body=[{'assetId':asset,'displayName':'回归用设备档案','deviceType':'测试设备','model':'演示型号'} for asset in ('CAR-B','SC0245B')]
     elif path == 'conversations/summaries':
         item=dict(conv,title='充电中断调查',latestRunStatus=r['status'],activeRunCount=int(mode in ('running','waiting')),waitingRunCount=int(mode == 'waiting'),runCount=1,investigatedAssetId='CAR-B')
         items=[] if mode == 'new' else [item]
@@ -70,12 +75,19 @@ try:
         errors=[]
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.route('**/api/**',route_api)
+        def readable(selector, minimum, label):
+            size=page.locator(selector).first.evaluate('(e)=>parseFloat(getComputedStyle(e).fontSize)')
+            check(size>=minimum,f'{label} 字号至少 {minimum}px（实测 {size}px）')
         page.goto(base)
         expect(page.get_by_role('button',name='创建并开始调查')).to_be_visible()
         box=page.get_by_role('button',name='创建并开始调查').bounding_box()
         check(box['y']+box['height']<=720,'1280×720 创建主操作在首屏')
         check(page.locator('.dt-page-card').count()==0,'初始页没有重复空状态卡')
         check(page.locator('.dt-create-form .dt-device-field').bounding_box()['y'] == page.get_by_role('textbox',name='调查标题').locator('..').bounding_box()['y'],'桌面新建页设备与标题并排')
+        readable('.dt-create-form textarea',16,'调查输入')
+        readable('.dt-create-form .dt-field',16,'创建表单标签')
+        readable('.dt-help',14,'辅助说明')
+        readable('.dt-nav button',15,'侧栏导航')
         page.screenshot(path=OUT/'initial.png',full_page=True)
         mode='sidebar'; page.reload()
         handle=page.get_by_role('separator',name='调整侧栏宽度')
@@ -92,6 +104,9 @@ try:
         check('dt-resizing' not in page.locator('.dt-shell').get_attribute('class'),'拖拽调宽并释放拖动状态')
         page.reload(); expect(handle).to_have_attribute('aria-valuenow','320')
         check(True,'刷新保留账号侧栏宽度')
+        readable('.history-text strong',15,'近期调查标题')
+        readable('.history-text small',14,'近期调查时间与设备')
+        readable('.history-controls > summary',14,'搜索筛选')
         box=handle.bounding_box(); x=box['x']+box['width']/2
         page.mouse.move(x,300); page.mouse.down(); page.mouse.move(x+40,300,steps=4)
         page.keyboard.press('Escape'); page.mouse.up(); expect(handle).to_have_attribute('aria-valuenow','320')
@@ -142,11 +157,15 @@ try:
                 page.locator('.claim-detail [data-evidence-id]').first.click()
                 expect(page.get_by_role('dialog',name='证据详情')).to_be_visible()
                 expect(page.locator('.modal-excerpt')).to_contain_text(REF_A['excerpt'])
+                readable('.modal-excerpt p',16,'证据原文摘录')
+                page.screenshot(path=OUT/'evidence-readable.png',full_page=True)
                 page.keyboard.press('Escape')
                 check(page.locator('.claim-detail [data-evidence-id]').first.evaluate('(e)=>e===document.activeElement'),'Esc 关闭引用并恢复焦点')
                 check(len([c for c in calls if c[0]=='POST'])==before,'切换判断及引用不产生写请求')
                 page.get_by_role('button',name='查看报告',exact=True).click()
                 expect(page.locator('.diagnosis-report')).to_be_visible()
+                readable('.report-section li',16,'报告正文')
+                readable('.report-run',14,'报告元信息')
                 page.emulate_media(media='print')
                 check(page.locator('.dt-sidebar').evaluate('(e)=>getComputedStyle(e).display')=='none','报告打印隐藏导航')
                 page.pdf(path=OUT/'report.pdf')
@@ -158,6 +177,8 @@ try:
                 page.locator('.dt-composer > summary').click()
             elif state=='running':
                 expect(page.locator('.timeline.overview')).to_contain_text('复核答复')
+                readable('.event-content p',16,'调查事件说明')
+                readable('.timeline time',14,'事件时间')
                 check(page.locator('.pro-nav').count()==0,'执行中没有空判断列表')
                 check(not page.locator('.dt-composer').evaluate('(e)=>e.open'),'执行中草稿默认收起')
                 check(page.locator('.pro-state[data-state="active"]').count()==0,'执行态没有重复占位状态卡')
@@ -195,11 +216,32 @@ try:
         check(page.locator('.dt-composer').evaluate('(e)=>e.open'),'讨论引用自动展开已折叠的补充调查')
         expect(page.locator('.dt-composer')).to_contain_text('现场反馈充电中断，请核对记录。')
         page.locator('.dt-composer > summary').click()
+        page.get_by_role('button',name='设备档案',exact=True).click()
+        expect(page.locator('.dt-list-row')).not_to_have_count(0)
+        readable('.dt-list-row strong',16,'设备档案标题')
+        readable('.dt-list-row p',15,'设备档案说明')
+        page.get_by_role('button',name='知识库',exact=True).click()
+        expect(page.get_by_text('设备检修操作规程与检查记录',exact=True)).to_be_visible()
+        readable('.dt-list-row p',15,'知识资料说明')
+        page.screenshot(path=OUT/'knowledge-readable.png',full_page=True)
+        page.get_by_role('button',name='团队成员',exact=True).click()
+        expect(page.locator('.dt-table td')).not_to_have_count(0)
+        readable('.dt-table td',16,'成员表格正文')
+        readable('.dt-table select',14,'成员角色控件')
+        page.screenshot(path=OUT/'members-readable.png',full_page=True)
+        page.get_by_role('button',name='＋ 创建团队',exact=True).click()
+        readable('.dt-field input',16,'创建团队输入')
+        check(page.evaluate('document.documentElement.scrollWidth <= innerWidth'),'资料和团队页面无横向溢出')
         mode='completed'; page.reload(); page.locator('[data-conversation-id="conv-1"]').click()
         for width in (941,600):
             page.set_viewport_size({'width':width,'height':893}); page.wait_for_timeout(100)
             check(page.evaluate('document.documentElement.scrollWidth <= innerWidth'),f'{width}px 无横向溢出')
             page.screenshot(path=OUT/f'result-{width}.png',full_page=True)
+        mode='auth'; page.reload()
+        expect(page.get_by_role('heading',name='登录检修工作台')).to_be_visible()
+        readable('.auth-field input',16,'登录表单输入')
+        readable('.auth-secondary',15,'登录辅助操作')
+        page.screenshot(path=OUT/'login-readable.png',full_page=True)
         check(not errors,'浏览器无运行时异常')
         browser.close()
     (OUT/'result.json').write_text(json.dumps({'passed':len(checks),'failed':0,'checks':checks,'evidence':'协议替身；非真实模型/数据库验收'},ensure_ascii=False,indent=2),encoding='utf-8')

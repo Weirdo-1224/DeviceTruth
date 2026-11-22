@@ -132,28 +132,28 @@ onUnmounted(closeNative)
 </template>
 
 <style scoped>
-.evidence-modal { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(520px, 92vw);
+.evidence-modal { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(620px, 94vw);
   max-height: 86vh; overflow: auto; background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
 .evidence-modal::backdrop { background: rgba(20, 24, 50, 0.38); }
 .modal-body { padding: 16px 18px; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; }
-.modal-head h3 { margin: 0; font-size: 14px; display: flex; align-items: center; gap: 6px; color: var(--accent-2); }
+.modal-head h3 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 6px; color: var(--accent-2); }
 .drawer-close { cursor: pointer; border: 1px solid var(--line); background: var(--panel-2);
   color: var(--text-2); border-radius: 8px; padding: 4px 8px; }
 .drawer-close:hover { color: var(--accent-2); border-color: var(--primary); }
-.modal-title { margin: 12px 0; font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; }
+.modal-title { margin: 16px 0; font-size: 18px; line-height: 1.4; overflow-wrap: anywhere; }
 .modal-rows { margin: 0; display: grid; gap: 7px; }
-.modal-rows div { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; font-size: 12px; }
+.modal-rows div { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; font-size: 14px; }
 .modal-rows dt { color: var(--text-3); }
 .modal-rows dd { margin: 0; overflow-wrap: anywhere; color: var(--text-2); }
 .modal-excerpt { margin-top: 14px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
-.modal-excerpt h4 { margin: 0 0 6px; font-size: 13px; color: var(--accent-2); }
-.modal-excerpt p { margin: 0; font-size: 13px; line-height: 1.65; background: var(--log-bg);
+.modal-excerpt h4 { margin: 0 0 6px; font-size: 15px; color: var(--accent-2); }
+.modal-excerpt p { margin: 0; font-size: 16px; line-height: 1.65; background: var(--log-bg);
   border: 1px solid var(--line-soft); border-radius: 9px; padding: 10px 12px; border-left: 3px solid var(--primary); }
 .modal-foot { margin-top: 14px; display: flex; justify-content: flex-end; }
 .modal-foot .secondary { border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2);
   color: var(--text-2); padding: 7px 14px; font-weight: 600; cursor: pointer; }
-.modal-hint { margin-top: 12px; font-size: 11px; color: var(--text-3); }
-.modal-metadata { margin-top: 16px; font-size: 13px; }
+.modal-hint { margin-top: 12px; font-size: 14px; color: var(--text-3); }
+.modal-metadata { margin-top: 16px; font-size: 15px; }
 .modal-metadata summary { cursor: pointer; margin-bottom: 12px; color: var(--text-2); }
 </style>

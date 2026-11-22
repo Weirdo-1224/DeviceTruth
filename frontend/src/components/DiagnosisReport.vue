@@ -139,13 +139,13 @@ function claimReferenceLabels(claim: ClaimView): string {
 .diagnosis-report { max-width: 1040px; margin: 0 auto; padding: 24px 28px; color: var(--text); }
 .report-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap;
   border-bottom: 1px solid var(--line); padding-bottom: 16px; }
-.report-eyebrow { margin: 0 0 5px; color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: 0.07em; }
+.report-eyebrow { margin: 0 0 5px; color: var(--accent); font-size: 14px; font-weight: 800; letter-spacing: 0.07em; }
 .report-header h1 { margin: 0; font-size: 24px; }
-.report-run { margin: 6px 0 0; color: var(--text-3); font-size: 12px; overflow-wrap: anywhere; }
+.report-run { margin: 6px 0 0; color: var(--text-3); font-size: 14px; overflow-wrap: anywhere; }
 .pro-report-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .report-meta { padding: 14px 0; }
 .report-meta dl { display: grid; gap: 6px; margin: 0; }
-.report-meta dl div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; font-size: 13px; }
+.report-meta dl div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; font-size: 15px; }
 .report-meta dt { color: var(--text-3); }
 .report-meta dd { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
 .report-conclusion { border-radius: 12px; background: var(--soft); padding: 14px 16px; }
@@ -153,21 +153,21 @@ function claimReferenceLabels(claim: ClaimView): string {
 .report-short { margin: 0 0 8px; font-size: 21px; font-weight: 600; line-height: 1.5; }
 .report-summary { margin: 0; color: var(--text-2); line-height: 1.7; white-space: pre-wrap; }
 .report-section { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
-.report-section h3 { margin: 10px 0 5px; font-size: 13px; color: var(--text); }
+.report-section h3 { margin: 10px 0 5px; font-size: 15px; color: var(--text); }
 .report-section ol, .report-section ul { margin: 0; padding-left: 22px; color: var(--text-2); line-height: 1.65; }
 .report-section li + li { margin-top: 5px; }
 .report-claims li { overflow-wrap: anywhere; }
-.certainty { display: inline-block; border-radius: 999px; padding: 1px 8px; margin-right: 5px; font-size: 12px;
+.certainty { display: inline-block; border-radius: 999px; padding: 1px 8px; margin-right: 5px; font-size: 14px;
   color: var(--accent-2); background: var(--soft); }
 .certainty.possible { color: var(--warn); background: var(--warn-bg); }
 .report-citations { color: var(--accent-2); white-space: nowrap; }
 .report-state { border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-top: 14px; }
 .safety { border-radius: 10px; background: var(--warn-bg); color: var(--warn); padding: 10px 12px; line-height: 1.6; }
-.report-note { border-radius: 9px; background: var(--warn-bg); color: var(--warn); padding: 9px; font-size: 12px; line-height: 1.6; }
+.report-note { border-radius: 9px; background: var(--warn-bg); color: var(--warn); padding: 9px; font-size: 14px; line-height: 1.6; }
 .report-source { break-inside: avoid; }
 .report-source h3 { overflow-wrap: anywhere; }
 .source-excerpt { border-left: 3px solid var(--primary); background: var(--log-bg); padding: 9px 11px; white-space: pre-wrap; }
-.hint { color: var(--text-3); font-size: 12px; }
+.hint { color: var(--text-3); font-size: 14px; }
 @media (max-width: 680px) {
   .diagnosis-report { padding: 16px 14px; }
   .report-header h1 { font-size: 21px; }

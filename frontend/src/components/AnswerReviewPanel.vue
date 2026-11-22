@@ -26,7 +26,7 @@ const emit = defineEmits<{ openReference: [referenceId: string] }>()
 </template>
 
 <style scoped>
-.answer-review { margin-block: 16px; color: var(--text-2, #425466); font-size: 14px; line-height: 1.65; }
+.answer-review { margin-block: 16px; color: var(--text-2, #425466); font-size: 16px; line-height: 1.65; }
 summary { cursor: pointer; font-weight: 600; color: var(--text-1, #172b4d); }
 ul { list-style: none; padding: 0; margin: 12px 0 0; }
 li { padding-block: 12px; border-top: 1px solid var(--line-soft, #dde4eb); break-inside: avoid; }

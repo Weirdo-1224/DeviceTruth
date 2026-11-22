@@ -173,20 +173,20 @@ function describeEvent(event: RunEvent): string {
 .timeline { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel); }
 header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 16px 22px; border-bottom: 1px solid var(--line-soft); }
 h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; margin: 0; } h2 svg { color: var(--accent); }
-.timeline-status, .duration, time { color: var(--text-3); font-size: 12px; }
+.timeline-status, .duration, time { color: var(--text-3); font-size: 14px; }
 .duration { margin-left: auto; }
 .overview header > :last-child { margin-left: auto; }
 .timeline-list { list-style: none; margin: 0; padding: 18px 22px; }
 .timeline-item { display: grid; position: relative; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: start; gap: 14px; padding: 4px 0 24px; }
 .timeline-item:last-child { padding-bottom: 4px; }
 .timeline-item:not(:last-child)::before { content: ''; position: absolute; width: 2px; top: 32px; bottom: -3px; left: 14px; background: var(--line); }
-.event-marker { z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; background: var(--soft); color: var(--accent); border-radius: 50%; font-size: 15px; }
+.event-marker { z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; background: var(--soft); color: var(--accent); border-radius: 50%; font-size: 16px; }
 .event-marker.tool, .event-marker.answer { background: #e8f5ee; color: var(--ok); }
 .event-marker.warn { background: var(--warn-bg); color: var(--warn); }
 .event-marker.failure { background: #fff0ef; color: var(--danger); }
 .event-content { min-width: 0; overflow-wrap: anywhere; }
-.event-content strong { display: block; padding-top: 2px; font-size: 15px; font-weight: 600; }
-.event-content p, .timeline > p { color: var(--text-2); margin: 5px 0 0; line-height: 1.6; font-size: 13px; }
+.event-content strong { display: block; padding-top: 2px; font-size: 16px; font-weight: 600; }
+.event-content p, .timeline > p { color: var(--text-2); margin: 5px 0 0; line-height: 1.7; font-size: 16px; }
 .timeline > p { padding: 20px 22px; margin: 0; }
 time { margin-top: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .overview .timeline-list { max-height: 560px; overflow-y: auto; }

@@ -81,3 +81,12 @@ Java、Agent Core、数据库、api.ts、timeline.ts、runTargets.ts、App.vue s
 - `npm run test -- --run`：14 文件、155 项，155 通过、0 失败/错误/跳过（新增 8 项尺寸/偏好回归）；`npm run build` 类型检查/构建、`git diff --check` 通过。
 - `python scripts/verify_pro_ui_polish.py`：39 项记录断言通过、0 失败。实际无头 Chrome 拖拽、键盘、Esc、边界、双击、刷新恢复、800px 正文留宽、20 条历史单滚动区、加载更多、600px 高度账号和列表可见、移动端隐藏分隔条均通过；原提交/补答/历史/取消确认等离线 UI 回归继续通过。
 - 已查看 `outputs/validation/pro-ui-final/sidebar-resized.png`，机器结果同目录 result.json。浏览器测试使用现有本地协议夹具验证纯前端交互，不操作用户桌面，不代替或重跑真实模型验收。本轮没有新增真实调查，未修改 Java、API、App Run 状态或依赖。
+
+## 2026-11-22 舒适阅读字号调整
+
+- 调查输入、事件说明、证据摘录、建议/限制和报告正文以 16px 为基准；导航/列表标题/操作为 15–16px，时间、版本、状态和辅助说明至少 14px。同步提高常用输入/按钮到约 44px，稍加深辅助文字颜色，调整行高和表格内边距。
+- 覆盖 design.css、workspace.css 和当前实际使用的 WorkspaceShell、RecentInvestigations、ProfessionalDiagnosisPage、ClaimList/Detail、RunTimeline、EvidenceModal/Comparison、DiagnosisReport、AnswerReviewPanel、AuthenticatedWorkbench 样式。设备/知识库/团队/讨论/附件继承共享样式；团队表单在较窄窗口改为单列以容纳大字。未改 Vue Template/script、请求或状态逻辑。
+- `npm run test -- --run`：14 文件、156 项，156 通过、0 失败/错误/跳过。`npm run build` 类型检查/构建与 `git diff --check` 通过；逐文件比较确认 Vue 模板和 script 与本轮基线相同。
+- `python scripts/verify_pro_ui_polish.py`：60 项记录断言通过、0 失败；新增 computedStyle 实测核验输入、事件、证据摘录、报告、侧栏标题和日期、设备/知识资料、成员表格、团队输入及登录辅助操作的字号，继续验证首屏提交、侧栏拖拽/独立滚动、600px 矮屏、窄屏、引用焦点/报告打印等原交互。
+- 已查看实际渲染的新建、结果、长历史侧栏、团队成员截图；证据位于 `outputs/validation/pro-ui-readable/`。首次浏览器检查因夹具缺少当前项目新增的 `/api/assets/summaries` 导致历史未加载而超时；按当前代码合同补齐测试数据后通过，未更改产品逻辑来适配旧夹具。
+- 此次为纯样式离线回归，浏览器使用本地协议测试夹具；未新增真实调查、未调用外部模型、未操作用户桌面。未重做实际注册、密码重置、邮件投递或现场业务验收。

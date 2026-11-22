@@ -85,17 +85,19 @@ watch(() => props.query, value => { searchText.value = value })
 <style scoped>
 .history-search { display: flex; align-items: center; gap: 4px; margin: 0 4px 6px; }
 .history-search input { min-width: 0; flex: 1; border: 1px solid var(--line); border-radius: 8px;
-  background: var(--panel-2); color: var(--text); padding: 7px 8px; font-size: 12px; }
+  background: var(--panel-2); color: var(--text); padding: 7px 8px; font-size: 14px; }
 .history-search button { flex: none; padding: 6px; }
 .history-filter { display: block; margin: 0 4px 7px; }
 .history-filter select { width: 100%; border: 1px solid var(--line); border-radius: 8px;
-  background: var(--panel-2); color: var(--text-2); padding: 6px 8px; font-size: 12px; }
+  background: var(--panel-2); color: var(--text-2); padding: 6px 8px; font-size: 14px; }
 .history-more { width: 100%; margin-top: 7px; }
 .history-list .conversation-link { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 5px 8px; padding: 12px 10px; border-radius: 9px; }
 .history-list .conversation-link .badge { grid-column: 2; justify-self: start; margin-left: 0; }
-.history-list .history-text strong { font-size: 13px; font-weight: 550; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.6; }
-.history-text small { font-size: 11px; }
+.history-list .history-text strong { font-size: 15px; font-weight: 550; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.6; }
+.history-list .history-text small { font-size: 14px; }
 .history-controls { margin-bottom: 10px; }
-.history-controls > summary { cursor: pointer; color: var(--text-3); font-size: 12px; padding: 3px 4px; }
+.history-controls > summary { cursor: pointer; color: var(--text-3); font-size: 14px; padding: 3px 4px; }
 .history-controls[open] > summary { margin-bottom: 8px; }
+.history-list .conversation-link { font-size: 16px; }
+.history-more { min-height: 42px; }
 </style>

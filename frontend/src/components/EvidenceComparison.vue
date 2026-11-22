@@ -145,7 +145,7 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
 <style scoped>
 .comparison { padding: 16px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 .table-scroll { overflow-x: auto; }
-.facts { min-width: 560px; }
+.facts { min-width: 680px; }
 
 .comparison h2 {
   font-size: 16px;
@@ -154,12 +154,12 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
 .facts {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 16px;
 }
 .facts th,
 .facts td {
   border-bottom: 1px solid #eef2f5;
-  padding: 4px 6px;
+  padding: 9px 8px;
   text-align: left;
   vertical-align: top;
 }
@@ -170,7 +170,7 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
   color: #a35c00;
 }
 .verify {
-  font-size: 12px;
+  font-size: 14px;
   border-radius: 10px;
   padding: 1px 6px;
 }
@@ -183,18 +183,18 @@ watch(() => [props.assetId, props.asOf], load, { immediate: true })
   background: #eef2f5;
 }
 .maintenance h3 {
-  font-size: 14px;
+  font-size: 16px;
   margin: 12px 0 4px;
 }
 .maintenance ul {
   margin: 0;
   padding-left: 18px;
-  font-size: 13px;
+  font-size: 16px;
   color: #334e68;
 }
 .hint {
   color: #616e7c;
-  font-size: 13px;
+  font-size: 16px;
   margin: 4px 0;
 }
 .error {

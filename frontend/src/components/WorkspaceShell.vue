@@ -168,16 +168,16 @@ function selectSpace(event: Event): void {
 </template>
 
 <style scoped>
-.dt-shell { min-height: 100dvh; color: var(--text); background: var(--bg); font: 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif; }
+.dt-shell { min-height: 100dvh; color: var(--text); background: var(--bg); font: 16px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif; }
 .dt-body { display: grid; grid-template-columns: var(--sidebar-width, 224px) minmax(0, 1fr); min-height: 100dvh; }
-.dt-sidebar { min-width: 0; padding: 20px 14px 16px; display: flex; flex-direction: column; gap: 14px; background: #f8faff; border-right: 1px solid var(--line); }
+.dt-sidebar { line-height: 1.5; min-width: 0; padding: 20px 14px 16px; display: flex; flex-direction: column; gap: 14px; background: #f8faff; border-right: 1px solid var(--line); }
 .dt-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
 .dt-brand strong { font-size: 20px; letter-spacing: -.6px; }
-.dt-brand small { display: block; color: var(--text-3); font-size: 12px; margin-top: 1px; }
+.dt-brand small { display: block; color: var(--text-3); font-size: 14px; margin-top: 1px; }
 .dt-logo { display: grid; place-items: center; flex: none; width: 36px; height: 40px; border-radius: 11px; background: var(--primary); color: white; font-size: 24px; }
-.dt-side-label { display: block; margin-bottom: 7px; color: var(--text-3); font-size: 12px; }
-.dt-space-select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font-size: 13px; }
-.dt-button { min-height: 40px; padding: 9px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); cursor: pointer; font: inherit; font-size: 14px; }
+.dt-side-label { display: block; margin-bottom: 7px; color: var(--text-3); font-size: 14px; }
+.dt-space-select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font-size: 15px; }
+.dt-button { min-height: 40px; padding: 9px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); cursor: pointer; font: inherit; font-size: 16px; }
 .dt-primary { border-color: var(--primary); background: var(--primary); color: white; }
 .dt-new { width: 100%; margin-top: -10px; font-weight: 600; }
 .dt-button:disabled { opacity: .48; cursor: not-allowed; }
@@ -190,14 +190,14 @@ function selectSpace(event: Event): void {
 .dt-sidebar > .dt-recents { flex-shrink: 1; }
 .dt-recents-content { flex: 1; min-height: 0; }
 .dt-sidebar > * { flex-shrink: 0; }
-.dt-recents-toggle { display: flex; justify-content: space-between; gap: 8px; flex: none; border: 0; padding: 0; background: none; color: var(--text-3); font: inherit; font-size: 12px; text-align: left; cursor: default; }
+.dt-recents-toggle { display: flex; justify-content: space-between; gap: 8px; flex: none; border: 0; padding: 0; background: none; color: var(--text-3); font: inherit; font-size: 14px; text-align: left; cursor: default; }
 .dt-side-footer { margin-top: 0; padding-top: 12px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); }
-.dt-side-footer small { color: var(--text-3); font-size: 12px; }
+.dt-side-footer small { line-height: 1.5; color: var(--text-3); font-size: 14px; }
 .dt-user-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.dt-user { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding-top: 12px; font-size: 13px; }
+.dt-user { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding-top: 12px; font-size: 15px; }
 .dt-avatar { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--soft); color: var(--accent); }
-.dt-tag { padding: 2px 7px; background: #edf1f7; border-radius: 5px; color: var(--text-2); font-size: 12px; }
-.dt-link { border: 0; padding: 2px 0; background: none; color: var(--accent); cursor: pointer; font: inherit; font-size: 12px; text-align: left; }
+.dt-tag { padding: 2px 7px; background: #edf1f7; border-radius: 5px; color: var(--text-2); font-size: 14px; }
+.dt-link { border: 0; padding: 2px 0; background: none; color: var(--accent); cursor: pointer; font: inherit; font-size: 14px; text-align: left; }
 .dt-link:hover { text-decoration: underline; }
 .dt-global-feedback { padding: 10px 24px; background: var(--soft); }
 .dt-global-feedback p { margin: 0; }
@@ -226,13 +226,20 @@ function selectSpace(event: Event): void {
   .dt-sidebar { padding: 14px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; border-right: 0; border-bottom: 1px solid var(--line); }
   .dt-brand { grid-column: 1 / -1; } .dt-brand small { display: none; }
   .dt-nav { flex-direction: row; flex-wrap: wrap; grid-column: 1 / -1; gap: 4px; }
-  .dt-nav button { padding: 8px 10px; font-size: 13px; }
+  .dt-nav button { padding: 8px 10px; font-size: 15px; }
   .dt-new { margin: 0; align-self: end; }
   .dt-recents, .dt-side-footer { grid-column: 1 / -1; }
   .dt-side-footer { flex-direction: row; flex-wrap: wrap; align-items: center; padding-top: 10px; }
   .dt-side-footer > small { display: none; } .dt-user { margin-left: auto; padding: 0; }
 }
 @media (min-width: 761px) and (max-height: 720px) { .dt-sidebar { padding-block: 12px; gap: 8px; } .dt-brand small, .dt-side-footer > small { display: none; } .dt-side-footer { gap: 6px; } .dt-user { padding-top: 6px; } }
+@media (min-width: 761px) and (max-height: 640px) {
+  .dt-sidebar { gap: 6px; }
+  .dt-brand { margin-bottom: 0; } .dt-logo { width: 30px; height: 32px; font-size: 22px; }
+  .dt-side-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .dt-nav button { padding-block: 6px; line-height: 1.5; }
+  .dt-user { padding-top: 0; }
+}
 @media (min-width: 761px) and (max-height: 480px) { .dt-sidebar { overflow-y: auto; } .dt-sidebar > .dt-recents { flex: none; } .dt-recents-content { flex: none; } .dt-recents :deep(.pro-sidebar), .dt-recents :deep(.history-list) { height: auto; overflow: visible; max-height: none; } }
 @media print { .dt-sidebar-frame, .dt-sidebar-resizer, .dt-sidebar, .dt-global-feedback { display: none !important; } .dt-body { display: block; } }
 </style>

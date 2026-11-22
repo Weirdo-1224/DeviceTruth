@@ -51,16 +51,16 @@ const emit = defineEmits<{ (event: 'toggle-reference', referenceId: string): voi
 <style scoped>
 .claim-detail { min-width: 0; }
 .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.claim-detail h3 { font-size: 13px; margin: 0; display: flex; align-items: center; gap: 5px;
+.claim-detail h3 { font-size: 15px; margin: 0; display: flex; align-items: center; gap: 5px;
   color: var(--accent-2); }
 .detail-text { margin: 8px 0; line-height: 1.75; font-size: 18px; font-weight: 550; color: var(--text); white-space: pre-wrap; }
-.certainty { font-size: 12px; border-radius: 999px; padding: 2px 9px; font-weight: 700;
+.certainty { font-size: 14px; border-radius: 999px; padding: 2px 9px; font-weight: 700;
   color: var(--accent-2); background: var(--soft);
   border: 1px solid var(--line); white-space: nowrap; }
 .certainty.possible { color: var(--warn); background: var(--warn-bg);
   border-color: rgba(245, 181, 63, 0.4); }
 .detail-refs { margin-top: 12px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
-.detail-refs h4 { font-size: 12px; margin: 0 0 8px; display: flex; align-items: center; gap: 5px;
+.detail-refs h4 { font-size: 14px; margin: 0 0 8px; display: flex; align-items: center; gap: 5px;
   color: var(--accent-2); }
 .evidence-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; }
 .citation-ref { cursor: pointer; display: flex; align-items: flex-start; gap: 10px; width: 100%;
@@ -70,9 +70,9 @@ const emit = defineEmits<{ (event: 'toggle-reference', referenceId: string): voi
 .evidence-icon { flex: none; width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center;
   color: var(--accent); background: var(--soft); border: 1px solid var(--line); font-size: 16px; }
 .evidence-main { flex: 1; min-width: 0; display: grid; gap: 3px; }
-.evidence-main strong { font-size: 13px; }
-.evidence-main small { color: var(--text-3); font-size: 12px; }
-.evidence-excerpt { font-size: 13px; color: var(--text-2); line-height: 1.65;
+.evidence-main strong { font-size: 15px; }
+.evidence-main small { color: var(--text-3); font-size: 14px; }
+.evidence-excerpt { font-size: 16px; color: var(--text-2); line-height: 1.65;
   border-left: 2px solid var(--line); padding-left: 8px;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .evidence-open { flex: none; align-self: center; color: var(--text-3); }
