@@ -184,8 +184,17 @@ class GeneralAgentFlowTest {
     }
 
     private AgentRunOutcome run(AgentRunRepository.RunRecord run, StructuredAgentReasoner.Completion completion) {
-        return new TaskOrchestrator(gateway).runAgent(task(run), gateway, context(run), runs.references(IDENTITY, run.runId()),
-                new StructuredAgentReasoner("deterministic-model", completion));
+        var structured = new StructuredAgentReasoner("deterministic-model", completion);
+        var legacy = new io.devicetruth.core.reasoning.GeneralReasoner() {
+            public String name() { return structured.name(); }
+            public io.devicetruth.core.reasoning.ActionProposal propose(io.devicetruth.core.reasoning.GeneralReasoner.Context context) {
+                return structured.propose(context);
+            }
+            public java.util.List<io.devicetruth.core.reasoning.Reasoner.Attempt> drainAttempts() {
+                return structured.drainAttempts();
+            }
+        };
+        return new TaskOrchestrator(gateway).runAgent(task(run), gateway, context(run), runs.references(IDENTITY, run.runId()), legacy);
     }
 
     @Test void registeredCatalogIsExposedToTheModelWithKnowledgeSchemas() {

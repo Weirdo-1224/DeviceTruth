@@ -117,8 +117,8 @@ class AssetToolTest {
                 """, messageId, conversationId, UUID.randomUUID(), ASSET, OWNER, PROJECT);
         jdbc.update("""
                 INSERT INTO dt_agent_run(id,conversation_id,goal_message_id,status,version,requested_at,as_of,
-                    budget,created_at,updated_at,owner_id,project_id)
-                VALUES (?,?,?,'COMPLETED',0,now(),?,CAST(? AS jsonb),now(),now(),?,?)
+                    budget,created_at,updated_at,owner_id,project_id,round_number)
+                VALUES (?,?,?,'COMPLETED',0,now(),?,CAST(? AS jsonb),now(),now(),?,?,1)
                 """, id, conversationId, messageId, java.sql.Timestamp.from(FIELD_OBSERVED),
                 "{\"maxSteps\":12,\"maxRepeatedActions\":2}", OWNER, PROJECT);
         return id;

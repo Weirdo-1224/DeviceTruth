@@ -1,6 +1,6 @@
 # 规划与验收记录
 
-当前状态：2026-11-20（Asia/Shanghai），第六组6.1–6.7完成，整体27/33；第7/8组未执行。最新验收汇总见文末。
+当前状态：2026-11-22（Asia/Shanghai），第1–8组全部完成，整体33/33。最新验收汇总、真实证据边界及后续人工事项见文末。
 
 以下保留历次记录：2026-11-19最初为提案完成、实施尚未开始，后续按实际证据推进。
 
@@ -515,3 +515,145 @@ HTTP分段有效证据：首段20项、账号14项、材料48项、生命周期1
 调整后的自动验收仍必须覆盖：真实 SMTP 的外部发送与服务接受/失败状态、链接生成、显式重发及凭证轮换；隔离协议流程中的邀请接受、错误邮箱拒绝、撤销/过期、密码重置、重放拒绝和旧会话失效；以及 HTTPS Cookie、CSRF 和匿名拒绝。不得把本地邮件捕获或协议替身冒充外部 SMTP 发送。SMTP 配置缺失仍阻塞本项。
 
 此项只免除“自动证明邮件已到达收件箱”的前置要求，不免除发送功能、权限、安全和协议验证。用户后续人工收件结果另作补充记录，不影响本次按新口径完成任务 7/8。
+
+
+## 2026-11-22 任务 7.1：显式旧归属认领与 dry-run 完成
+
+新增 V24 `dt_legacy_ownership_claim` 审计表、`LegacyOwnershipClaimService` 和独立 `LegacyOwnershipClaimTool`。命令默认 dry-run，只有显式 `--execute` 才在事务内创建专用 TEAM、指定 ADMIN、绑定旧会话并写审计；没有新增 HTTP 管理入口。清单动态统计所有带 owner/project 的关联表，记录活动 Run/租约、未知作者和文件存在性/字节数/SHA-256。历史作者不回填。命令与安全切换边界见 `migration-runbook.md`。
+
+实际命令：`mvn -q '-Dtest=LegacyOwnershipClaimTest' test`，使用仅绑定 127.0.0.1:54339 的隔离 PG16.15/pgvector 和随机 `devicetruth_test_` 数据库、临时文件目录。最终 3 项，通过 3、失败 0、错误 0、跳过 0。覆盖真实 CLI dry-run 不写库、实际执行、重复认领拒绝、错误管理员、文件缺失、触发器注入中途失败后团队/成员/审计/绑定全部回滚；真实 Cookie/CSRF HTTP 登录后读取三个旧未决 Run，对 WAITING 原 Run 补答且 Run 总数不变、asOf 不变、新 execution actor 为管理员、initiated actor 仍为空，并读取旧文件原文。推理 worker 关闭，无外部模型/embedding/SMTP 调用。
+
+失败修复历史保留：首次测试编译错误 2 次（错误调用 DataSource.close、测试方法缺 throws），未执行测试；随后 3 项因夹具 JSONB 未显式 CAST 全部错误；修正后 3 项中 dry-run 通过，但执行锁把 PG void 错映射为 Java Void，2 失败/1 错误；改为只消费锁结果后 2 通过/1 失败，失败为测试在登录后仍使用旧 CSRF 得到 403。刷新 CSRF 后最终 3/3。上述失败均未操作用户运行库。
+
+7.1 已勾选，apply 进度回读 28/33。未执行实际线上认领、切换或产品恢复；7.2 隔离恢复、HTTPS 与旧入口演练及第 8 组仍待完成。
+
+
+## 2026-11-22 任务 7.2：HTTPS 与匹配备份隔离恢复完成
+
+新增 `SecureDeploymentRecoveryTest`，实际启动两个独立临时 HTTPS product：源端使用 scripted/deterministic 和真实 PG 完成一个 COMPLETED Run、保留一个 WAITING Run、建立 JDBC Session 和文件元数据；停止源端后以 PG TEMPLATE 克隆随机库、复制临时文件，再由同一候选程序恢复。未连接 54329，未使用 compose product，不重启 8080/8081。
+
+最终命令：`mvn -q '-Dtest=SecureDeploymentRecoveryTest,ScopedAgentRuntimeTest#authenticatedStartupDoesNotResumeUnclaimedLegacyRunsButInternalEntryStillWorks,AccountWorkspaceMigrationTest' test`。总数 6，通过 6、失败 0、错误 0、跳过 0：SecureDeploymentRecoveryTest 2 项、旧内部恢复定向 1 项、基础迁移 3 项。检查源/恢复库关键表行数一致、HTTPS Secure/HttpOnly/SameSite=Lax、旧 Cookie 与显式 Cookie 重放均可恢复会话、匿名 401、无 CSRF 写 403、当前 CSRF 写 201、COMPLETED/WAITING 状态与可展示引用集合/文件原文一致、SMTP HTTPS public URL 配置可装配、CLI `--help`、legacy 健康/会话创建/消息读取和旧内部 `recoverQueued`。scripted、deterministic、自签测试证书和未发送的 SMTP 装配不计真实模型、真实 embedding、受信任生产证书或真实邮件验收。
+
+失败历史：首轮 6 项 5 通过/1 失败，知识导入实际合同为 201 而非测试误写 200；第二轮发现整表引用含 USER_STATEMENT，而接口按原合同只展示知识/配置/现场观测，改为按该 Run 可展示类型核对；第三轮文件 503 是因旧显式知识导入不生成调查上传原文件，隔离副本补入与元数据对应的原始手册字节后完成匹配文件恢复。没有为通过测试修改产品 Guard、来源过滤或旧导入用途。活动 Run/租约与历史未知作者盘点由 7.1 清单及测试覆盖。
+
+部署、停写、SMTP、Session、恢复和回退说明见 `migration-runbook.md`，V24 数据字典见 `data-foundation.md`。7.2 已勾选，整体 29/33；未执行实际线上切换/认领/恢复，真实 SMTP 外部发送与真实模型双浏览器协作仍属第 8 组。
+
+
+## 2026-11-22 任务 8.3：真实 QQ SMTP 与隔离 HTTPS 协议通过
+
+新增显式 opt-in `RealSmtpAcceptanceTest`，实际命令：`mvn -q '-Dtest=RealSmtpAcceptanceTest' '-Ddevicetruth.test.real-smtp=true' test`。最终 1 项，通过 1、失败 0、错误 0、跳过 0。测试在随机隔离 PG 和临时 HTTPS product 上运行，邮件由真实 `JavaMailSenderImpl` 经 QQ SMTP 发送；只有父类发送成功后才从应用自己生成的邮件正文捕获本次令牌做协议回环，不是本地邮件替身，不读取邮箱、不使用 IMAP。
+
+实际外部发送 6 封：邀请首次与显式重发、撤销和过期协议各一封、密码重置首次与显式重申请各一封。6 次均为 SMTP 服务接受，邀请/重置记录为 ACCEPTED_BY_PROVIDER；重发前后令牌不同且响应/数据库不保存原始令牌。真实 HTTP 验证受邀注册加入且原角色不被后续邀请提升、错误账号 403、撤销/过期/重放拒绝、重置确认不一致拒绝、成功重置后旧会话 401、旧密码拒绝/新密码可登录、Secure/HttpOnly/SameSite=Lax、无 CSRF 403、匿名 401。证据 `outputs/validation/workbench-group8/smtp-acceptance.json` 不含收件地址、口令、授权码或原始令牌，`mailboxReceipt=PENDING_USER_MANUAL_CHECK`、`imapUsed=false`。真实收件留用户后续人工检查，不据此提前宣称到达收件箱。
+
+启动/配置失败历史：首次误把本地模型配置全局导入，空 embedding 维度导致启动错误，未发送；随后两次邮件配置解析未找到收件账号，仍未发送。改为邮件适配器内按批准配置文件读取邮件项，并为隔离协议使用显式 HTTPS 测试链接后通过。SMTP 服务失败/超时仍由既有 AuthMailTest 协议替身覆盖，不冒充外部失败注入。
+
+8.3 已按用户调整后的口径勾选。未操作现有产品服务或产品数据库，未提交或推送 Git。
+
+
+## 2026-11-22 任务 8.2：双账号真实模型团队接续通过
+
+新增显式 opt-in `FinalCollaborationBrowserHostTest`，在随机隔离 PG 和独立端口启动真实 product，前端为当前 `frontend/dist`，推理器 openai、实际模型 deepseek-flash，embedding=deterministic，手册及全部运行资料为 SIMULATED，无现场数据。管理员与协作成员分别使用 127.0.0.1 和 localhost 两个源，Cookie/会话彼此独立但团队相同；未连接或修改现有产品服务/数据库。
+
+实际浏览器链路：管理员创建手册调查，首轮 Run `2e4e456d-7724-4146-99a7-b4751b20f186` COMPLETED、5 次模型事件、2 条手册引用；协作成员读取同一调查并发表讨论时仍只有 1 个 Run，显式引用并正式提交后才出现第 2 轮 `c61b21a5-c970-47c1-be5c-1f380ad15706`。该 Run 两次 WAITING，管理员用同一问题三元组竞争补答，最终 COMPLETED、version=8、6 次模型事件、1 条引用，没有为补答新建 Run。第一次竞争文本仍缺设备对象，模型如实再次追问；补入模拟对象后完成，未篡改结果求绿。
+
+管理员回读第 1 轮、2 条来源及第 2 轮报告；报告含真实 Run ID、手册版本/章节、SIMULATED、风险和限制。刷新后账号、空间、历史均恢复。另两次真实知识 Run `ae3c5218-221d-431d-90b4-dcae59b2f8b6`、`34987929-3426-4173-9c0b-dcb4790977d8` COMPLETED，分别有 4、3 条来源。浏览器出现取消按钮前这两轮已完成，未伪报取消；改用同一真实 product HTTP 提交后立即取消 `a504af05-cf73-41e8-affb-f2a84dcc7028`，接口 200，最终 CANCELLED，事件包含 RUN_CANCEL_REQUESTED、RUN_LATE_RESPONSE(code=CANCELLED)、RUN_CANCELLED，迟到提案未采纳。
+
+宿主正常停止并自动清理随机库，JUnit 1 项通过、失败/错误/跳过 0。证据位于 `outputs/validation/workbench-group8/`：`browser-checks.json`、`browser-real-runs.json`、`browser-inputs.json`、`browser-environment.json`、`cancel-result.json`。取消结果文件保留接口返回时 RUNNING 的原始响应，最终 CANCELLED 与事件以宿主持久回读为准。
+
+撤权/断线、普通提交与问题竞争 409、有限结果恢复分别由本次全量中的 AgentStreamTest、ScopedAgentRuntimeTest、AgentLifecycleTest、InvestigationDiscussionTest、DeliveryReviewTest、AnswerReviewLifecycleTest 以及第六组已有浏览器记录复核；这些是明确协议/状态机证据，不冒充外部模型调用。8.2 已勾选，整体 31/33；真实 SMTP 收件仍由用户人工检查，真实 embedding 与现场设备未验收。
+
+
+## 2026-11-22 任务 8.1：完整候选全量回归、前端与 CLI 通过
+
+最终执行环境为 Maven 3.9.9、Microsoft Java 21.0.13、真实隔离 PG16.15/pgvector（127.0.0.1:54339，随机库）及本机前端工具链；未使用 54329 产品库。最终 `mvn -q package` 退出 0，Surefire 73 个测试类共 515 项：通过 501、失败 0、错误 0、跳过 14。此前修复后的 `mvn -q test` 也已成功；这里不把两次执行累加冒充 1030 项不同测试。
+
+14 项跳过均为显式 opt-in 或既有条件项：RunRecoveryTest 2、AgentToolFeedbackTest 1、AuthenticatedRealModelTest 2、WorkbenchBrowserAcceptanceTest 2、AnswerSemanticReviewTest 3、SkillRegistryTest 1、ReviewTransportDiagnosticTest 1，以及本次 RealSmtpAcceptanceTest 1、FinalCollaborationBrowserHostTest 1。后两项已在真实验收时分别显式执行通过，默认全量中仍跳过；其余未执行的外部模型/诊断项不冒充通过。
+
+`npm --prefix frontend run test -- --run`：12 个文件、135 项，通过 135、失败 0、错误 0、跳过 0。`npm --prefix frontend run build`：vue-tsc 与 Vite 均退出 0。
+
+`python scripts/verify_cli.py` 退出 0：真实打包 JAR 的 help、场景 A/B/C/D 持久报告分别为 RESOLVED/RESOLVED/CONFLICT/NEED_EVIDENCE，非法参数、Qwen/OpenAI 缺密钥明确 FAILED 且不降级、本地 HTTP 私有配置读取均通过。证据 `target/cli-verification.json`，日志 `outputs/group8-cli.log`。CLI 为 scripted/HTTP 替身离线验证，不计外部模型。
+
+### 全量失败与修复历史
+
+首轮 `mvn -q test` 为 486 项：通过 456、失败 16、错误 2、跳过 12。PersistentConversationTest 10 项和 DualDomainAgentTest 1 项仍使用匿名 HTTP，分别 403；AssetToolTest 旧夹具漏填 V23 round_number，1 项初始化错误；GeneralAgentFlowTest 6 项未区分旧内部 Guard 与新版 v2 审核适配器。没有修改产品 Guard、来源规则或旧入口来迁就测试。
+
+修复方式为：旧 HTTP 夹具接入既有 AuthenticatedProductTestSupport 的真实 Cookie/CSRF 和随机库显式测试归属；资产夹具补 round_number=1；GeneralAgentFlowTest 明确走不支持语义复核的旧内部路径并保留模型尝试审计；并发测试第三次提交前按现合同取消活动 Run；游标测试先解空间外层再解微秒内层。定向命令 `mvn -q '-Dtest=PersistentConversationTest,DualDomainAgentTest,AssetToolTest,GeneralAgentFlowTest,RealSmtpAcceptanceTest' test` 最终 61 项：60 通过、0 失败、0 错误、1 跳过（SMTP 未开启时），随后完整 test/package 均通过。
+
+OpenSpec strict validate 和 `git -c core.fsmonitor=false diff --check` 退出 0；后者只有 acceptance.md 的 LF/CRLF 提示。8.1 已勾选，整体 32/33，剩余仅为 8.4 汇总。
+
+
+## 2026-11-22 任务 8.4：最终证据汇总与全场景核对
+
+### 五份 spec 与认可原型
+
+本次按五份 delta 全文复核 30 个 requirement、54 个 scenario；下表是证据映射，不把文档条数折算为新增测试数。原型另以其 `prototype/review-history.md` 的 49 项历史检查和第六组最终三尺寸截图/交互记录为基准。
+
+| Capability | requirement / scenario | 最终证据与结论 |
+|---|---:|---|
+| account-authentication | 5 / 10 | AccountAuthenticationTest、PasswordRecoveryTest、AuthMailTest、TeamInvitationTest 覆盖注册/会话/CSRF/恢复/邀请/限流；RealSmtpAcceptanceTest 实际完成 QQ SMTP 邀请与重置、轮换/撤销/过期/旧会话失效及 HTTPS。真实收件待用户人工检查，按已确认口径不阻塞。 |
+| workspace-access-control | 6 / 12 | WorkspaceMembershipTest、ScopedAgentRuntimeTest、AuthenticatedResourceTest、ResourceAuthorizationTest 覆盖空间/角色/持续授权；LegacyOwnershipClaimTest 覆盖旧归属不默授、显式认领、审计和回滚；SecureDeploymentRecoveryTest 覆盖匹配恢复与旧入口。 |
+| team-investigation-collaboration | 7 / 13 | InvestigationDiscussionTest、AgentLifecycleTest、AgentStreamTest、RunRecoveryTest 覆盖讨论/引用/串行/竞争/取消/撤权/恢复；第8组两个独立账号的真实 deepseek-flash 主链实际完成讨论不入模、引用提交、竞争补答、同 Run 完成和历史回读。 |
+| investigation-material-scoping | 5 / 10 | InvestigationMaterialTest、KnowledgeImportTest、KnowledgeSearchTest、AgentReportToolTest 覆盖附件/发布/版本/召回/直接原文/数据性质；第六组实际上传发布与第8组真实来源、报告回读一致。 |
+| collaborative-workbench-experience | 7 / 9 | 前端135项、类型检查/构建、第六组1366×768、1920×1080、390×844截图与35项浏览器证据，第8组双账号真实操作覆盖登录/空间/讨论/结果/历史/来源/报告/取消/刷新；原型模拟开关未进入产品。 |
+
+原型差异继续保持已记录的有意取舍：窄屏近期调查可折叠而非不可达；真实候选、Guard审核和完整限制使页面长于原型有限样例；资料使用统一抽屉，报告在主区按需打开以保留原打印排版。上述视觉/业务取舍集中留用户复核，不将截图当作服务端授权证明。
+
+### 最终自动验收汇总
+
+| 检查 | 最终结果 |
+|---|---|
+| `mvn -q package` | 73个测试类，515项：501通过、0失败、0错误、14跳过；JAR生成成功 |
+| `npm --prefix frontend run test -- --run` | 12个文件，135/135通过 |
+| `npm --prefix frontend run build` | vue-tsc和Vite均退出0 |
+| `python scripts/verify_cli.py` | help、A–D、非法参数、缺密钥不降级、私有配置读取全部通过 |
+| 第7组定向 | 认领3/3；迁移/恢复/legacy/旧内部恢复6/6 |
+| 第8组真实验收 | 双账号真模宿主1/1；真实SMTP 1/1，6次SMTP服务接受 |
+| 结构检查 | OpenSpec strict valid；diff --check退出0 |
+
+日志和脱敏证据主要位于 `outputs/group7-*.log`、`outputs/group8-*.log`、`outputs/validation/workbench-group8/` 及第六组既有目录。历史失败/修复均保留在前述各组记录，不把定向、全量和真实验收相加冒充同一套件。
+
+### 通俗中文运行链路
+
+1. 用户先注册或登录。`AccountController` 和 `AccountService` 校验邮箱口令、轮换会话，Spring Security 把 DTSESSION 存入 PG；浏览器写请求还要带当前 CSRF。前端不保存口令或会话令牌。
+2. 用户选择个人或团队空间。`HttpAccess` 从已登录账号和 `X-Workspace-ID` 找到成员关系，`WorkspaceScopeResolver` 生成 `AccessScope`：actor 是实际操作人，workspace 是授权空间，owner/project 仍是底层稳定存储键。客户端声明的角色或owner/project不被采信。
+3. 团队成员可以发表讨论，但只有“引用到调查补充并正式提交”才把讨论快照加入输入。`GeneralAgentService.submit` 沿会话行锁依次检查写权、幂等键、期望调查版本和活动Run，再保存真实作者、引用讨论及附件版本；普通补充创建新Run，补答使用原runId/pendingQuestionId/questionVersion恢复原Run。另一成员竞争时只有一个事务获胜，失败方保留草稿且不自动排队。
+4. worker从持久Run恢复scope、execution actor和执行段快照，不借用其他请求身份。模型只提出动作，`CapabilityGateway` 执行只读工具并校验当前权限，`EvidenceManager`/知识服务登记实际取得的来源，唯一 `TaskOrchestrator` 继续原主循环。Guard v2做整体审核和至多一次定向修正；取消、撤权、迟到结果不被采纳。
+5. 最终结果、事件、引用、作者和输入快照由PG持久化。其他成员通过会话/Run回读和有界SSE看到同一状态；来源详情和报告只读持久记录，不再调用模型。个人、团队和未认领旧资料彼此隔离，旧资料只能由维护命令显式认领。
+
+以本次第2轮为例：李工讨论“只有手册”没有运行模型；他引用并提交后才创建Run。模型追问排查对象，陈工补答时恢复同一Run并成为新执行段actor，原发起人和讨论快照仍在。最终报告能看到真实Run ID、手册版本/章节和SIMULATED限制，而不是把团队讨论当成现场事实。
+
+### 旧归属维护链路
+
+`LegacyOwnershipClaimTool` 默认只读，调用 `LegacyOwnershipClaimService.dryRun` 生成关联表、活动Run/租约、未知作者和文件校验清单。维护者明确 `--execute` 后，`claim` 在单事务内复查目标、创建专用TEAM和ADMIN、绑定旧conversation并写V24审计；文件或关联失败整体回滚。它不自动恢复无actor旧Run，不修改历史作者，也没有操作当前产品库。
+
+### 未验证项、影响与下一动作
+
+- QQ SMTP已接受6封邮件，但是否进入收件箱由用户后续人工检查；不使用IMAP，不影响本次按新口径勾选。若未收到，先查垃圾邮件和QQ投递日志，再用产品显式重发并轮换凭证。
+- 未执行实际线上切换、旧资料认领或产品恢复。需要操作时先按 `migration-runbook.md` 停写、备份、dry-run并由维护者授权执行；本次没有操作8080/8081/54329。
+- HTTPS演练使用自签测试证书；生产受信任证书/反向代理配置需在部署环境核验。embedding为deterministic，资料和现场均为SIMULATED/协议夹具，未验证真实embedding质量或真实现场设备。
+- 原生打印入口已验，未实际生成PDF文件；PDF/OCR附件仍未实现。真实SMTP外部故障未故意注入，超时/失败由协议替身覆盖。
+- 本change不同步主specs、不归档，不替其他change补勾任务，不提交或推送Git。后续可在 verify-change 复核后，另获授权决定同步/归档和实际部署。
+
+8.4 的证据汇总、全场景核对和运行链路说明已完成；技术未通过项无隐藏遗留，以上均为明确的环境或后续人工边界。
+
+
+## 2026-11-22 SMTP 示例配置安全整改
+
+最终复核发现 `.env.example` 曾包含非占位 SMTP 账号和授权码，且 RealSmtpAcceptanceTest 会将示例文件作为实际配置来源。用户已手动将相关配置转移到被忽略的 `.env`；代理未读取或显示该文件内容。当前 `.env.example` 的 SMTP_USERNAME/PASSWORD/FROM 均为空占位，PUBLIC_URL 保持待配置，注释明确真实秘密只放 `.env`。
+
+`RealSmtpAcceptanceTest` 的配置导入及 Properties 回退已删除 `.env.example`，现在只读取 `.env` 和批准的 `devicetruth.local.properties`。全文件检索确认不再引用示例配置或原示例账号/授权码。`git status` 未列出 `.env`，没有将秘密加入当前待提交工作。
+
+验证命令：`mvn -q '-Dtest=AuthMailTest,RealSmtpAcceptanceTest' test`，使用隔离随机 PG。结果合计5项：AuthMailTest 4项通过、失败0、错误0、跳过0；RealSmtpAcceptanceTest 默认未开启真实发送，跳过1。此次未重新发送外部邮件，之前6次SMTP服务接受证据保留。OpenSpec strict validate 和 diff --check 通过；末尾空行问题已修正。
+
+工作区“示例含秘密及测试读取示例”的问题已整改；但旧 Git 历史中的暴露不能靠删除解决，仍需用户在 QQ 邮箱侧轮换授权码，本记录不将轮换标为已完成。verify-change 另指出的 dry-run 漏计 `dt_run_skill_reference` 和实际 PDF 输出未验证仍分别保留，不因本次整改视为已解决。
+
+
+## 2026-11-22 旧归属 Skill reference 漏计修复
+
+verify-change 指出 `tableCounts` 只扫描自身带 owner/project 的表，漏掉只通过 run_id 关联的 `dt_run_skill_reference`。现已在 `LegacyOwnershipClaimService.tableCounts` 中追加 `dt_run_skill_reference.run_id → dt_run_skill.run_id` 联接统计，沿用参数化 owner/project 过滤，不改变认领写入、权限或历史数据。
+
+`LegacyOwnershipClaimTest` 的旧数据夹具现在实际包含一条 Skill 安装、Run Skill 和 `rules.md` reference。测试同时断言 dry-run 的 `dt_run_skill=1`、`dt_run_skill_reference=1`，以及 V24 审计 JSON 中 `dt_run_skill_reference=1`；原有文件、Run、作者、回滚和 WAITING 接续断言继续保留。
+
+实际命令：`mvn -q '-Dtest=LegacyOwnershipClaimTest,SkillRuntimeIntegrationTest,ScopedAgentRuntimeTest' test`，使用 127.0.0.1:54339 的真实隔离 PG16.15 和随机库。最终12项：通过12、失败0、错误0、跳过0，其中 LegacyOwnershipClaimTest 3项、SkillRuntimeIntegrationTest 3项、ScopedAgentRuntimeTest 6项。OpenSpec strict validate 和 diff --check 通过。维护手册及 V24 数据字典已同步说明该派生关联统计。
+
+verify-change 的“dry-run 漏计 Skill reference”问题已修复；未重新执行全量515项，未操作产品数据库。SMTP历史凭证轮换和实际PDF输出验证仍是独立待办，不随本项标记完成。

@@ -39,3 +39,7 @@ UUID 资源路由先从资源元数据取得 workspace，再调用 `resolveResou
 ## V23 协作尝试轮号
 
 新增 dt_agent_run.round_number，按全部历史尝试编号，调查内唯一且非空。入队沿会话锁取 max+1，取消不回收编号。执行快照和作者的第 4 组接线已完成，见 discussion-api.md 与 acceptance.md 最新记录。
+
+## V24 旧归属认领审计
+
+`dt_legacy_ownership_claim` 以 owner/project 唯一约束防止重复认领，记录专用 workspace、指定管理员、关联表行数、未知作者、活动 Run 与文件核对快照。关联行数包括通过 `dt_run_skill.run_id` 联接统计的 `dt_run_skill_reference`。V1–V23 不改写；dry-run 不写此表，执行认领在事务内创建 TEAM、ADMIN 和审计并绑定会话。历史作者仍为空，维护命令与回滚边界见 migration-runbook.md。

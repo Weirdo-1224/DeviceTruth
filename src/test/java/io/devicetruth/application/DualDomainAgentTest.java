@@ -37,7 +37,7 @@ class DualDomainAgentTest {
     private static final String FACTORY_GOAL = "请做控制器固件核对。查询 moduleVersion，比较 2024-06-01 的出厂记录和当前改造、旧模板，说明现场核验情况。";
     private static ConfigurableApplicationContext app;
     private static String jdbcBase, username, password, database, base;
-    private static final TestRestTemplate HTTP = new TestRestTemplate();
+    private static TestRestTemplate HTTP;
 
     @BeforeAll static void setup() throws Exception {
         jdbcBase = required("DEVICETRUTH_TEST_PG_BASE_URL");
@@ -53,7 +53,8 @@ class DualDomainAgentTest {
                 "--spring.datasource.password=" + password, "--devicetruth.agent.reasoner=scripted",
                 "--devicetruth.embedding.provider=deterministic", "--devicetruth.product.owner-id=" + OWNER,
                 "--devicetruth.product.project-id=" + PROJECT, "--devicetruth.assets.seed-fixtures=true",
-                "--devicetruth.assets.fixtures=" + ASSET);
+                "--devicetruth.auth.cookie-secure=false", "--devicetruth.assets.fixtures=" + ASSET);
+        HTTP = io.devicetruth.server.AuthenticatedProductTestSupport.client(app);
         base = "http://127.0.0.1:" + ((WebServerApplicationContext) app).getWebServer().getPort();
         request(HttpMethod.POST, "/api/knowledge/documents", Map.of(
                 "title", "充电系统检修手册", "domain", "automotive-demo", "version", "2026.1",

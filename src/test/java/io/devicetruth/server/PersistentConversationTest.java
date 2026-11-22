@@ -41,7 +41,7 @@ class PersistentConversationTest {
         }
         app = open("owner-a", "project-a");
         base = base(app);
-        rest = new TestRestTemplate();
+        rest = AuthenticatedProductTestSupport.client(app);
         jdbc = new JdbcTemplate(app.getBean(com.zaxxer.hikari.HikariDataSource.class));
     }
 
@@ -62,14 +62,17 @@ class PersistentConversationTest {
     }
 
     private static ConfigurableApplicationContext open(String owner, String project) {
-        return new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
+        var context = new SpringApplicationBuilder(DeviceTruthServerApplication.class).run(
                 "--spring.profiles.active=product", "--server.port=0", "--debug=false",
                 "--logging.level.org.springframework=WARN", "--logging.level.org.springframework.jdbc=INFO",
                 "--devicetruth.core.reasoner=scripted", "--spring.datasource.url=" + databaseBaseUrl + databaseName,
                 "--spring.datasource.username=" + username, "--spring.datasource.password=" + password,
                 "--devicetruth.product.owner-id=" + owner, "--devicetruth.product.project-id=" + project,
+                "--devicetruth.auth.cookie-secure=false",
                 // 本用例只验证 M0 的持久化合同（消息/QUEUED/不变量），不启动 Agent worker，避免状态被异步推进。
                 "--devicetruth.agent.worker-enabled=false");
+        AuthenticatedProductTestSupport.register(context);
+        return context;
     }
 
     private static String base(ConfigurableApplicationContext context) {
@@ -181,6 +184,9 @@ class PersistentConversationTest {
 
         String cursor = first.path("nextCursor").asText();
         String decodedCursor = new String(java.util.Base64.getUrlDecoder().decode(cursor), java.nio.charset.StandardCharsets.UTF_8);
+        var cursorEnvelope = Json.MAPPER.readTree(decodedCursor);
+        if (cursorEnvelope.has("cursor")) decodedCursor = new String(java.util.Base64.getUrlDecoder().decode(
+                cursorEnvelope.path("cursor").asText()), java.nio.charset.StandardCharsets.UTF_8);
         String[] cursorParts = decodedCursor.split(":", -1);
         var directSecond = new io.devicetruth.adapter.persistence.ConversationRepository(jdbc).summaries(
                 new io.devicetruth.application.agent.GeneralAgentService.ServerIdentity("owner-a", "project-a"), "TARGET-", null, null,
@@ -240,9 +246,13 @@ class PersistentConversationTest {
         UUID key = UUID.randomUUID();
         var first = java.util.concurrent.CompletableFuture.supplyAsync(() -> post(path, input("并发原文一"), key));
         var second = java.util.concurrent.CompletableFuture.supplyAsync(() -> post(path, input("并发原文二"), key));
-        assertThat(List.of(first.get(15, java.util.concurrent.TimeUnit.SECONDS).getStatusCode().value(),
-                second.get(15, java.util.concurrent.TimeUnit.SECONDS).getStatusCode().value()))
+        var firstResponse = first.get(15, java.util.concurrent.TimeUnit.SECONDS);
+        var secondResponse = second.get(15, java.util.concurrent.TimeUnit.SECONDS);
+        assertThat(List.of(firstResponse.getStatusCode().value(), secondResponse.getStatusCode().value()))
                 .containsExactlyInAnyOrder(202, 409);
+        var accepted = firstResponse.getStatusCode().value() == 202 ? firstResponse : secondResponse;
+        String activeRun = Json.MAPPER.readTree(accepted.getBody()).path("runId").asText();
+        assertThat(post(base + "/api/runs/" + activeRun + "/cancel", Map.of(), null).getStatusCode().value()).isEqualTo(200);
         assertThat(post(path, input("下一条消息"), UUID.randomUUID()).getStatusCode().value()).isEqualTo(202);
         var saved = detail(id);
         assertThat(saved.path("messages").size()).isEqualTo(2);
